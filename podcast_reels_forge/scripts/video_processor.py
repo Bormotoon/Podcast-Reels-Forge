@@ -11,10 +11,10 @@ import json
 import logging
 import subprocess
 import sys
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 try:
     from tqdm import tqdm
@@ -41,7 +41,8 @@ class FfmpegOptions:
 def _run_subprocess(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     """Run a subprocess command with safe defaults."""
 
-    return subprocess.run(cmd, capture_output=True, text=True, check=False)
+    normalized_cmd = [str(part) for part in cmd]
+    return subprocess.run(normalized_cmd, capture_output=True, text=True, check=False)
 
 
 def _status(msg: str, *, quiet: bool) -> None:
@@ -49,13 +50,19 @@ def _status(msg: str, *, quiet: bool) -> None:
         LOG.info(msg)
 
 
-def ffmpeg_cut(video_in: Path, start: float, end: float, out_path: Path, opts: FfmpegOptions) -> bool:
+def ffmpeg_cut(
+    video_in: Path, start: float, end: float, out_path: Path, opts: FfmpegOptions,
+) -> bool:
     """Cut a segment from video with optional vertical crop."""
 
     filters: list[str] = []
     if opts.vertical_crop:
         filters.append(
-            "scale=w=ih*(9/16):h=ih,scale=w=1080:h=1920:force_original_aspect_ratio=increase,crop=1080:1920",
+            (
+                "scale=w=ih*(9/16):h=ih,"
+                "scale=w=1080:h=1920:force_original_aspect_ratio=increase,"
+                "crop=1080:1920"
+            ),
         )
 
     start_offset = max(0, start - opts.padding)
@@ -170,7 +177,15 @@ def _export_gif(mp4_path: Path, out_path: Path) -> bool:
 
     palette = out_path.with_suffix(out_path.suffix + ".palette.png")
     vf = "fps=12,scale=480:-1:flags=lanczos"
-    cmd1 = ["ffmpeg", "-y", "-i", str(mp4_path), "-vf", f"{vf},palettegen", str(palette)]
+    cmd1 = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(mp4_path),
+        "-vf",
+        f"{vf},palettegen",
+        str(palette),
+    ]
     cmd2 = [
         "ffmpeg",
         "-y",
@@ -198,21 +213,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--input", type=Path, required=True, help="Input video file")
     ap.add_argument("--moments", type=Path, required=True, help="Path to moments.json")
     ap.add_argument("--outdir", type=Path, default=Path("out"), help="Output directory")
-    ap.add_argument("--threads", type=int, default=4, help="Number of parallel FFmpeg threads")
-    ap.add_argument("--vertical", action="store_true", default=False, help="Crop to 9:16 format")
+    ap.add_argument(
+        "--threads", type=int, default=4, help="Number of parallel FFmpeg threads",
+    )
+    ap.add_argument(
+        "--vertical", action="store_true", default=False, help="Crop to 9:16 format",
+    )
     ap.add_argument("--v-bitrate", default="5M", help="Video bitrate")
     ap.add_argument("--a-bitrate", default="192k", help="Audio bitrate")
     ap.add_argument("--preset", default="fast", help="FFmpeg preset")
     ap.add_argument("--padding", type=float, default=0, help="Extra seconds around moment")
     ap.add_argument("--export-webm", action="store_true", help="Export reels as .webm")
     ap.add_argument("--export-gif", action="store_true", help="Export reels as .gif")
-    ap.add_argument("--export-audio", action="store_true", help="Export reels audio-only as .m4a")
+    ap.add_argument(
+        "--export-audio", action="store_true", help="Export reels audio-only as .m4a",
+    )
     ap.add_argument("--quiet", action="store_true", help="Suppress non-error output")
     ap.add_argument("--verbose", action="store_true", help="Verbose output (incl. progress)")
     return ap.parse_args(argv)
 
 
-def _load_moments(path: Path) -> list[dict]:
+def _load_moments(path: Path) -> list[dict[str, object]]:
     with path.open(encoding="utf-8") as f:
         data = json.load(f)
     if isinstance(data, list):
@@ -243,7 +264,7 @@ def main(argv: list[str] | None = None) -> None:
         padding=args.padding,
     )
 
-    def process_moment(i_m: tuple[int, dict]) -> Path | None:
+    def process_moment(i_m: tuple[int, dict[str, object]]) -> Path | None:
         i, m = i_m
         out_file = reels_dir / f"reel_{i + 1:02d}.mp4"
         success = ffmpeg_cut(

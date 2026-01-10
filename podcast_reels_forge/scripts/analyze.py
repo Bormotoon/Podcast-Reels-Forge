@@ -28,6 +28,9 @@ from podcast_reels_forge.llm.providers import (
     OpenAIProvider,
 )
 from podcast_reels_forge.utils.json_utils import extract_first_json_object
+from podcast_reels_forge.utils.logging_utils import setup_logging
+
+LOGGER = setup_logging()
 
 
 @dataclass
@@ -51,7 +54,7 @@ class Moment:
 
 def _status(msg: str, *, quiet: bool) -> None:
     if not quiet:
-        print(msg, flush=True)
+        LOGGER.info(msg)
 
 
 def fmt_hms(sec: float) -> str:
@@ -93,7 +96,10 @@ def ollama_start() -> subprocess.Popen | None:
             return p
         p.terminate()
     except FileNotFoundError:
-        pass
+        return None
+    except OSError as exc:
+        LOGGER.warning("Failed to start Ollama: %s", exc)
+        return None
     return None
 
 
@@ -105,11 +111,14 @@ def ollama_stop(p: subprocess.Popen) -> None:
     try:
         p.terminate()
         p.wait(timeout=10)
-    except Exception:
+    except subprocess.TimeoutExpired:
+        LOGGER.warning("Ollama did not terminate in time; killing")
         try:
             p.kill()
-        except Exception:
-            pass
+        except OSError:
+            LOGGER.exception("Failed to kill Ollama process")
+    except OSError:
+        LOGGER.exception("Failed to terminate Ollama process")
 
 
 def get_llm_json(
@@ -122,10 +131,10 @@ def get_llm_json(
     raw = provider.generate(prompt, temperature=temperature, timeout=timeout)
     try:
         return extract_first_json_object(raw)
-    except Exception:
+    except (json.JSONDecodeError, ValueError, TypeError):
         repair = f"Fix the following JSON and return only the valid JSON:\n\n{raw}"
-        raw2 = provider.generate(repair, temperature=0.2, timeout=timeout)
-        return extract_first_json_object(raw2)
+        raw_repaired = provider.generate(repair, temperature=0.2, timeout=timeout)
+        return extract_first_json_object(raw_repaired)
 
 
 # ----------------------------
@@ -139,7 +148,7 @@ def segments_to_compact_text(segments: list[dict[str, Any]], max_chars: int) -> 
     EN: Convert segments to a dense text format for LLM input.
     """
     return "\n".join(
-        [f"[{int(s['start'])}-{int(s['end'])}] {s['text']}" for s in segments],
+        f"[{int(seg['start'])}-{int(seg['end'])}] {seg['text']}" for seg in segments
     )[:max_chars]
 
 
@@ -188,14 +197,15 @@ def find_moments(
     for ch in chunk_segments_by_time(segments, chunk_sec):
         ch_txt = segments_to_compact_text(ch, max_ch)
         prompt = ch_prompt.format(r_min=r_min, r_max=r_max, transcript=ch_txt)
+        moment = get_llm_json(provider, prompt, 0.3, timeout).get("moment", {})
         try:
-            m = get_llm_json(provider, prompt, 0.3, timeout).get("moment", {})
-            start = float(m.get("start", -1))
-            end = float(m.get("end", -1))
-            if 0 <= start < end <= duration and r_min <= (end - start) <= r_max:
-                candidates.append(m)
-        except Exception:
+            start = float(moment.get("start", -1))
+            end = float(moment.get("end", -1))
+        except (TypeError, ValueError):
             continue
+
+        if 0 <= start < end <= duration and r_min <= (end - start) <= r_max:
+            candidates.append(moment)
     if not candidates:
         return []
     prompt2 = select_prompt.format(
@@ -203,27 +213,28 @@ def find_moments(
     )
     obj2 = get_llm_json(provider, prompt2, 0.4, timeout)
     out: list[Moment] = []
-    for m in obj2.get("moments", []):
+    for moment in obj2.get("moments", []):
         try:
-            hashtags = m.get("hashtags")
-            if isinstance(hashtags, list):
-                hashtags = [str(x) for x in hashtags if str(x).strip()]
+            hashtags_raw = moment.get("hashtags")
+            if isinstance(hashtags_raw, list):
+                hashtags = [str(x) for x in hashtags_raw if str(x).strip()]
             else:
                 hashtags = None
+
             out.append(
                 Moment(
-                    start=float(m["start"]),
-                    end=float(m["end"]),
-                    title=str(m.get("title", "")).strip(),
-                    quote=str(m.get("quote", "")).strip(),
-                    why=str(m.get("why", "")).strip(),
-                    score=float(m.get("score", 0)),
-                    hook=str(m.get("hook", "")).strip(),
-                    caption=str(m.get("caption", "")).strip(),
+                    start=float(moment["start"]),
+                    end=float(moment["end"]),
+                    title=str(moment.get("title", "")).strip(),
+                    quote=str(moment.get("quote", "")).strip(),
+                    why=str(moment.get("why", "")).strip(),
+                    score=float(moment.get("score", 0)),
+                    hook=str(moment.get("hook", "")).strip(),
+                    caption=str(moment.get("caption", "")).strip(),
                     hashtags=hashtags,
                 ),
             )
-        except Exception:
+        except (KeyError, TypeError, ValueError):
             continue
     out = [
         m
@@ -241,12 +252,10 @@ def _get_prompts_dir() -> Path:
     """
     # RU: Сначала пробуем директорию пакета, затем корень репозитория.
     # EN: Try package directory first, then repo root.
-    pkg_prompts = Path(__file__).resolve().parent.parent.parent / "prompts"
-    if pkg_prompts.exists():
-        return pkg_prompts
-    # RU: Fallback относительно скрипта.
-    # EN: Fallback to relative to script.
-    return Path(__file__).resolve().parent.parent.parent / "prompts"
+    repo_prompts = Path(__file__).resolve().parent.parent.parent / "prompts"
+    if repo_prompts.exists():
+        return repo_prompts
+    return Path.cwd() / "prompts"
 
 
 def _load_prompt(*, lang: str, variant: str, name: str) -> str:
@@ -270,16 +279,21 @@ def _normalize_prompt_lang(prompt_lang: str, transcript_lang: str | None) -> str
     return "ru"
 
 
-def _load_diarization(path: str | None) -> list[dict[str, Any]]:
+def _load_diarization(path: str | Path | None) -> list[dict[str, Any]]:
     if not path:
         return []
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, list):
-            return [d for d in data if isinstance(d, dict)]
-    except Exception:
+
+    diar_path = Path(path)
+    if not diar_path.exists():
         return []
+
+    try:
+        data = json.loads(diar_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return []
+
+    if isinstance(data, list):
+        return [d for d in data if isinstance(d, dict)]
     return []
 
 
@@ -292,33 +306,35 @@ def _assign_speakers(
     def overlap(a0: float, a1: float, b0: float, b1: float) -> float:
         return max(0.0, min(a1, b1) - max(a0, b0))
 
-    for s in segments:
+    for segment in segments:
         try:
-            s0 = float(s.get("start", 0))
-            s1 = float(s.get("end", 0))
-        except Exception:
+            s0 = float(segment.get("start", 0))
+            s1 = float(segment.get("end", 0))
+        except (TypeError, ValueError):
             continue
+
         best_spk = None
         best_ov = 0.0
-        for d in diar:
+        for diar_entry in diar:
             try:
-                d0 = float(d.get("start", 0))
-                d1 = float(d.get("end", 0))
-                spk = str(d.get("speaker", ""))
-            except Exception:
+                d0 = float(diar_entry.get("start", 0))
+                d1 = float(diar_entry.get("end", 0))
+                spk = str(diar_entry.get("speaker", ""))
+            except (TypeError, ValueError):
                 continue
             ov = overlap(s0, s1, d0, d1)
             if ov > best_ov and spk:
                 best_ov = ov
                 best_spk = spk
+
         if best_spk:
-            s["speaker"] = best_spk
+            segment["speaker"] = best_spk
             if (
                 prefix
-                and isinstance(s.get("text"), str)
-                and not s["text"].lstrip().startswith("(")
+                and isinstance(segment.get("text"), str)
+                and not segment["text"].lstrip().startswith("(")
             ):
-                s["text"] = f"({best_spk}) {s['text']}"
+                segment["text"] = f"({best_spk}) {segment['text']}"
 
 
 def create_provider(
@@ -364,8 +380,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description="Analyze transcript with LLM to find viral moments.",
     )
-    ap.add_argument("--transcript", required=True, help="Path to transcript JSON file")
-    ap.add_argument("--outdir", default="out", help="Output directory")
+    ap.add_argument(
+        "--transcript",
+        type=Path,
+        required=True,
+        help="Path to transcript JSON file",
+    )
+    ap.add_argument(
+        "--outdir",
+        type=Path,
+        default=Path("out"),
+        help="Output directory",
+    )
     ap.add_argument(
         "--provider",
         choices=("ollama", "openai", "anthropic", "gemini"),
@@ -401,7 +427,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--prompt-variant", default="default", help="Prompt variant: default|a|b",
     )
     ap.add_argument(
-        "--diarization", help="Optional diarization.json for speaker tags",
+        "--diarization",
+        type=Path,
+        help="Optional diarization.json for speaker tags",
     )
     ap.add_argument("--quiet", action="store_true", help="Suppress non-error output")
     ap.add_argument("--verbose", action="store_true", help="Verbose output")
@@ -415,19 +443,31 @@ def main(argv: list[str] | None = None) -> None:
     """
     args = parse_args(argv)
 
-    with open(args.transcript, encoding="utf-8") as f:
-        data = json.load(f)
+    if not args.transcript.exists():
+        message = f"Transcript not found: {args.transcript}"
+        raise SystemExit(message)
+
+    try:
+        data = json.loads(args.transcript.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        message = f"Failed to read transcript: {exc}"
+        raise SystemExit(message) from exc
+
     segments = data.get("segments", [])
-    duration = data.get("duration", segments[-1]["end"] if segments else 0)
+    duration = data.get("duration", 0.0)
+    if not duration and isinstance(segments, list) and segments:
+        try:
+            duration = float(segments[-1]["end"])
+        except (KeyError, TypeError, ValueError):
+            duration = 0.0
 
     diar = _load_diarization(args.diarization)
     if isinstance(segments, list) and diar:
         _assign_speakers(segments, diar)
 
-    os.makedirs(args.outdir, exist_ok=True)
+    outdir = args.outdir
+    outdir.mkdir(parents=True, exist_ok=True)
 
-    # RU: Инициализируем провайдер.
-    # EN: Initialize provider.
     provider = create_provider(
         args.provider,
         model=args.model,
@@ -437,7 +477,7 @@ def main(argv: list[str] | None = None) -> None:
 
     proc = None
     try:
-        if args.provider == "ollama" and "127.0.0.1" in args.url:
+        if args.provider == "ollama" and args.url and "127.0.0.1" in args.url:
             proc = ollama_start()
 
         prompt_lang = _normalize_prompt_lang(args.prompt_lang, data.get("language"))
@@ -448,7 +488,7 @@ def main(argv: list[str] | None = None) -> None:
         moments = find_moments(
             provider,
             segments,
-            duration,
+            float(duration),
             args.reel_min,
             args.reel_max,
             args.reels,
@@ -459,19 +499,18 @@ def main(argv: list[str] | None = None) -> None:
             select_prompt=select_prompt,
         )
 
-        # RU: Сохраняем результаты.
-        # EN: Save results.
-        out_json = os.path.join(args.outdir, "moments.json")
-        with open(out_json, "w", encoding="utf-8") as f:
-            json.dump([asdict(m) for m in moments], f, ensure_ascii=False, indent=2)
+        out_json = outdir / "moments.json"
+        out_json.write_text(
+            json.dumps([asdict(m) for m in moments], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
-        # RU: Генерируем markdown-описания.
-        # EN: Generate markdown descriptions.
-        with open(os.path.join(args.outdir, "reels.md"), "w", encoding="utf-8") as f:
+        reels_md = outdir / "reels.md"
+        with reels_md.open("w", encoding="utf-8") as f:
             f.write("# Reels Suggestions\n\n")
             for i, m in enumerate(moments, 1):
                 f.write(
-                    f"## {i}. {m.title}\n- Time: {fmt_hms(m.start)}–{fmt_hms(m.end)}\n- Why: {m.why}\n",
+                    f"## {i}. {m.title}\n- Time: {fmt_hms(m.start)}-{fmt_hms(m.end)}\n- Why: {m.why}\n",
                 )
                 if m.hook:
                     f.write(f"- Hook: {m.hook}\n")
@@ -484,7 +523,7 @@ def main(argv: list[str] | None = None) -> None:
         if args.verbose:
             _status(f"[analyze] moments={len(moments)}", quiet=args.quiet)
         if not args.quiet:
-            print(out_json)
+            LOGGER.info("%s", out_json)
     finally:
         if proc:
             ollama_stop(proc)

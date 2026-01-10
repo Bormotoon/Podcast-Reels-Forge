@@ -34,12 +34,14 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from podcast_reels_forge.scripts import analyze as analyze_script
+from podcast_reels_forge.utils.logging_utils import setup_logging
+
+LOGGER = setup_logging()
 
 
 @dataclass(frozen=True)
@@ -195,20 +197,17 @@ def main(argv: list[str] | None = None) -> None:
     buckets: dict[str, set[tuple[int, int]]] = {}
 
     for v in variants:
-        diarization = args.diarization if hasattr(args, "diarization") else None
         moments_path = _run_analyze(
             args=args,
             base_outdir=eval_dir,
             variant=v,
-            diarization=diarization,
+            diarization=args.diarization,
         )
         moments = _load_moments(moments_path)
 
         durs = [_dur(m) for m in moments]
         scores = [_score(m) for m in moments]
-        violations = sum(
-            1 for d in durs if d < args.reel_min or d > args.reel_max
-        )
+        violations = sum(1 for d in durs if d < args.reel_min or d > args.reel_max)
         avg_duration = sum(durs) / len(durs) if durs else 0.0
         avg_score = sum(scores) / len(scores) if scores else 0.0
 
@@ -261,7 +260,7 @@ def main(argv: list[str] | None = None) -> None:
     with out_report.open("w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
 
-    print(str(out_report))
+    LOGGER.info("%s", out_report)
 
 
 if __name__ == "__main__":

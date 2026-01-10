@@ -33,10 +33,14 @@ import json
 import os
 from pathlib import Path
 
+from podcast_reels_forge.utils.logging_utils import setup_logging
+
+LOGGER = setup_logging()
+
 
 def _status(msg: str, *, quiet: bool) -> None:
     if not quiet:
-        print(msg, flush=True)
+        LOGGER.info(msg)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -79,13 +83,14 @@ def main(argv: list[str] | None = None) -> None:
 
     try:
         from pyannote.audio import Pipeline
-    except Exception as e:
-        raise SystemExit(
+    except ImportError as exc:
+        message = (
             "pyannote-audio is not installed. Install it and its dependencies to use diarization. "
-            f"Original error: {e}",
+            f"Original error: {exc}"
         )
+        raise SystemExit(message) from exc
 
-    os.makedirs(args.outdir, exist_ok=True)
+    args.outdir.mkdir(parents=True, exist_ok=True)
     out_path = args.outdir / "diarization.json"
 
     if args.verbose:
@@ -96,15 +101,21 @@ def main(argv: list[str] | None = None) -> None:
 
     items: list[dict[str, object]] = []
     for turn, _track, speaker in diarization.itertracks(yield_label=True):
-        items.append(
-            {"start": float(turn.start), "end": float(turn.end), "speaker": str(speaker)},
-        )
+        try:
+            items.append(
+                {
+                    "start": float(turn.start),
+                    "end": float(turn.end),
+                    "speaker": str(speaker),
+                },
+            )
+        except (TypeError, ValueError):
+            continue
 
     with out_path.open("w", encoding="utf-8") as f:
         json.dump(items, f, ensure_ascii=False, indent=2)
 
-    if not args.quiet:
-        print(str(out_path))
+    _status(str(out_path), quiet=args.quiet)
 
 
 if __name__ == "__main__":

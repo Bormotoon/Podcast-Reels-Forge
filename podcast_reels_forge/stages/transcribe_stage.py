@@ -24,6 +24,8 @@ LOGGER = setup_logging()
 
 @dataclass(frozen=True)
 class TranscribeConfig:
+    """Configuration for running a transcription job."""
+
     input_path: Path
     outdir: Path | None
     model_name: str
@@ -105,6 +107,7 @@ def resolve_device(requested: str) -> str:
 
 
 def _default_compute_type(resolved_device: str) -> str:
+    """Select default compute type based on device capability."""
     if resolved_device != "cuda" or torch is None:
         return "float32"
     try:
@@ -117,16 +120,19 @@ def _default_compute_type(resolved_device: str) -> str:
 
 
 def _select_compute_type(resolved_device: str, requested: str | None) -> str:
+    """Return explicit compute type or fall back to default."""
     if requested:
         return requested
     return _default_compute_type(resolved_device)
 
 
 def _load_model(model_name: str, resolved_device: str, compute_type: str) -> WhisperModel:
+    """Load the Whisper model with chosen device and compute type."""
     return WhisperModel(model_name, device=resolved_device, compute_type=compute_type)
 
 
 def _dump_output(out_path: Path, output: dict[str, object]) -> None:
+    """Write transcription output to disk."""
     with out_path.open("w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
@@ -149,7 +155,11 @@ def transcribe_file(config: TranscribeConfig) -> Path:
         compute_type = "float32"
         model = _load_model(config.model_name, resolved_device, compute_type)
 
-    lang: str | None = None if str(config.language).strip().lower() == "auto" else config.language
+    lang: str | None
+    if str(config.language).strip().lower() == "auto":
+        lang = None
+    else:
+        lang = config.language
 
     if config.verbose and not config.quiet:
         LOGGER.info("[transcribe] input=%s", config.input_path)
