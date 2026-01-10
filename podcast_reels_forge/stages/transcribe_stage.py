@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -149,56 +150,71 @@ def transcribe_file(config: TranscribeConfig) -> Path:
     resolved_device = resolve_device(config.device)
     compute_type = _select_compute_type(resolved_device, config.compute_type)
 
+    model: WhisperModel | None = None
     try:
-        model = _load_model(config.model_name, resolved_device, compute_type)
-    except ValueError:
-        compute_type = "float32"
-        model = _load_model(config.model_name, resolved_device, compute_type)
+        try:
+            model = _load_model(config.model_name, resolved_device, compute_type)
+        except ValueError:
+            compute_type = "float32"
+            model = _load_model(config.model_name, resolved_device, compute_type)
 
-    lang: str | None
-    if str(config.language).strip().lower() == "auto":
-        lang = None
-    else:
-        lang = config.language
+        if model is None:
+            raise RuntimeError("Whisper model failed to initialize")
 
-    if config.verbose and not config.quiet:
-        LOGGER.info("[transcribe] input=%s", config.input_path)
+        lang: str | None
+        if str(config.language).strip().lower() == "auto":
+            lang = None
+        else:
+            lang = config.language
 
-    segments, info = model.transcribe(
-        str(config.input_path),
-        language=lang,
-        beam_size=config.beam_size,
-    )
+        if config.verbose and not config.quiet:
+            LOGGER.info("[transcribe] input=%s", config.input_path)
 
-    output = {
-        "audio": str(config.input_path.resolve()),
-        "model": config.model_name,
-        "device": resolved_device,
-        "compute_type": compute_type,
-        "language": info.language,
-        "duration": info.duration,
-        "segments": [
-            {
-                "start": round(seg.start, 3),
-                "end": round(seg.end, 3),
-                "text": seg.text.strip(),
-            }
-            for seg in segments
-        ],
-    }
+        segments, info = model.transcribe(
+            str(config.input_path),
+            language=lang,
+            beam_size=config.beam_size,
+        )
 
-    if config.outdir:
-        config.outdir.mkdir(parents=True, exist_ok=True)
-        out_path = config.outdir / config.input_path.with_suffix(".json").name
-    else:
-        out_path = config.input_path.with_suffix(".json")
+        output = {
+            "audio": str(config.input_path.resolve()),
+            "model": config.model_name,
+            "device": resolved_device,
+            "compute_type": compute_type,
+            "language": info.language,
+            "duration": info.duration,
+            "segments": [
+                {
+                    "start": round(seg.start, 3),
+                    "end": round(seg.end, 3),
+                    "text": seg.text.strip(),
+                }
+                for seg in segments
+            ],
+        }
 
-    _dump_output(out_path, output)
+        if config.outdir:
+            config.outdir.mkdir(parents=True, exist_ok=True)
+            out_path = config.outdir / config.input_path.with_suffix(".json").name
+        else:
+            out_path = config.input_path.with_suffix(".json")
 
-    if not config.quiet:
-        LOGGER.info("[transcribe] saved=%s", out_path)
+        _dump_output(out_path, output)
 
-    return out_path
+        if not config.quiet:
+            LOGGER.info("[transcribe] saved=%s", out_path)
+
+        return out_path
+    finally:
+        # RU: Явно освобождаем ресурсы модели, чтобы не оставлять GPU память в процессе.
+        # EN: Explicitly release model resources to avoid lingering GPU memory.
+        model = None
+        gc.collect()
+        if resolved_device == "cuda" and torch is not None:
+            try:
+                torch.cuda.empty_cache()
+            except (AttributeError, RuntimeError):
+                pass
 
 
 def main(argv: list[str] | None = None) -> None:

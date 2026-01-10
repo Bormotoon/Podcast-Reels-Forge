@@ -15,6 +15,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from podcast_reels_forge.llm.providers import (
     AnthropicConfig,
@@ -83,18 +84,51 @@ def wait_tcp(host: str, port: int, timeout_s: int = 20) -> bool:
     return False
 
 
-def ollama_start() -> subprocess.Popen | None:
+def is_tcp_open(host: str, port: int) -> bool:
+    """Return True if a TCP port is accepting connections."""
+    try:
+        with socket.create_connection((host, port), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
+def _parse_local_ollama_host_port(url: str) -> tuple[str, int] | None:
+    """Return (host, port) if URL points to local Ollama, else None."""
+    parsed = urlparse(url)
+    host = parsed.hostname
+    if not host:
+        return None
+    if host not in {"127.0.0.1", "localhost"}:
+        return None
+    port = parsed.port or 11434
+    return (host, port)
+
+
+def ollama_start(*, host: str, port: int) -> subprocess.Popen | None:
     """RU: Стартует Ollama в фоне, если бинарник доступен.
 
     EN: Start Ollama server in background if available.
     """
+    if is_tcp_open(host, port):
+        LOGGER.info("Ollama already running on %s:%s; not starting a new instance", host, port)
+        return None
+
     try:
         p = subprocess.Popen(
             ["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-        if wait_tcp("127.0.0.1", 11434, timeout_s=30):
-            return p
+        if wait_tcp(host, port, timeout_s=30):
+            if p.poll() is None:
+                return p
+            LOGGER.warning("Ollama process exited early while port became available")
+            return None
+
         p.terminate()
+        try:
+            p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            p.kill()
     except FileNotFoundError:
         return None
     except OSError as exc:
@@ -477,8 +511,10 @@ def main(argv: list[str] | None = None) -> None:
 
     proc = None
     try:
-        if args.provider == "ollama" and args.url and "127.0.0.1" in args.url:
-            proc = ollama_start()
+        local = _parse_local_ollama_host_port(args.url) if args.url else None
+        if args.provider == "ollama" and local:
+            host, port = local
+            proc = ollama_start(host=host, port=port)
 
         prompt_lang = _normalize_prompt_lang(args.prompt_lang, data.get("language"))
         variant = str(args.prompt_variant).strip().lower()

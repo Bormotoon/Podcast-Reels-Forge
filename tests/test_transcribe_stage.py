@@ -42,6 +42,46 @@ def test_select_compute_type_default_old_gpu(mock_torch: MagicMock) -> None:
     # 6 < 7 so float32
     assert _select_compute_type("cuda", None) == "float32"
 
+
+@patch("podcast_reels_forge.stages.transcribe_stage.WhisperModel")
+@patch("podcast_reels_forge.stages.transcribe_stage.torch")
+def test_transcribe_file_cleans_cuda_cache(
+    mock_torch: MagicMock, mock_whisper: MagicMock, tmp_path: Path,
+) -> None:
+    mock_torch.cuda.is_available.return_value = True
+    mock_torch.cuda.empty_cache.return_value = None
+
+    input_file = tmp_path / "audio.mp3"
+    input_file.write_text("dummy")
+
+    config = TranscribeConfig(
+        input_path=input_file,
+        outdir=tmp_path / "out",
+        model_name="tiny",
+        device="cuda",
+        language="en",
+        beam_size=1,
+        compute_type="float16",
+        quiet=True,
+        verbose=False,
+    )
+
+    mock_model_instance = mock_whisper.return_value
+    mock_info = MagicMock()
+    mock_info.language = "en"
+    mock_info.duration = 1.0
+
+    mock_segment = MagicMock()
+    mock_segment.start = 0.0
+    mock_segment.end = 1.0
+    mock_segment.text = " hi "
+
+    mock_model_instance.transcribe.return_value = ([mock_segment], mock_info)
+
+    out_path = transcribe_file(config)
+    assert out_path.exists()
+    mock_torch.cuda.empty_cache.assert_called()
+
 @patch("podcast_reels_forge.stages.transcribe_stage.WhisperModel")
 def test_transcribe_file_orchestration(mock_whisper: MagicMock, tmp_path: Path) -> None:
     input_file = tmp_path / "audio.mp3"
