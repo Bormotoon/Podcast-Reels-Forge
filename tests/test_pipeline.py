@@ -48,7 +48,7 @@ def test_run_pipeline_builds_and_calls_stages(
     calls: list[tuple[str, list[str]]] = []
 
     def fake_run_module(
-        module: str, args: list[str], *, _quiet: bool, _verbose: bool,
+        module: str, args: list[str], *, quiet: bool, verbose: bool,
     ) -> None:
         calls.append((module, list(args)))
 

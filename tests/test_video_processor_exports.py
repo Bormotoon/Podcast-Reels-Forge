@@ -30,17 +30,17 @@ def test_exports_flags_invoke_ffmpeg(monkeypatch: MonkeyPatch, tmp_path: Path) -
         cmd: list[str] | tuple[str, ...], *,
         capture_output: bool = False,
         text: bool = False,
+        **_kwargs: object,
     ) -> DummyRes:
-        del capture_output, text
         calls.append(list(cmd))
         return DummyRes(0)
 
     monkeypatch.setattr(vp, "subprocess", SimpleNamespace(run=fake_run))
 
-    mp4 = str(tmp_path / "x.mp4")
-    out_webm = str(tmp_path / "x.webm")
-    out_audio = str(tmp_path / "x.m4a")
-    out_gif = str(tmp_path / "x.gif")
+    mp4 = tmp_path / "x.mp4"
+    out_webm = tmp_path / "x.webm"
+    out_audio = tmp_path / "x.m4a"
+    out_gif = tmp_path / "x.gif"
 
     if not vp._export_webm(mp4, out_webm):  # noqa: SLF001
         message = "WebM export failed"
