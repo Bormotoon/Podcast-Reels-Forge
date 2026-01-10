@@ -107,6 +107,18 @@ def segments_to_compact_text(segments: list[dict[str, Any]], max_chars: int) -> 
     )[:max_chars]
 
 
+def _render_prompt(template: str, values: dict[str, str]) -> str:
+    """Render a prompt template by replacing known placeholders.
+
+    We intentionally avoid `str.format()` because prompt files may contain JSON
+    examples with braces, which would be interpreted as format fields.
+    """
+    out = template
+    for key, value in values.items():
+        out = out.replace("{" + key + "}", value)
+    return out
+
+
 def chunk_segments_by_time(
     segments: list[dict[str, Any]], chunk_seconds: int,
 ) -> list[list[dict[str, Any]]]:
@@ -151,7 +163,10 @@ def find_moments(
     candidates: list[dict[str, Any]] = []
     for ch in chunk_segments_by_time(segments, chunk_sec):
         ch_txt = segments_to_compact_text(ch, max_ch)
-        prompt = ch_prompt.format(r_min=r_min, r_max=r_max, transcript=ch_txt)
+        prompt = _render_prompt(
+            ch_prompt,
+            {"r_min": str(r_min), "r_max": str(r_max), "transcript": ch_txt},
+        )
         moment = get_llm_json(provider, prompt, 0.3, timeout).get("moment", {})
         try:
             start = float(moment.get("start", -1))
@@ -163,8 +178,12 @@ def find_moments(
             candidates.append(moment)
     if not candidates:
         return []
-    prompt2 = select_prompt.format(
-        count=count, candidates_json=json.dumps(candidates, ensure_ascii=False),
+    prompt2 = _render_prompt(
+        select_prompt,
+        {
+            "count": str(count),
+            "candidates_json": json.dumps(candidates, ensure_ascii=False),
+        },
     )
     obj2 = get_llm_json(provider, prompt2, 0.4, timeout)
     out: list[Moment] = []

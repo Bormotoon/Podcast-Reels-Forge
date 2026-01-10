@@ -28,13 +28,17 @@ def ensure_venv() -> None:
     env_flag = "WHISPER_VENV_ACTIVE"
     if os.environ.get(env_flag) == "1":
         return
+
+    # If we're already running inside any virtual environment, keep going.
+    # This is more reliable than comparing executable paths, because venv
+    # interpreters are often symlinks to the system Python.
+    if sys.prefix != sys.base_prefix:
+        os.environ[env_flag] = "1"
+        return
+
     script_dir = Path(__file__).resolve().parent
-    venv_python = (script_dir / "whisper-env" / "bin" / "python").resolve()
+    venv_python = script_dir / "whisper-env" / "bin" / "python"
     if venv_python.exists():
-        cur = Path(sys.executable)
-        if cur == venv_python:
-            os.environ[env_flag] = "1"
-            return
         os.environ[env_flag] = "1"
         os.execv(str(venv_python), [str(venv_python), *sys.argv])  # noqa: S606
 
@@ -64,6 +68,21 @@ def main() -> None:
     ap.add_argument(
         "--verbose", action="store_true", help="Verbose logs and subcommand output",
     )
+    ap.add_argument(
+        "--no-skip-existing",
+        action="store_true",
+        help="Do not skip stages even if output files already exist",
+    )
+    ap.add_argument(
+        "--autotune",
+        action="store_true",
+        help="Auto-detect system and pick safer defaults where possible",
+    )
+    ap.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable progress UI (useful for logs/CI)",
+    )
     args = ap.parse_args()
 
     _configure_logging(verbose=args.verbose, quiet=args.quiet)
@@ -86,6 +105,9 @@ def main() -> None:
         repo_dir=Path(__file__).resolve().parent,
         quiet=quiet,
         verbose=verbose,
+        skip_existing=not args.no_skip_existing,
+        autotune=bool(args.autotune),
+        progress=not args.no_progress,
     )
 
 

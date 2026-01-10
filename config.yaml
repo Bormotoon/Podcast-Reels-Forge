@@ -8,12 +8,18 @@ cli:
   quiet: false
   verbose: false
 
+# Cache / stage skipping
+# When enabled, stages are skipped if their expected output files already exist.
+cache:
+  enabled: true
+  validate_json: true
+
 transcription:
-  model: "small"        # tiny, base, small, medium, large-v3
-  device: "cuda"         # cuda or cpu
+  model: "medium"        # tiny, base, small, medium, large-v3
+  device: "cuda"         # cuda | cpu | auto
   language: "ru"         # "ru", "en", or "auto"
   beam_size: 5
-  compute_type: "int8_float16"
+  compute_type: "float32"  # float32|float16|int8|int8_float16|int8_float32|auto
 
 ollama:
   url: "http://127.0.0.1:11434/api/generate"

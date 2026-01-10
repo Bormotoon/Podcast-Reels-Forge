@@ -111,6 +111,9 @@ def run_module(
         verbose: Show detailed output.
 
     """
+    # Use the current interpreter path. Avoid resolving symlinks: venv python
+    # executables are often symlinks to system python, but must be invoked
+    # via the venv path so sys.prefix and site-packages stay correct.
     cmd = [sys.executable, "-m", module] + args
     proc_env = os.environ.copy()
     if env:
