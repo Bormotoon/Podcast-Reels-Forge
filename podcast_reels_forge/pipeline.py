@@ -25,6 +25,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from podcast_reels_forge.utils.ollama_service import (
+    ENV_MANAGED_BY_PIPELINE,
+    ollama_start,
+    ollama_stop,
+    parse_local_ollama_host_port,
+)
+
 log = logging.getLogger("Forge")
 
 
@@ -79,7 +86,14 @@ def status(msg: str, *, quiet: bool) -> None:
         print(msg, flush=True)
 
 
-def run_module(module: str, args: list[str], *, quiet: bool, verbose: bool) -> None:
+def run_module(
+    module: str,
+    args: list[str],
+    *,
+    quiet: bool,
+    verbose: bool,
+    env: dict[str, str] | None = None,
+) -> None:
     """RU: Запускает Python-модуль через текущий интерпретатор.
 
     Аргументы:
@@ -98,11 +112,14 @@ def run_module(module: str, args: list[str], *, quiet: bool, verbose: bool) -> N
 
     """
     cmd = [sys.executable, "-m", module] + args
+    proc_env = os.environ.copy()
+    if env:
+        proc_env.update(env)
     if verbose:
         log.debug("Running: %s", " ".join(cmd))
-        res = subprocess.run(cmd, text=True)
+        res = subprocess.run(cmd, text=True, env=proc_env)
     else:
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, env=proc_env)
     if res.returncode != 0:
         if not verbose:
             if res.stdout:
@@ -274,12 +291,27 @@ def run_pipeline(
     if verbose:
         analyze_args.append("--verbose")
 
-    run_module(
-        "podcast_reels_forge.scripts.analyze",
-        analyze_args,
-        quiet=quiet,
-        verbose=verbose,
-    )
+    env: dict[str, str] = {}
+    ollama_proc: subprocess.Popen | None = None
+    local_ollama = None
+    if provider == "ollama" and url:
+        local_ollama = parse_local_ollama_host_port(str(url))
+        if local_ollama:
+            env[ENV_MANAGED_BY_PIPELINE] = "1"
+            host, port = local_ollama
+            ollama_proc = ollama_start(host=host, port=port)
+
+    try:
+        run_module(
+            "podcast_reels_forge.scripts.analyze",
+            analyze_args,
+            quiet=quiet,
+            verbose=verbose,
+            env=env or None,
+        )
+    finally:
+        if ollama_proc:
+            ollama_stop(ollama_proc)
     status("[analyze] done", quiet=quiet)
 
     # 4) Cut + exports

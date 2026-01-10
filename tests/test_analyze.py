@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import podcast_reels_forge.scripts.analyze as analyze
+from podcast_reels_forge.utils import ollama_service
 
 
 def test_fmt_hms() -> None:
@@ -102,13 +103,13 @@ def test_find_moments_orchestration() -> None:
 
 
 def test_parse_local_ollama_host_port() -> None:
-    assert analyze._parse_local_ollama_host_port(
+    assert ollama_service.parse_local_ollama_host_port(
         "http://127.0.0.1:11434/api/generate",
     ) == ("127.0.0.1", 11434)
-    assert analyze._parse_local_ollama_host_port(
+    assert ollama_service.parse_local_ollama_host_port(
         "http://localhost:11434/api/generate",
     ) == ("localhost", 11434)
-    assert analyze._parse_local_ollama_host_port(
+    assert ollama_service.parse_local_ollama_host_port(
         "http://10.0.0.1:11434/api/generate",
     ) is None
 
@@ -123,9 +124,9 @@ def test_ollama_start_skips_if_port_open(monkeypatch) -> None:
         called["popen"] += 1
         return object()
 
-    monkeypatch.setattr(analyze, "is_tcp_open", fake_is_open)
-    monkeypatch.setattr(analyze.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(ollama_service, "is_tcp_open", fake_is_open)
+    monkeypatch.setattr(ollama_service.subprocess, "Popen", fake_popen)
 
-    proc = analyze.ollama_start(host="127.0.0.1", port=11434)
+    proc = ollama_service.ollama_start(host="127.0.0.1", port=11434)
     assert proc is None
     assert called["popen"] == 0

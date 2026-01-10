@@ -9,13 +9,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import socket
 import subprocess
-import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from podcast_reels_forge.llm.providers import (
     AnthropicConfig,
@@ -30,6 +27,12 @@ from podcast_reels_forge.llm.providers import (
 )
 from podcast_reels_forge.utils.json_utils import extract_first_json_object
 from podcast_reels_forge.utils.logging_utils import setup_logging
+from podcast_reels_forge.utils.ollama_service import (
+    ENV_MANAGED_BY_PIPELINE,
+    ollama_start,
+    ollama_stop,
+    parse_local_ollama_host_port,
+)
 
 LOGGER = setup_logging()
 
@@ -69,90 +72,8 @@ def fmt_hms(sec: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}" if h > 0 else f"{m:02d}:{s:02d}"
 
 
-def wait_tcp(host: str, port: int, timeout_s: int = 20) -> bool:
-    """RU: Ждёт, пока TCP-порт начнёт принимать соединения.
-
-    EN: Wait for a TCP port to open.
-    """
-    deadline = time.time() + timeout_s
-    while time.time() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=1):
-                return True
-        except OSError:
-            time.sleep(0.2)
-    return False
-
-
-def is_tcp_open(host: str, port: int) -> bool:
-    """Return True if a TCP port is accepting connections."""
-    try:
-        with socket.create_connection((host, port), timeout=0.2):
-            return True
-    except OSError:
-        return False
-
-
 def _parse_local_ollama_host_port(url: str) -> tuple[str, int] | None:
-    """Return (host, port) if URL points to local Ollama, else None."""
-    parsed = urlparse(url)
-    host = parsed.hostname
-    if not host:
-        return None
-    if host not in {"127.0.0.1", "localhost"}:
-        return None
-    port = parsed.port or 11434
-    return (host, port)
-
-
-def ollama_start(*, host: str, port: int) -> subprocess.Popen | None:
-    """RU: Стартует Ollama в фоне, если бинарник доступен.
-
-    EN: Start Ollama server in background if available.
-    """
-    if is_tcp_open(host, port):
-        LOGGER.info("Ollama already running on %s:%s; not starting a new instance", host, port)
-        return None
-
-    try:
-        p = subprocess.Popen(
-            ["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        if wait_tcp(host, port, timeout_s=30):
-            if p.poll() is None:
-                return p
-            LOGGER.warning("Ollama process exited early while port became available")
-            return None
-
-        p.terminate()
-        try:
-            p.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            p.kill()
-    except FileNotFoundError:
-        return None
-    except OSError as exc:
-        LOGGER.warning("Failed to start Ollama: %s", exc)
-        return None
-    return None
-
-
-def ollama_stop(p: subprocess.Popen) -> None:
-    """RU: Останавливает процесс Ollama.
-
-    EN: Terminate the Ollama process.
-    """
-    try:
-        p.terminate()
-        p.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        LOGGER.warning("Ollama did not terminate in time; killing")
-        try:
-            p.kill()
-        except OSError:
-            LOGGER.exception("Failed to kill Ollama process")
-    except OSError:
-        LOGGER.exception("Failed to terminate Ollama process")
+    return parse_local_ollama_host_port(url)
 
 
 def get_llm_json(
@@ -509,10 +430,11 @@ def main(argv: list[str] | None = None) -> None:
         api_key=args.api_key,
     )
 
-    proc = None
+    proc: subprocess.Popen | None = None
     try:
+        managed_by_pipeline = os.environ.get(ENV_MANAGED_BY_PIPELINE) == "1"
         local = _parse_local_ollama_host_port(args.url) if args.url else None
-        if args.provider == "ollama" and local:
+        if args.provider == "ollama" and local and not managed_by_pipeline:
             host, port = local
             proc = ollama_start(host=host, port=port)
 

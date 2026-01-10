@@ -45,14 +45,36 @@ def test_run_pipeline_builds_and_calls_stages(
     input_dir.mkdir()
     (input_dir / "video.mp4").write_text("x")
 
-    calls: list[tuple[str, list[str]]] = []
+    calls: list[tuple[str, list[str], dict[str, str] | None]] = []
 
     def fake_run_module(
-        module: str, args: list[str], *, quiet: bool, verbose: bool,
+        module: str,
+        args: list[str],
+        *,
+        quiet: bool,
+        verbose: bool,
+        env: dict[str, str] | None = None,
     ) -> None:
-        calls.append((module, list(args)))
+        calls.append((module, list(args), env))
 
     monkeypatch.setattr(pipeline, "run_module", fake_run_module)
+
+    started: list[tuple[str, int]] = []
+    stopped: list[int] = []
+
+    class FakeProc:
+        def __init__(self, pid: int):
+            self.pid = pid
+
+    def fake_ollama_start(*, host: str, port: int):
+        started.append((host, port))
+        return FakeProc(123)
+
+    def fake_ollama_stop(proc):
+        stopped.append(getattr(proc, "pid", 0))
+
+    monkeypatch.setattr(pipeline, "ollama_start", fake_ollama_start)
+    monkeypatch.setattr(pipeline, "ollama_stop", fake_ollama_stop)
 
     conf = {
         "paths": {"input_dir": str(input_dir), "output_dir": str(tmp_path / "output")},
@@ -83,7 +105,8 @@ def test_run_pipeline_builds_and_calls_stages(
         message = "Expected all stage modules to be invoked"
         raise AssertionError(message)
 
-    analyze_args = next((args for name, args in calls if "analyze" in name), None)
+    analyze_call = next((c for c in calls if "analyze" in c[0]), None)
+    analyze_args = analyze_call[1] if analyze_call else None
     if analyze_args is None:
         message = "Analyze stage args not captured"
         raise AssertionError(message)
@@ -91,7 +114,20 @@ def test_run_pipeline_builds_and_calls_stages(
         message = "Analyze stage missing required CLI args"
         raise AssertionError(message)
 
-    video_args = next((args for name, args in calls if "video_processor" in name), None)
+    analyze_env = analyze_call[2] if analyze_call else None
+    if not analyze_env or analyze_env.get("FORGE_MANAGED_OLLAMA") != "1":
+        message = "Expected pipeline to pass FORGE_MANAGED_OLLAMA=1 to analyze stage"
+        raise AssertionError(message)
+
+    if started != [("127.0.0.1", 11434)]:
+        message = f"Expected Ollama to be started once, got: {started}"
+        raise AssertionError(message)
+    if stopped != [123]:
+        message = f"Expected Ollama to be stopped, got: {stopped}"
+        raise AssertionError(message)
+
+    video_call = next((c for c in calls if "video_processor" in c[0]), None)
+    video_args = video_call[1] if video_call else None
     if video_args is None:
         message = "Video stage args not captured"
         raise AssertionError(message)
