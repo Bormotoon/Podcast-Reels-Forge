@@ -34,12 +34,12 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
-import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+from podcast_reels_forge.scripts import analyze as analyze_script
 
 
 @dataclass(frozen=True)
@@ -106,10 +106,7 @@ def _run_analyze(
 ) -> Path:
     outdir = base_outdir / variant
     outdir.mkdir(parents=True, exist_ok=True)
-    cmd: list[str] = [
-        sys.executable,
-        "-m",
-        "podcast_reels_forge.scripts.analyze",
+    argv = [
         "--transcript",
         str(args.transcript),
         "--outdir",
@@ -139,15 +136,11 @@ def _run_analyze(
         "--quiet",
     ]
     if args.url:
-        cmd += ["--url", args.url]
+        argv += ["--url", args.url]
     if diarization:
-        cmd += ["--diarization", str(diarization)]
+        argv += ["--diarization", str(diarization)]
 
-    res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if res.returncode != 0:
-        msg = (res.stderr or res.stdout or "").strip()
-        message = f"analyze failed for variant={variant}: {msg}"
-        raise SystemExit(message)
+    analyze_script.main(argv)
 
     return outdir / "moments.json"
 

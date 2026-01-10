@@ -4,20 +4,35 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
 from faster_whisper import WhisperModel
-from podcast_reels_forge.utils.logging_utils import setup_logging
 
 try:
     import torch
 except ImportError:
     torch = None
 
+from podcast_reels_forge.utils.logging_utils import setup_logging
+
 CUDA_MAJOR_FLOAT16_THRESHOLD: Final = 7
 
 LOGGER = setup_logging()
+
+
+@dataclass(frozen=True)
+class TranscribeConfig:
+    input_path: Path
+    outdir: Path | None
+    model_name: str
+    device: str
+    language: str
+    beam_size: int
+    compute_type: str | None
+    quiet: bool
+    verbose: bool
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -89,66 +104,67 @@ def resolve_device(requested: str) -> str:
     return "cpu"
 
 
-def transcribe_file(
-    *,
-    input_path: Path,
-    outdir: Path | None,
-    model_name: str,
-    device: str,
-    language: str,
-    beam_size: int,
-    compute_type: str | None,
-    quiet: bool,
-    verbose: bool,
-) -> Path:
+def _default_compute_type(resolved_device: str) -> str:
+    if resolved_device != "cuda" or torch is None:
+        return "float32"
+    try:
+        major, _minor = torch.cuda.get_device_capability()
+    except (RuntimeError, AttributeError):
+        return "float32"
+    if major < CUDA_MAJOR_FLOAT16_THRESHOLD:
+        return "float32"
+    return "float16"
+
+
+def _select_compute_type(resolved_device: str, requested: str | None) -> str:
+    if requested:
+        return requested
+    return _default_compute_type(resolved_device)
+
+
+def _load_model(model_name: str, resolved_device: str, compute_type: str) -> WhisperModel:
+    return WhisperModel(model_name, device=resolved_device, compute_type=compute_type)
+
+
+def _dump_output(out_path: Path, output: dict[str, object]) -> None:
+    with out_path.open("w", encoding="utf-8") as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
+
+
+def transcribe_file(config: TranscribeConfig) -> Path:
     """RU: Запускает транскрибацию faster-whisper и записывает JSON транскрипт.
 
     EN: Run faster-whisper transcription and write a transcript JSON.
     """
-    if not input_path.exists():
-        message = f"Input file not found: {input_path}"
+    if not config.input_path.exists():
+        message = f"Input file not found: {config.input_path}"
         raise SystemExit(message)
 
-    resolved_device = resolve_device(device)
-
-    def default_compute_type() -> str:
-        if resolved_device != "cuda" or torch is None:
-            return "float32"
-        try:
-            major, _minor = torch.cuda.get_device_capability()
-        except (RuntimeError, AttributeError):
-            return "float32"
-        if major < CUDA_MAJOR_FLOAT16_THRESHOLD:
-            return "float32"
-        return "float16"
-
-    ct = compute_type or default_compute_type()
-
-    def load_model(ct_value: str) -> WhisperModel:
-        return WhisperModel(model_name, device=resolved_device, compute_type=ct_value)
+    resolved_device = resolve_device(config.device)
+    compute_type = _select_compute_type(resolved_device, config.compute_type)
 
     try:
-        model = load_model(ct)
+        model = _load_model(config.model_name, resolved_device, compute_type)
     except ValueError:
-        ct = "float32"
-        model = load_model(ct)
+        compute_type = "float32"
+        model = _load_model(config.model_name, resolved_device, compute_type)
 
-    lang: str | None = None if str(language).strip().lower() == "auto" else language
+    lang: str | None = None if str(config.language).strip().lower() == "auto" else config.language
 
-    if verbose and not quiet:
-        LOGGER.info("[transcribe] input=%s", input_path)
+    if config.verbose and not config.quiet:
+        LOGGER.info("[transcribe] input=%s", config.input_path)
 
     segments, info = model.transcribe(
-        str(input_path),
+        str(config.input_path),
         language=lang,
-        beam_size=beam_size,
+        beam_size=config.beam_size,
     )
 
     output = {
-        "audio": str(input_path.resolve()),
-        "model": model_name,
+        "audio": str(config.input_path.resolve()),
+        "model": config.model_name,
         "device": resolved_device,
-        "compute_type": ct,
+        "compute_type": compute_type,
         "language": info.language,
         "duration": info.duration,
         "segments": [
@@ -161,16 +177,15 @@ def transcribe_file(
         ],
     }
 
-    if outdir:
-        outdir.mkdir(parents=True, exist_ok=True)
-        out_path = outdir / input_path.with_suffix(".json").name
+    if config.outdir:
+        config.outdir.mkdir(parents=True, exist_ok=True)
+        out_path = config.outdir / config.input_path.with_suffix(".json").name
     else:
-        out_path = input_path.with_suffix(".json")
+        out_path = config.input_path.with_suffix(".json")
 
-    with out_path.open("w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
+    _dump_output(out_path, output)
 
-    if not quiet:
+    if not config.quiet:
         LOGGER.info("[transcribe] saved=%s", out_path)
 
     return out_path
@@ -182,7 +197,7 @@ def main(argv: list[str] | None = None) -> None:
     EN: CLI entrypoint for the transcription stage.
     """
     args = parse_args(argv)
-    transcribe_file(
+    config = TranscribeConfig(
         input_path=args.input,
         outdir=args.outdir,
         model_name=args.model,
@@ -193,3 +208,4 @@ def main(argv: list[str] | None = None) -> None:
         quiet=args.quiet,
         verbose=args.verbose,
     )
+    transcribe_file(config)
