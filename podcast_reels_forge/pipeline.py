@@ -125,6 +125,14 @@ def _has_cuda() -> bool:
         return False
 
 
+def _set_cli_arg(args: list[str], flag: str, value: str) -> bool:
+    for i, v in enumerate(args):
+        if v == flag and i + 1 < len(args):
+            args[i + 1] = value
+            return True
+    return False
+
+
 def run_module(
     module: str,
     args: list[str],
@@ -406,16 +414,34 @@ def run_pipeline(
             analyze_args.append("--verbose")
 
         if autotune and provider == "ollama":
-            # Fewer LLM calls by using larger chunks by default.
+            # Autotune for slow local models: fewer calls + smaller prompts.
             try:
-                current_chunk = int(a_conf.get("chunk_seconds", 600))
+                reels = int(p_conf.get("reels_count", 4))
             except (TypeError, ValueError):
-                current_chunk = 600
-            if current_chunk < 1200:
-                for i, v in enumerate(analyze_args):
-                    if v == "--chunk-seconds" and i + 1 < len(analyze_args):
-                        analyze_args[i + 1] = "1200"
-                        break
+                reels = 4
+            try:
+                timeout_s = int(a_conf.get("timeout", 900))
+            except (TypeError, ValueError):
+                timeout_s = 900
+            try:
+                chunk_s = int(a_conf.get("chunk_seconds", 600))
+            except (TypeError, ValueError):
+                chunk_s = 600
+            try:
+                max_chars = int(a_conf.get("max_chars_chunk", 12000))
+            except (TypeError, ValueError):
+                max_chars = 12000
+
+            # Heuristic defaults tuned for a single large local model.
+            chunk_s = max(chunk_s, 1800)
+            max_chars = min(max_chars, 6000)
+            reels = min(reels, 2)
+            timeout_s = min(timeout_s, 300)
+
+            _set_cli_arg(analyze_args, "--chunk-seconds", str(chunk_s))
+            _set_cli_arg(analyze_args, "--max_chars_chunk", str(max_chars))
+            _set_cli_arg(analyze_args, "--reels", str(reels))
+            _set_cli_arg(analyze_args, "--timeout", str(timeout_s))
 
         env: dict[str, str] = {}
         ollama_proc: subprocess.Popen | None = None
