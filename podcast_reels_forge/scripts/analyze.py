@@ -14,6 +14,13 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+try:
+    from tqdm import tqdm
+except ImportError:  # pragma: no cover
+
+    def tqdm(iterable: object, **_: object) -> object:  # type: ignore[no-redef]
+        return iterable
+
 from podcast_reels_forge.llm.providers import (
     AnthropicConfig,
     AnthropicProvider,
@@ -152,6 +159,7 @@ def find_moments(
     chunk_sec: int,
     max_ch: int,
     timeout: int,
+    progress: bool = False,
     *,
     ch_prompt: str,
     select_prompt: str,
@@ -161,7 +169,12 @@ def find_moments(
     EN: Orchestrate chunk-based analysis and final selection of viral moments.
     """
     candidates: list[dict[str, Any]] = []
-    for ch in chunk_segments_by_time(segments, chunk_sec):
+    chunks = chunk_segments_by_time(segments, chunk_sec)
+    it = enumerate(chunks, 1)
+    if progress:
+        it = tqdm(it, total=len(chunks), desc="analyze")
+
+    for _i, ch in it:
         ch_txt = segments_to_compact_text(ch, max_ch)
         prompt = _render_prompt(
             ch_prompt,
@@ -472,6 +485,7 @@ def main(argv: list[str] | None = None) -> None:
             args.chunk_seconds,
             args.max_chars_chunk,
             args.timeout,
+            progress=bool(args.verbose and not args.quiet),
             ch_prompt=ch_prompt,
             select_prompt=select_prompt,
         )
