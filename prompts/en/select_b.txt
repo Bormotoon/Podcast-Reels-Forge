@@ -1,0 +1,11 @@
+Choose {count} candidates with maximum practical value.
+
+Return ONLY JSON:
+{
+  "moments": [
+    {"start": 1.0, "end": 40.0, "title": "...", "quote": "...", "why": "...", "score": 10, "hook": "...", "caption": "...", "hashtags": ["#...", "#..."]}
+  ]
+}
+
+Candidates:
+{candidates_json}

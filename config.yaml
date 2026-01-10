@@ -1,0 +1,61 @@
+# Podcast Reels Forge Configuration
+
+paths:
+  input_dir: "input"
+  output_dir: "output"
+
+cli:
+  quiet: false
+  verbose: false
+
+transcription:
+  model: "small"        # tiny, base, small, medium, large-v3
+  device: "cuda"         # cuda or cpu
+  language: "ru"         # "ru", "en", or "auto"
+  beam_size: 5
+  compute_type: "int8_float16"
+
+ollama:
+  url: "http://127.0.0.1:11434/api/generate"
+  model: "gemma2:9b"
+  timeout: 900
+  temperature: 0.3
+  chunk_seconds: 600
+  max_chars_chunk: 12000
+
+llm:
+  provider: "ollama"     # ollama | openai | anthropic | gemini
+  openai_model: "gpt-4o-mini"
+  anthropic_model: "claude-3-5-sonnet-20241022"
+  gemini_model: "gemini-1.5-flash"
+  # API keys are taken from env vars:
+  # OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
+
+prompts:
+  language: "ru"          # ru|en
+  variant: "default"      # A/B testing: default|a|b
+
+processing:
+  reels_count: 4          # Number of viral moments to extract
+  reel_min_duration: 30    # Minimum reel length (seconds)
+  reel_max_duration: 60    # Maximum reel length (seconds)
+  reel_padding: 0         # Extra seconds around the moment
+
+exports:
+  webm: false
+  gif: false
+  audio_only: false
+
+video:
+  threads: 4
+  vertical_crop: true      # Crop 16:9 to 9:16 automatically
+  video_bitrate: "5M"
+  audio_bitrate: "192k"
+  preset: "fast"
+  use_nvenc: true
+
+diarization:
+  enabled: false
+  # Requires optional deps and a token for pyannote model downloads.
+  # Set PYANNOTE_TOKEN env var when enabled.
+  model: "pyannote/speaker-diarization"

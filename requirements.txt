@@ -1,0 +1,6 @@
+faster-whisper>=1.0.1
+torch>=2.0.0
+tqdm>=4.66.0
+coloredlogs>=15.0.1
+requests>=2.31.0
+PyYAML>=6.0.1
