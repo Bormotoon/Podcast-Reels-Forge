@@ -57,6 +57,7 @@ class Moment:
     quote: str
     why: str
     score: float
+    clip_type: str = "reel"
     hook: str = ""
     caption: str = ""
     hashtags: list[str] | None = None
@@ -163,6 +164,10 @@ def find_moments(
     *,
     ch_prompt: str,
     select_prompt: str,
+    stories_count: int = 0,
+    reels_count: int = 0,
+    long_reels_count: int = 0,
+    highlights_moments: int = 0,
 ) -> list[Moment]:
     """RU: Оркестрирует анализ по чанкам и финальный выбор вирусных моментов.
 
@@ -174,28 +179,56 @@ def find_moments(
     if progress:
         it = tqdm(it, total=len(chunks), desc="analyze")
 
+    # Build a requirements string for the prompt
+    reqs = []
+    if stories_count > 0:
+        reqs.append(f"Stories (up to 15s): {stories_count}")
+    if reels_count > 0:
+        reqs.append(f"Reels (up to 60s): {reels_count}")
+    if long_reels_count > 0:
+        reqs.append(f"Long Reels (up to 180s): {long_reels_count}")
+    if highlights_moments > 0:
+        reqs.append(f"Hot moments for highlights: {highlights_moments}")
+
+    reqs_str = "\n".join(reqs) if reqs else f"Viral moments ({r_min}-{r_max}s): {count}"
+
     for _i, ch in it:
         ch_txt = segments_to_compact_text(ch, max_ch)
         prompt = _render_prompt(
             ch_prompt,
-            {"r_min": str(r_min), "r_max": str(r_max), "transcript": ch_txt},
+            {
+                "r_min": str(r_min),
+                "r_max": str(r_max),
+                "transcript": ch_txt,
+                "requirements": reqs_str,
+            },
         )
-        moment = get_llm_json(provider, prompt, 0.3, timeout).get("moment", {})
-        try:
-            start = float(moment.get("start", -1))
-            end = float(moment.get("end", -1))
-        except (TypeError, ValueError):
-            continue
+        # LLM might now return multiple moments in "moments" or single "moment"
+        resp = get_llm_json(provider, prompt, 0.3, timeout)
+        chunk_moments = resp.get("moments")
+        if not isinstance(chunk_moments, list):
+            m = resp.get("moment")
+            chunk_moments = [m] if m else []
 
-        if 0 <= start < end <= duration and r_min <= (end - start) <= r_max:
-            candidates.append(moment)
+        for moment in chunk_moments:
+            try:
+                start = float(moment.get("start", -1))
+                end = float(moment.get("end", -1))
+            except (TypeError, ValueError, AttributeError):
+                continue
+
+            if 0 <= start < end <= duration:
+                candidates.append(moment)
+
     if not candidates:
         return []
+
     prompt2 = _render_prompt(
         select_prompt,
         {
             "count": str(count),
             "candidates_json": json.dumps(candidates, ensure_ascii=False),
+            "requirements": reqs_str,
         },
     )
     obj2 = get_llm_json(provider, prompt2, 0.4, timeout)
@@ -216,6 +249,7 @@ def find_moments(
                     quote=str(moment.get("quote", "")).strip(),
                     why=str(moment.get("why", "")).strip(),
                     score=float(moment.get("score", 0)),
+                    clip_type=str(moment.get("clip_type", "reel")).strip(),
                     hook=str(moment.get("hook", "")).strip(),
                     caption=str(moment.get("caption", "")).strip(),
                     hashtags=hashtags,
@@ -223,13 +257,11 @@ def find_moments(
             )
         except (KeyError, TypeError, ValueError):
             continue
-    out = [
-        m
-        for m in out
-        if 0 <= m.start < m.end <= duration and r_min <= (m.end - m.start) <= r_max
-    ]
+    
+    # Heuristic filter based on score and requirements could be added here,
+    # but for now we rely on the LLM's selection in 'select_prompt'.
     out.sort(key=lambda x: x.score, reverse=True)
-    return out[:count]
+    return out
 
 
 def _get_prompts_dir() -> Path:
@@ -411,6 +443,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--model", default="gemma2:9b", help="LLM model name")
     ap.add_argument("--temperature", type=float, default=0.3, help="LLM temperature")
     ap.add_argument("--reels", type=int, default=4, help="Number of reels to generate")
+    ap.add_argument("--stories-count", type=int, default=0, help="Number of stories (up to 15s)")
+    ap.add_argument("--reels-count", type=int, default=0, help="Number of reels (up to 60s)")
+    ap.add_argument("--long-reels-count", type=int, default=0, help="Number of long reels (up to 180s)")
+    ap.add_argument("--highlights-moments", type=int, default=0, help="Number of hot moments for highlights")
     ap.add_argument(
         "--reel-min", type=int, default=30, help="Minimum reel duration (seconds)",
     )
@@ -552,6 +588,10 @@ def main(argv: list[str] | None = None) -> None:
             progress=bool(args.verbose and not args.quiet),
             ch_prompt=ch_prompt,
             select_prompt=select_prompt,
+            stories_count=args.stories_count,
+            reels_count=args.reels_count,
+            long_reels_count=args.long_reels_count,
+            highlights_moments=args.highlights_moments,
         )
 
         out_json = outdir / "moments.json"
@@ -565,7 +605,7 @@ def main(argv: list[str] | None = None) -> None:
             f.write("# Reels Suggestions\n\n")
             for i, m in enumerate(moments, 1):
                 f.write(
-                    f"## {i}. {m.title}\n- Time: {fmt_hms(m.start)}-{fmt_hms(m.end)}\n- Why: {m.why}\n",
+                    f"## {i}. {m.title} [{m.clip_type}]\n- Time: {fmt_hms(m.start)}-{fmt_hms(m.end)}\n- Why: {m.why}\n",
                 )
                 if m.hook:
                     f.write(f"- Hook: {m.hook}\n")

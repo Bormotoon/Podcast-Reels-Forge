@@ -346,6 +346,7 @@ def run_pipeline(
     llm_conf = conf.get("llm", {})
     prompts_conf = conf.get("prompts", {})
     p_conf = conf.get("processing", {})
+    clips_conf = p_conf.get("clips", {})
 
     moments_path = io.output_dir / "moments.json"
     reels_md_path = io.output_dir / "reels.md"
@@ -389,6 +390,14 @@ def run_pipeline(
             str(a_conf.get("temperature", 0.3)),
             "--reels",
             str(p_conf.get("reels_count", 4)),
+            "--stories-count",
+            str(clips_conf.get("stories", {}).get("count", 0)),
+            "--reels-count",
+            str(clips_conf.get("reels", {}).get("count", 0)),
+            "--long-reels-count",
+            str(clips_conf.get("long_reels", {}).get("count", 0)),
+            "--highlights-moments",
+            str(clips_conf.get("highlights", {}).get("moments_count", 0)),
             "--reel-min",
             str(p_conf.get("reel_min_duration", 30)),
             "--reel-max",

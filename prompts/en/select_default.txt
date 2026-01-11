@@ -1,11 +1,15 @@
 You are a short-form video editor.
 
-Task: choose {count} most viral moments from the candidates.
+Task: choose the best viral moments from the candidates according to the requirements.
+
+Composition Requirements:
+{requirements}
 
 Rules:
 - Return ONLY valid JSON.
 - Keep start/end within candidate ranges.
 - score: 0..10.
+- Keep clip_type.
 
 Output format:
 {
@@ -13,6 +17,7 @@ Output format:
     {
       "start": 1.0,
       "end": 40.0,
+      "clip_type": "...",
       "title": "...",
       "quote": "...",
       "why": "...",

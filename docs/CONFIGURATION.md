@@ -115,7 +115,18 @@ processing — Processing
 
 ```yaml
 processing:
-  reels_count: 4          # Количество клипов / Number of clips
+  clips:
+    stories:
+      count: 2       # Количество сторис (до 15с) / Stories count (up to 15s)
+    reels:
+      count: 3       # Количество рилс (до 1м) / Reels count (up to 1m)
+    long_reels:
+      count: 1       # Длинные рилс (до 3м) / Long reels (up to 3m)
+    highlights:
+      count: 1       # Роликов с хайлайтами / Highlights videos
+      moments_count: 5 # Моментов в хайлайте / Moments in highlight
+
+  reels_count: 4          # [Legacy] Общее количество клипов / Total clips count
   reel_min_duration: 30   # Мин. длина (сек) / Min length (sec)
   reel_max_duration: 60   # Макс. длина (сек) / Max length (sec)
   reel_padding: 0         # Отступ (сек) / Padding (sec)

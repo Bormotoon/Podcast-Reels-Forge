@@ -51,7 +51,22 @@ prompts:
   variant: "default"      # A/B testing: default|a|b
 
 processing:
-  reels_count: 4          # Number of viral moments to extract
+  # Counts and duration limits for different clip types
+  clips:
+    stories:
+      count: 2
+      max_duration: 15
+    reels:
+      count: 3
+      max_duration: 60
+    long_reels:
+      count: 1
+      max_duration: 180
+    highlights:
+      count: 1           # Number of highlight videos to create (usually 1)
+      moments_count: 5    # Number of hot moments inside the highlights video
+
+  reels_count: 4          # [Legacy/Default] Total number of clips if 'clips' is not used
   reel_min_duration: 30    # Minimum reel length (seconds)
   reel_max_duration: 60    # Maximum reel length (seconds)
   reel_padding: 0         # Extra seconds around the moment
