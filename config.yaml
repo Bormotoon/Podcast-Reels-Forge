@@ -23,11 +23,20 @@ transcription:
 
 ollama:
   url: "http://127.0.0.1:11434/api/generate"
-  model: "gemma2:9b"
+  model: "gemma3:4b"
   timeout: 900
   temperature: 0.3
   chunk_seconds: 600
   max_chars_chunk: 12000
+  # Watchdog: detects stalls/very slow generation and retries.
+  watchdog:
+    enabled: true
+    first_token_timeout: 120  # seconds without any output
+    stall_timeout: 120        # seconds without output during streaming
+    log_interval: 10          # progress heartbeat interval (sec)
+    max_retries: 2
+  # Optional: try these models in order if the primary model stalls.
+  fallback_models: []
 
 llm:
   provider: "ollama"     # ollama | openai | anthropic | gemini

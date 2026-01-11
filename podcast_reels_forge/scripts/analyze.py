@@ -330,6 +330,12 @@ def create_provider(
     model: str,
     url: str | None = None,
     api_key: str | None = None,
+    ollama_fallback_models: list[str] | None = None,
+    ollama_watchdog: bool = True,
+    ollama_first_token_timeout_s: int = 120,
+    ollama_stall_timeout_s: int = 120,
+    ollama_log_interval_s: int = 10,
+    ollama_max_retries: int = 2,
 ) -> LLMProvider:
     """RU: Создаёт инстанс LLM-провайдера по имени провайдера.
 
@@ -337,7 +343,16 @@ def create_provider(
     """
     if provider_name == "ollama":
         return OllamaProvider(
-            OllamaConfig(url=url or "http://127.0.0.1:11434/api/generate", model=model),
+            OllamaConfig(
+                url=url or "http://127.0.0.1:11434/api/generate",
+                model=model,
+                watchdog_enabled=bool(ollama_watchdog),
+                first_token_timeout_s=int(ollama_first_token_timeout_s),
+                stall_timeout_s=int(ollama_stall_timeout_s),
+                log_interval_s=int(ollama_log_interval_s),
+                max_retries=int(ollama_max_retries),
+                fallback_models=tuple(ollama_fallback_models or []),
+            ),
         )
     if provider_name == "openai":
         key = api_key or os.environ.get("OPENAI_API_KEY")
@@ -420,6 +435,44 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     ap.add_argument("--quiet", action="store_true", help="Suppress non-error output")
     ap.add_argument("--verbose", action="store_true", help="Verbose output")
+
+    # Ollama watchdog / fallback
+    ap.add_argument(
+        "--ollama-watchdog",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable Ollama stall watchdog (default: enabled)",
+    )
+    ap.add_argument(
+        "--ollama-first-token-timeout",
+        type=int,
+        default=120,
+        help="Abort if Ollama produces no output for N seconds (before first token)",
+    )
+    ap.add_argument(
+        "--ollama-stall-timeout",
+        type=int,
+        default=120,
+        help="Abort if Ollama produces no output for N seconds (read timeout)",
+    )
+    ap.add_argument(
+        "--ollama-log-interval",
+        type=int,
+        default=10,
+        help="Log progress every N seconds while waiting for Ollama",
+    )
+    ap.add_argument(
+        "--ollama-max-retries",
+        type=int,
+        default=2,
+        help="How many times to retry Ollama on stall/timeout",
+    )
+    ap.add_argument(
+        "--ollama-fallback-model",
+        action="append",
+        default=[],
+        help="Fallback model to try on stall/timeout (can be specified multiple times)",
+    )
     return ap.parse_args(argv)
 
 
@@ -429,6 +482,11 @@ def main(argv: list[str] | None = None) -> None:
     EN: Main entry point for analyze script.
     """
     args = parse_args(argv)
+
+    # RU: Применяем флаги логирования (иначе module-level setup_logging() уже всё зафиксировал).
+    # EN: Apply verbosity flags (module-level setup_logging() would otherwise lock defaults).
+    global LOGGER
+    LOGGER = setup_logging(verbose=bool(args.verbose), quiet=bool(args.quiet))
 
     if not args.transcript.exists():
         message = f"Transcript not found: {args.transcript}"
@@ -460,6 +518,12 @@ def main(argv: list[str] | None = None) -> None:
         model=args.model,
         url=args.url if args.provider == "ollama" else None,
         api_key=args.api_key,
+        ollama_fallback_models=list(args.ollama_fallback_model or []),
+        ollama_watchdog=bool(args.ollama_watchdog),
+        ollama_first_token_timeout_s=int(args.ollama_first_token_timeout),
+        ollama_stall_timeout_s=int(args.ollama_stall_timeout),
+        ollama_log_interval_s=int(args.ollama_log_interval),
+        ollama_max_retries=int(args.ollama_max_retries),
     )
 
     proc: subprocess.Popen | None = None

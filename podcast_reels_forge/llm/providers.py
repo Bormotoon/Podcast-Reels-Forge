@@ -6,9 +6,16 @@ EN: LLM providers (HTTP clients) for multiple platforms.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import logging
+import time
 from typing import Protocol
 
 import requests
+from requests import exceptions as requests_exceptions
+
+
+LOGGER = logging.getLogger("forge")
 
 
 class LLMProvider(Protocol):
@@ -30,6 +37,26 @@ class OllamaConfig:
     url: str
     model: str
 
+    # Watchdog / retry controls (optional)
+    watchdog_enabled: bool = True
+    first_token_timeout_s: int = 120
+    stall_timeout_s: int = 120
+    log_interval_s: int = 10
+    max_retries: int = 2
+    fallback_models: tuple[str, ...] = ()
+
+
+class OllamaWatchdogTriggered(RuntimeError):
+    """Raised when an Ollama request appears stalled or too slow."""
+
+    def __init__(self, *, reason: str, model: str, elapsed_s: float) -> None:
+        super().__init__(
+            f"Ollama watchdog triggered ({reason}) for model '{model}' after {elapsed_s:.1f}s",
+        )
+        self.reason = reason
+        self.model = model
+        self.elapsed_s = elapsed_s
+
 
 class OllamaProvider:
     """RU: Провайдер для Ollama (/api/generate).
@@ -41,18 +68,144 @@ class OllamaProvider:
         self.cfg = cfg
 
     def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
-        r = requests.post(
-            self.cfg.url,
-            json={
-                "model": self.cfg.model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": temperature},
-            },
-            timeout=timeout,
+        # RU: Для локальных моделей важно видеть прогресс и уметь отменять.
+        # EN: For local models we want progress + the ability to abort on stalls.
+
+        models: list[str] = [self.cfg.model]
+        models += [m for m in self.cfg.fallback_models if m and m.strip()]
+
+        # Total attempts = 1 + max_retries, but we also try each fallback model in order.
+        total_attempts = max(1, 1 + int(self.cfg.max_retries))
+        attempt_models: list[str] = []
+        for m in models:
+            if len(attempt_models) >= total_attempts:
+                break
+            attempt_models.append(m)
+        while len(attempt_models) < total_attempts:
+            attempt_models.append(attempt_models[-1])
+
+        last_exc: Exception | None = None
+        for attempt_idx, model in enumerate(attempt_models, 1):
+            try:
+                if attempt_idx > 1:
+                    LOGGER.warning(
+                        "Retrying Ollama (%d/%d) with model=%s",
+                        attempt_idx,
+                        len(attempt_models),
+                        model,
+                    )
+                return self._generate_streaming(
+                    model=model,
+                    prompt=prompt,
+                    temperature=temperature,
+                    max_total_s=int(timeout),
+                )
+            except OllamaWatchdogTriggered as exc:
+                last_exc = exc
+                continue
+            except (requests_exceptions.Timeout, requests_exceptions.RequestException) as exc:
+                last_exc = exc
+                continue
+
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("Ollama generate failed without a captured exception")
+
+    def _generate_streaming(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        temperature: float,
+        max_total_s: int,
+    ) -> str:
+        start = time.monotonic()
+        last_log = start
+        got_any = False
+        chars = 0
+        parts: list[str] = []
+
+        # Requests: connect timeout + per-read timeout.
+        connect_timeout = min(10, max_total_s) if max_total_s > 0 else 10
+        read_timeout = (
+            int(self.cfg.stall_timeout_s)
+            if self.cfg.watchdog_enabled
+            else max_total_s
         )
-        r.raise_for_status()
-        return r.json()["response"]
+        if read_timeout <= 0:
+            read_timeout = max_total_s if max_total_s > 0 else 900
+
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "stream": True,
+            "options": {"temperature": temperature},
+        }
+
+        with requests.post(
+            self.cfg.url,
+            json=payload,
+            stream=True,
+            timeout=(connect_timeout, read_timeout),
+        ) as r:
+            r.raise_for_status()
+
+            for line in r.iter_lines(decode_unicode=True):
+                now = time.monotonic()
+
+                if max_total_s > 0 and (now - start) > float(max_total_s):
+                    raise OllamaWatchdogTriggered(
+                        reason="max_total_timeout",
+                        model=model,
+                        elapsed_s=now - start,
+                    )
+
+                if not line:
+                    continue
+
+                got_any = True
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    # Ignore malformed lines (shouldn't happen, but keep robust).
+                    continue
+
+                piece = obj.get("response")
+                if isinstance(piece, str) and piece:
+                    parts.append(piece)
+                    chars += len(piece)
+
+                if self.cfg.watchdog_enabled:
+                    # Before first token, be stricter.
+                    if chars == 0 and (now - start) > float(self.cfg.first_token_timeout_s):
+                        raise OllamaWatchdogTriggered(
+                            reason="first_token_timeout",
+                            model=model,
+                            elapsed_s=now - start,
+                        )
+
+                    if (now - last_log) >= float(max(1, int(self.cfg.log_interval_s))):
+                        LOGGER.info(
+                            "Ollama progress: model=%s, received=%d chars, elapsed=%.1fs",
+                            model,
+                            chars,
+                            now - start,
+                        )
+                        last_log = now
+
+                done = obj.get("done")
+                if done is True:
+                    break
+
+        if not got_any and self.cfg.watchdog_enabled:
+            now = time.monotonic()
+            raise OllamaWatchdogTriggered(
+                reason="no_response_data",
+                model=model,
+                elapsed_s=now - start,
+            )
+
+        return "".join(parts)
 
 
 @dataclass(frozen=True)

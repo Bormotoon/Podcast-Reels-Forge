@@ -404,6 +404,43 @@ def run_pipeline(
             "--prompt-variant",
             str(prompts_conf.get("variant", "default")),
         ]
+
+        # Optional Ollama watchdog / fallback controls
+        if provider == "ollama":
+            wd = a_conf.get("watchdog", {})
+            if isinstance(wd, dict):
+                if "enabled" in wd:
+                    if bool(wd.get("enabled")):
+                        analyze_args.append("--ollama-watchdog")
+                    else:
+                        analyze_args.append("--no-ollama-watchdog")
+                if wd.get("first_token_timeout") is not None:
+                    analyze_args += [
+                        "--ollama-first-token-timeout",
+                        str(wd.get("first_token_timeout")),
+                    ]
+                if wd.get("stall_timeout") is not None:
+                    analyze_args += [
+                        "--ollama-stall-timeout",
+                        str(wd.get("stall_timeout")),
+                    ]
+                if wd.get("log_interval") is not None:
+                    analyze_args += [
+                        "--ollama-log-interval",
+                        str(wd.get("log_interval")),
+                    ]
+                if wd.get("max_retries") is not None:
+                    analyze_args += [
+                        "--ollama-max-retries",
+                        str(wd.get("max_retries")),
+                    ]
+
+            fb = a_conf.get("fallback_models", [])
+            if isinstance(fb, list):
+                for m in fb:
+                    ms = str(m).strip()
+                    if ms:
+                        analyze_args += ["--ollama-fallback-model", ms]
         if url:
             analyze_args += ["--url", str(url)]
         if diar_enabled and diar_path.exists():
