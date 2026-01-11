@@ -267,10 +267,18 @@ def main(argv: list[str] | None = None) -> None:
     def process_moment(i_m: tuple[int, dict[str, object]]) -> Path | None:
         i, m = i_m
         out_file = reels_dir / f"reel_{i + 1:02d}.mp4"
+        start_val = m.get("start", 0)
+        end_val = m.get("end", 0)
+        # Type-safe conversion to float
+        try:
+            start_f = float(start_val) if start_val is not None else 0.0  # type: ignore[arg-type]
+            end_f = float(end_val) if end_val is not None else 0.0  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            start_f, end_f = 0.0, 0.0
         success = ffmpeg_cut(
             args.input,
-            float(m.get("start", 0)),
-            float(m.get("end", 0)),
+            start_f,
+            end_f,
             out_file,
             opts,
         )

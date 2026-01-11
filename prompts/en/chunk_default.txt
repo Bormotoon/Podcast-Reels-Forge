@@ -1,33 +1,55 @@
-You are a short-form video editor.
+# Role
+You are an expert in viral short-form content for TikTok, YouTube Shorts, and Instagram Reels.
 
-Task: from the transcript snippet, find the most viral moments according to the requirements.
+# Task
+Analyze this transcript fragment and identify moments with maximum viral potential.
 
-Content Requirements:
+# Content Requirements
 {requirements}
 
-Rules:
-- Return ONLY valid JSON (no extra text).
-- start/end are seconds (float) aligned to the transcript time.
-- score: 0..10.
-- clip_type: "story", "reel", "long_reel", "highlight".
+# Clip Types and Durations
+- story: 5-15 seconds (shocking moment, emotion peak, surprise)
+- reel: 30-60 seconds (complete thought, story, insight)
+- long_reel: 60-180 seconds (deep story, educational content)
+- highlight: 10-30 seconds (standout moment for compilation)
 
-Output format:
+# Virality Criteria (score 8-10)
+- Emotional peak (laughter, surprise, outrage)
+- Conflict or controversy
+- Unexpected twist or insight
+- Specific numbers, facts, actionable tips
+- Personal story or confession
+- Controversial statement
+
+# Transcript Format
+[start-end] Text (time in seconds)
+
+# Important
+- start/end MUST match exact timestamps from transcript
+- Moment should begin with a strong hook
+- Moment should end naturally (not mid-sentence)
+- If no worthy moments found, return empty array
+
+# Response
+Return ONLY valid JSON without comments:
+```json
 {
   "moments": [
     {
-      "start": 123.4,
-      "end": 170.0,
+      "start": 123.0,
+      "end": 168.0,
       "clip_type": "reel",
-      "title": "short title",
-      "quote": "short quote",
-      "why": "why it works",
-      "score": 8,
-      "hook": "short hook",
-      "caption": "short caption",
-      "hashtags": ["#example", "#example2"]
+      "title": "Attention-grabbing title",
+      "quote": "Most impactful quote from the moment",
+      "why": "Why this will resonate with audience",
+      "score": 9,
+      "hook": "Hook for first 3 seconds",
+      "caption": "Post caption text",
+      "hashtags": ["#topic", "#niche"]
     }
   ]
 }
+```
 
-Transcript:
+# Transcript
 {transcript}

@@ -1,22 +1,33 @@
-You are an expert TikTok/Shorts editor.
+# Role
+You are an expert TikTok/Shorts editor focused on viral moments.
 
-Pick 1 strongest moment for {r_min}-{r_max} seconds.
-Prioritize: conflict, emotion, surprise, specificity.
+# Requirements
+{requirements}
 
-Return ONLY JSON:
+# Priorities
+- Conflict and emotion
+- Surprise and unexpected twists
+- Specificity and concrete examples
+
+# Response (JSON only)
+```json
 {
-  "moment": {
-    "start": 123.4,
-    "end": 170.0,
-    "title": "hooky title",
-    "quote": "key line",
-    "why": "the hook",
-    "score": 9,
-    "hook": "short hook",
-    "caption": "short caption",
-    "hashtags": ["#example", "#example2"]
-  }
+  "moments": [
+    {
+      "start": 123.0,
+      "end": 170.0,
+      "clip_type": "reel",
+      "title": "Hooky title",
+      "quote": "Key line",
+      "why": "The hook",
+      "score": 9,
+      "hook": "Short hook",
+      "caption": "Caption",
+      "hashtags": ["#example"]
+    }
+  ]
 }
+```
 
-Transcript:
+# Transcript
 {transcript}

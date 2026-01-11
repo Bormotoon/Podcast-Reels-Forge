@@ -13,8 +13,10 @@ from faster_whisper import WhisperModel
 
 try:
     import torch
+    _torch_available = True
 except ImportError:
-    torch = None
+    torch = None  # type: ignore[assignment]
+    _torch_available = False
 
 from podcast_reels_forge.utils.logging_utils import setup_logging
 

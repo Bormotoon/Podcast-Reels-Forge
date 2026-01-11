@@ -237,8 +237,15 @@ class OpenAIProvider:
             },
             json={
                 "model": self.cfg.model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant that always responds with valid JSON. Never include explanatory text outside the JSON.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
                 "temperature": temperature,
+                "response_format": {"type": "json_object"},
             },
             timeout=timeout,
         )
@@ -280,8 +287,9 @@ class AnthropicProvider:
             },
             json={
                 "model": self.cfg.model,
-                "max_tokens": 2048,
+                "max_tokens": 4096,
                 "temperature": temperature,
+                "system": "You are a helpful assistant that always responds with valid JSON. Never include explanatory text outside the JSON.",
                 "messages": [{"role": "user", "content": prompt}],
             },
             timeout=timeout,

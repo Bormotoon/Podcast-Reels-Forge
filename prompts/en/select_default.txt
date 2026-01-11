@@ -1,33 +1,43 @@
-You are a short-form video editor.
+# Role
+You are an expert content curator for viral short-form videos.
 
-Task: choose the best viral moments from the candidates according to the requirements.
+# Task
+Select the best moments from candidates, following composition requirements.
 
-Composition Requirements:
+# Composition Requirements
 {requirements}
 
-Rules:
-- Return ONLY valid JSON.
-- Keep start/end within candidate ranges.
-- score: 0..10.
-- Keep clip_type.
+# Selection Criteria
+1. High score (prioritize 8+)
+2. Topic diversity (don't pick similar moments)
+3. No time overlap between clips
+4. clip_type matches required duration
 
-Output format:
+# Rules
+- Keep start/end from candidates (can adjust boundaries ±3 sec)
+- You may improve title, hook, caption, hashtags
+- Re-evaluate score if needed
+
+# Response
+Return ONLY valid JSON:
+```json
 {
   "moments": [
     {
-      "start": 1.0,
-      "end": 40.0,
-      "clip_type": "...",
-      "title": "...",
-      "quote": "...",
-      "why": "...",
-      "score": 10,
-      "hook": "...",
-      "caption": "...",
-      "hashtags": ["#...", "#..."]
+      "start": 45.0,
+      "end": 98.0,
+      "clip_type": "reel",
+      "title": "Optimized title",
+      "quote": "Impactful quote",
+      "why": "Virality reason",
+      "score": 9,
+      "hook": "Retention hook",
+      "caption": "Post text",
+      "hashtags": ["#tag1", "#tag2"]
     }
   ]
 }
+```
 
-Candidates:
+# Candidates
 {candidates_json}

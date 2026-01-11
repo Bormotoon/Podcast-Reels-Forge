@@ -6,6 +6,7 @@ EN: Utilities for extracting JSON from unstructured text.
 from __future__ import annotations
 
 import json
+import re
 from json import JSONDecodeError
 from typing import Any
 
@@ -15,6 +16,18 @@ def extract_first_json_object(text: str) -> dict[str, Any]:
 
     EN: Find and parse the first valid JSON object in the text.
     """
+    # Try to find JSON in markdown code blocks first
+    code_block_pattern = r'```(?:json)?\s*(\{[\s\S]*?\})\s*```'
+    match = re.search(code_block_pattern, text)
+    if match:
+        try:
+            obj = json.loads(match.group(1))
+            if isinstance(obj, dict):
+                return obj
+        except JSONDecodeError:
+            pass
+
+    # Fall back to scanning for { character
     decoder = json.JSONDecoder()
     for idx, ch in enumerate(text):
         if ch != "{":
@@ -23,8 +36,6 @@ def extract_first_json_object(text: str) -> dict[str, Any]:
             obj, _ = decoder.raw_decode(text, idx)
             if isinstance(obj, dict):
                 return obj
-            message = "JSON object is not a dictionary"
-            raise ValueError(message)
         except JSONDecodeError:
             continue
 

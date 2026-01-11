@@ -18,7 +18,7 @@ try:
     from tqdm import tqdm
 except ImportError:  # pragma: no cover
 
-    def tqdm(iterable: object, **_: object) -> object:  # type: ignore[no-redef]
+    def tqdm(iterable: object, **_: object) -> object:
         return iterable
 
 from podcast_reels_forge.llm.providers import (
@@ -110,9 +110,22 @@ def segments_to_compact_text(segments: list[dict[str, Any]], max_chars: int) -> 
 
     EN: Convert segments to a dense text format for LLM input.
     """
-    return "\n".join(
-        f"[{int(seg['start'])}-{int(seg['end'])}] {seg['text']}" for seg in segments
-    )[:max_chars]
+    lines = []
+    for seg in segments:
+        start = int(seg.get('start', 0))
+        end = int(seg.get('end', 0))
+        text = seg.get('text', '').strip()
+        if text:
+            lines.append(f"[{start}-{end}] {text}")
+    
+    result = "\n".join(lines)
+    if len(result) > max_chars:
+        # Truncate at word boundary if possible
+        result = result[:max_chars]
+        last_newline = result.rfind('\n')
+        if last_newline > max_chars * 0.8:
+            result = result[:last_newline]
+    return result
 
 
 def _render_prompt(template: str, values: dict[str, str]) -> str:

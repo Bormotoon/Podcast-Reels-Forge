@@ -30,7 +30,7 @@ try:
     from tqdm import tqdm
 except ImportError:  # pragma: no cover
 
-    def tqdm(iterable: object, **_: object) -> object:  # type: ignore[no-redef]
+    def tqdm(iterable: object, **_: object) -> object:
         return iterable
 
 from podcast_reels_forge.utils.ollama_service import (

@@ -9,7 +9,7 @@ import logging
 from typing import Final
 
 try:
-    import coloredlogs  # type: ignore[import-not-found]
+    import coloredlogs
 except ImportError:  # pragma: no cover - optional dependency
     coloredlogs = None
 

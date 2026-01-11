@@ -1,11 +1,28 @@
-Choose {count} candidates that maximize retention.
+# Task
+Choose candidates that maximize retention.
 
-Return ONLY JSON:
+# Requirements
+{requirements}
+
+# Response (JSON only)
+```json
 {
   "moments": [
-    {"start": 1.0, "end": 40.0, "title": "...", "quote": "...", "why": "...", "score": 10, "hook": "...", "caption": "...", "hashtags": ["#...", "#..."]}
+    {
+      "start": 1.0,
+      "end": 40.0,
+      "clip_type": "reel",
+      "title": "...",
+      "quote": "...",
+      "why": "...",
+      "score": 10,
+      "hook": "...",
+      "caption": "...",
+      "hashtags": ["#..."]
+    }
   ]
 }
+```
 
-Candidates:
+# Candidates
 {candidates_json}
