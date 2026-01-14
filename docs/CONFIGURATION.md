@@ -58,20 +58,6 @@ transcription:
 | int8_float16 | Очень быстро | Хорошая | SM >= 7.0 |
 | int8 | Очень быстро | Средняя | Все |
 
-### llm — Провайдер LLM
-
-llm — LLM provider
-
-```yaml
-llm:
-  provider: "ollama"   # ollama | openai | anthropic | gemini
-  
-  # Модели для облачных провайдеров / Models for cloud providers
-  openai_model: "gpt-4o-mini"
-  anthropic_model: "claude-3-5-sonnet-20241022"
-  gemini_model: "gemini-1.5-flash"
-```
-
 ### ollama — Настройки Ollama
 
 ollama — Ollama settings
@@ -79,7 +65,13 @@ ollama — Ollama settings
 ```yaml
 ollama:
   url: "http://127.0.0.1:11434/api/generate"
-  model: "gemma2:9b"
+  # Все модели будут прогнаны по очереди; результат — в output/<model>/
+  models:
+    - "qwen3:latest"
+    - "deepseek-r1:8b"
+    - "gemma3:4b"
+    - "gemma2:9b"
+    - "gemini-3-flash-preview:latest"
   timeout: 900           # Таймаут запроса (сек) / Request timeout (sec)
   temperature: 0.3       # Креативность (0.0 - 1.0) / Creativity (0.0 - 1.0)
   chunk_seconds: 600     # Размер чанка (сек) / Chunk size (sec)
@@ -129,7 +121,7 @@ processing:
   reels_count: 4          # [Legacy] Общее количество клипов / Total clips count
   reel_min_duration: 30   # Мин. длина (сек) / Min length (sec)
   reel_max_duration: 60   # Макс. длина (сек) / Max length (sec)
-  reel_padding: 0         # Отступ (сек) / Padding (sec)
+  reel_padding: 5         # Отступ (сек) / Padding (sec)
 ```
 
 ### exports — Экспорт форматов
@@ -186,9 +178,6 @@ diarization:
 
 | Переменная / Variable | Описание / Description |
 | ------------ | ---------- |
-| `OPENAI_API_KEY` | API ключ OpenAI |
-| `ANTHROPIC_API_KEY` | API ключ Anthropic |
-| `GEMINI_API_KEY` | API ключ Google Gemini |
 | `PYANNOTE_TOKEN` | Токен Hugging Face для pyannote |
 | `WHISPER_VENV_ACTIVE` | Флаг активации venv (внутренний) |
 
@@ -210,44 +199,17 @@ transcription:
   device: "cuda"
   language: "auto"
 
-llm:
-  provider: "ollama"
-
 ollama:
-  model: "gemma2:9b"
+  models:
+    - "qwen3:latest"
+    - "deepseek-r1:8b"
+    - "gemma3:4b"
+    - "gemma2:9b"
+    - "gemini-3-flash-preview:latest"
 
 processing:
   reels_count: 4
-```
-
-### Конфигурация для OpenAI
-
-Configuration for OpenAI
-
-```yaml
-paths:
-  input_dir: "input"
-  output_dir: "output"
-
-transcription:
-  model: "medium"
-  device: "cuda"
-  language: "auto"
-
-llm:
-  provider: "openai"
-  openai_model: "gpt-4o"
-
-processing:
-  reels_count: 6
-  reel_min_duration: 20
-  reel_max_duration: 90
-
-video:
-  vertical_crop: true
-
-exports:
-  webm: true
+  reel_padding: 5
 ```
 
 ### Конфигурация для слабого GPU
@@ -261,7 +223,8 @@ transcription:
   compute_type: "float32"
 
 ollama:
-  model: "gemma2:2b"
+  models:
+    - "qwen3:latest"
   timeout: 1800
 
 video:

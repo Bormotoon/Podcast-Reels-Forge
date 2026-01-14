@@ -38,7 +38,7 @@ podcast_reels_forge/
 │   └── video_stage.py       # Конфиги видео / Video configs
 ├── llm/                 # LLM провайдеры / LLM providers
 │   ├── __init__.py
-│   └── providers.py     # Ollama, OpenAI, Anthropic, Gemini
+│   └── providers.py     # Ollama
 └── utils/               # Утилиты / Utilities
     ├── __init__.py
     ├── json_utils.py    # Извлечение JSON из текста / Extract JSON from text
@@ -133,40 +133,14 @@ class LLMProvider(Protocol):
 class OllamaProvider:
     def __init__(self, cfg: OllamaConfig): ...
     def generate(self, prompt: str, *, temperature: float, timeout: int) -> str: ...
-
-class OpenAIProvider:
-    def __init__(self, cfg: OpenAIConfig): ...
-    def generate(self, prompt: str, *, temperature: float, timeout: int) -> str: ...
 ```
 
-### Добавление нового провайдера
+### Добавление новой модели
 
-Adding a new provider
+Adding a new model
 
-1. Создайте dataclass для конфигурации:
-
-   ```python
-   @dataclass(frozen=True)
-   class NewProviderConfig:
-       api_key: str
-       model: str
-   ```
-
-1. Реализуйте класс провайдера:
-
-   ```python
-   class NewProvider:
-       def __init__(self, cfg: NewProviderConfig):
-           self.cfg = cfg
-
-       def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
-           # Реализация API вызова / API call implementation
-           ...
-   ```
-
-1. Добавьте в `create_provider()` в `scripts/analyze.py`
-
-1. Обновите pipeline.py для поддержки нового провайдера
+1. Установите модель в Ollama: `ollama pull <model>`
+2. Добавьте её в список `ollama.models` в config.yaml
 
 ### JSON Utils (utils/json_utils.py)
 

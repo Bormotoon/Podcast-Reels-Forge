@@ -79,13 +79,21 @@ def test_run_pipeline_builds_and_calls_stages(
     conf = {
         "paths": {"input_dir": str(input_dir), "output_dir": str(tmp_path / "output")},
         "transcription": {"language": "auto"},
-        "llm": {"provider": "ollama"},
-        "ollama": {"model": "m", "url": "http://127.0.0.1:11434/api/generate"},
+        "ollama": {
+            "models": [
+                "qwen3:latest",
+                "deepseek-r1:8b",
+                "gemma3:4b",
+                "gemma2:9b",
+                "gemini-3-flash-preview:latest",
+            ],
+            "url": "http://127.0.0.1:11434/api/generate",
+        },
         "processing": {
             "reels_count": 2,
             "reel_min_duration": 10,
             "reel_max_duration": 20,
-            "reel_padding": 0,
+            "reel_padding": 5,
         },
         "video": {"threads": 1, "vertical_crop": True},
         "exports": {"webm": True, "gif": False, "audio_only": True},
@@ -105,19 +113,17 @@ def test_run_pipeline_builds_and_calls_stages(
         message = "Expected all stage modules to be invoked"
         raise AssertionError(message)
 
-    analyze_call = next((c for c in calls if "analyze" in c[0]), None)
-    analyze_args = analyze_call[1] if analyze_call else None
-    if analyze_args is None:
-        message = "Analyze stage args not captured"
+    analyze_calls = [c for c in calls if "podcast_reels_forge.scripts.analyze" in c[0]]
+    if len(analyze_calls) != 5:
+        message = f"Expected 5 analyze runs (one per model), got: {len(analyze_calls)}"
         raise AssertionError(message)
-    if "--provider" not in analyze_args or "--prompt-variant" not in analyze_args:
-        message = "Analyze stage missing required CLI args"
-        raise AssertionError(message)
-
-    analyze_env = analyze_call[2] if analyze_call else None
-    if not analyze_env or analyze_env.get("FORGE_MANAGED_OLLAMA") != "1":
-        message = "Expected pipeline to pass FORGE_MANAGED_OLLAMA=1 to analyze stage"
-        raise AssertionError(message)
+    for _module, analyze_args, analyze_env in analyze_calls:
+        if "--provider" not in analyze_args or "--prompt-variant" not in analyze_args:
+            message = "Analyze stage missing required CLI args"
+            raise AssertionError(message)
+        if not analyze_env or analyze_env.get("FORGE_MANAGED_OLLAMA") != "1":
+            message = "Expected pipeline to pass FORGE_MANAGED_OLLAMA=1 to analyze stage"
+            raise AssertionError(message)
 
     if started != [("127.0.0.1", 11434)]:
         message = f"Expected Ollama to be started once, got: {started}"
@@ -126,11 +132,14 @@ def test_run_pipeline_builds_and_calls_stages(
         message = f"Expected Ollama to be stopped, got: {stopped}"
         raise AssertionError(message)
 
-    video_call = next((c for c in calls if "video_processor" in c[0]), None)
-    video_args = video_call[1] if video_call else None
-    if video_args is None:
-        message = "Video stage args not captured"
+    video_calls = [c for c in calls if "podcast_reels_forge.scripts.video_processor" in c[0]]
+    if len(video_calls) != 5:
+        message = f"Expected 5 video runs (one per model), got: {len(video_calls)}"
         raise AssertionError(message)
-    if "--export-webm" not in video_args or "--export-audio" not in video_args:
-        message = "Video stage missing export flags"
-        raise AssertionError(message)
+    for _module, video_args, _env in video_calls:
+        if "--export-webm" not in video_args or "--export-audio" not in video_args:
+            message = "Video stage missing export flags"
+            raise AssertionError(message)
+        if "--padding" not in video_args:
+            message = "Video stage missing padding flag"
+            raise AssertionError(message)

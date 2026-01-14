@@ -19,7 +19,7 @@
 ### 🎯 What this tool does
 
 1. **Transcribes** audio/video using [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (local, GPU/CPU)
-2. **Analyzes** the transcript with LLM (Ollama, OpenAI, Anthropic, Gemini) to find the most interesting moments
+2. **Analyzes** the transcript with an LLM (Ollama) to find the most interesting moments
 3. **Cuts** the video into ready clips with automatic cropping to vertical 9:16 format
 4. **Exports** to various formats (MP4, WebM, GIF, audio)
 
@@ -27,7 +27,7 @@
 
 - 🚀 **Single command** — the entire pipeline runs with one command
 - 🎛️ **Flexible configuration** — all parameters in a YAML file
-- 🤖 **Multi-LLM** — support for Ollama (local), OpenAI, Anthropic, Gemini
+- 🧠 **Multi-model analysis** — runs several LLMs and stores results per model
 - 🌍 **Multilingual** — prompts in Russian and English, auto-detection of language
 - 📊 **A/B testing** — built-in prompt quality evaluation
 - 🎬 **Vertical format** — automatic crop from 16:9 to 9:16 for social media
@@ -68,10 +68,10 @@ cp your_podcast.mp4 input/
 # 2. Run the pipeline
 python3 start_forge.py
 
-# 3. Results will be in output/ folder
-#    - output/reels/         — ready clips
-#    - output/moments.json   — moment metadata
-#    - output/reels.md       — descriptions for publishing
+# 3. Results will be in output/ (per-model folders)
+#    - output/<model>/reels/       — ready clips
+#    - output/<model>/moments.json — moment metadata
+#    - output/<model>/reels.md     — descriptions for publishing
 ```
 
 ---
@@ -85,9 +85,11 @@ podcast-reels-forge/
 ├── requirements.txt            # Dependencies
 ├── input/                      # Input video/audio files
 ├── output/                     # Processing results
-│   ├── reels/                  # Ready clips
-│   ├── moments.json            # Found moments
-│   └── reels.md                # Clip descriptions
+│   ├── qwen3/                  # qwen3 results
+│   ├── deepseek/               # deepseek results
+│   ├── gemma3/                 # gemma3 results
+│   ├── gemma2/                 # gemma2 results
+│   └── gemini3/                # gemini3 results
 ├── prompts/                    # LLM prompts
 │   ├── ru/                     # Russian prompts
 │   └── en/                     # English prompts
@@ -131,17 +133,16 @@ transcription:
   beam_size: 5
   compute_type: "int8_float16"
 
-# LLM provider
-llm:
-  provider: "ollama"          # ollama | openai | anthropic | gemini
-  openai_model: "gpt-4o-mini"
-  anthropic_model: "claude-3-5-sonnet-20241022"
-  gemini_model: "gemini-1.5-flash"
-
-# Ollama settings (if provider: ollama)
+# Ollama settings (local models)
 ollama:
   url: "http://127.0.0.1:11434/api/generate"
-  model: "gemma2:9b"
+  # All models will run; results go to output/<model>/
+  models:
+    - "qwen3:latest"
+    - "deepseek-r1:8b"
+    - "gemma3:4b"
+    - "gemma2:9b"
+    - "gemini-3-flash-preview:latest"
   timeout: 900
   temperature: 0.3
 
@@ -155,7 +156,7 @@ processing:
   reels_count: 4              # Number of clips
   reel_min_duration: 30       # Min clip length (sec)
   reel_max_duration: 60       # Max clip length (sec)
-  reel_padding: 0             # Padding around moment (sec)
+  reel_padding: 5             # Padding around moment (sec)
 
 # Export additional formats
 exports:
@@ -179,55 +180,29 @@ diarization:
 
 ---
 
-## 🤖 LLM Providers
+## 🤖 LLM (Ollama)
 
-### Ollama (local, default)
+### Ollama (local)
 
 ```bash
 # Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Pull a model
+# Pull models
+ollama pull qwen3:latest
+ollama pull deepseek-r1:8b
+ollama pull gemma3:4b
 ollama pull gemma2:9b
+ollama pull gemini-3-flash-preview:latest
 
 # Configuration
-llm:
-  provider: "ollama"
 ollama:
-  model: "gemma2:9b"
-```
-
-### OpenAI
-
-```bash
-export OPENAI_API_KEY="sk-..."
-
-# Configuration
-llm:
-  provider: "openai"
-  openai_model: "gpt-4o-mini"
-```
-
-### Anthropic (Claude)
-
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# Configuration
-llm:
-  provider: "anthropic"
-  anthropic_model: "claude-3-5-sonnet-20241022"
-```
-
-### Google Gemini
-
-```bash
-export GEMINI_API_KEY="..."
-
-# Configuration
-llm:
-  provider: "gemini"
-  gemini_model: "gemini-1.5-flash"
+  models:
+    - "qwen3:latest"
+    - "deepseek-r1:8b"
+    - "gemma3:4b"
+    - "gemma2:9b"
+    - "gemini-3-flash-preview:latest"
 ```
 
 ---

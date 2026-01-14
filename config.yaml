@@ -23,7 +23,14 @@ transcription:
 
 ollama:
   url: "http://127.0.0.1:11434/api/generate"
-  model: "gemma3:4b"
+  # Only these models are supported by default.
+  # Each one will run analysis into its own folder under output/.
+  models:
+    - "qwen3:latest"
+    - "deepseek-r1:8b"
+    - "gemma3:4b"
+    - "gemma2:9b"
+    - "gemini-3-flash-preview:latest"
   timeout: 900
   temperature: 0.3
   chunk_seconds: 600
@@ -35,16 +42,8 @@ ollama:
     stall_timeout: 120        # seconds without output during streaming
     log_interval: 10          # progress heartbeat interval (sec)
     max_retries: 2
-  # Optional: try these models in order if the primary model stalls.
+  # Optional: try these models in order if the current model stalls.
   fallback_models: []
-
-llm:
-  provider: "ollama"     # ollama | openai | anthropic | gemini
-  openai_model: "gpt-4o-mini"
-  anthropic_model: "claude-3-5-sonnet-20241022"
-  gemini_model: "gemini-1.5-flash"
-  # API keys are taken from env vars:
-  # OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY
 
 prompts:
   language: "ru"          # ru|en
@@ -69,7 +68,7 @@ processing:
   reels_count: 4          # [Legacy/Default] Total number of clips if 'clips' is not used
   reel_min_duration: 30    # Minimum reel length (seconds)
   reel_max_duration: 60    # Maximum reel length (seconds)
-  reel_padding: 0         # Extra seconds around the moment
+  reel_padding: 5         # Extra seconds around the moment (5s before + 5s after)
 
 exports:
   webm: false
