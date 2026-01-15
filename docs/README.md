@@ -6,6 +6,7 @@ This folder contains additional documentation for Podcast Reels Forge.
 
 ## Содержание / Contents
 
+- [USER_GUIDE.md](USER_GUIDE.md) — Руководство пользователя / User guide
 - [CONFIGURATION.md](CONFIGURATION.md) — Подробное описание конфигурации / Detailed configuration guide
 - [PROMPTS.md](PROMPTS.md) — Руководство по промптам / Prompts guide
 - [DEVELOPMENT.md](DEVELOPMENT.md) — Руководство для разработчиков / Developer guide

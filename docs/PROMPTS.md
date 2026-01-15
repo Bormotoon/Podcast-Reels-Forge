@@ -34,47 +34,59 @@ This prompt is used to analyze each time chunk of the transcript.
 
 **Доступные переменные:**
 
-**Ожидаемый формат ответа:**
+**Ожидаемый формат ответа (по умолчанию):**
 
-Expected response format:
+Expected response format (default):
 
 ```json
-{
-  "moment": {
+[
+  {
     "start": 123.45,
-    "end": 178.90,
-    "title": "Название момента / Moment title",
-    "quote": "Ключевая цитата / Key quote",
-    "why": "Почему это виральный момент / Why it's viral"
+    "end": 178.9,
+    "title": "...",
+    "quote": "...",
+    "why": "...",
+    "score": 0.9,
+    "clip_type": "reel",
+    "hook": "...",
+    "caption": "...",
+    "hashtags": ["#podcast", "#shorts"]
   }
-}
+]
 ```
+
+Примечание / Note:
+- Скрипт анализа допускает и другие обёртки (например `{ "moments": [...] }` или `{ "moment": {...} }`),
+  но для стабильности рекомендуется возвращать **JSON-массив** напрямую.
 
 ### select_*.txt — Финальный выбор
 
-Этот промпт используется для выбора лучших моментов из всех найденных кандидатов.
+Этот промпт **сохранён для экспериментов**, но в текущем дефолтном пайплайне
+финальный LLM-selection **не используется**: лучшие моменты выбираются локально
+по `score`.
 
-This prompt selects the best moments from all candidates.
+This prompt is **kept for experiments**, but the current default pipeline does
+**not** run a final LLM selection pass: top moments are selected locally by `score`.
 
 **Доступные переменные:**
 
-**Ожидаемый формат ответа:**
+Если вы используете `select_*` вручную, рекомендуется формат:
 
-Expected response format:
+If you use `select_*` manually, recommended format:
 
 ```json
 {
   "moments": [
     {
       "start": 123.45,
-      "end": 178.90,
-      "title": "Название / Title",
-      "quote": "Цитата / Quote",
-      "why": "Причина / Why",
+      "end": 178.9,
+      "title": "...",
+      "quote": "...",
+      "why": "...",
       "score": 0.95,
-      "hook": "Крючок / Hook",
-      "caption": "Подпись / Caption",
-      "hashtags": ["#подкаст/#podcast", "#интервью/#interview"]
+      "hook": "...",
+      "caption": "...",
+      "hashtags": ["#podcast", "#shorts"]
     }
   ]
 }

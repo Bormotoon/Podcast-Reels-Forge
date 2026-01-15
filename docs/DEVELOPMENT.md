@@ -155,14 +155,14 @@ def extract_first_json_object(text: str) -> dict:
     Обрабатывает случаи:
     - JSON внутри markdown-блока
     - JSON с текстом до/после
-    - Невалидный JSON (базовый ремонт)
+    - Извлечение первого валидного JSON-фрагмента (без дополнительных LLM-вызовов)
 
     EN: Extracts the first JSON object from text.
 
     Handles:
     - JSON inside a markdown block
     - JSON with surrounding text
-    - Invalid JSON (basic repair)
+    - Extracting the first valid JSON fragment (no extra LLM repair call)
     """
 ```
 

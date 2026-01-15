@@ -41,6 +41,7 @@ class FfmpegOptions:
 
     vertical_crop: bool
     smart_crop_face: bool
+    use_nvenc: bool
     v_bitrate: str
     a_bitrate: str
     preset: str
@@ -119,9 +120,10 @@ def ffmpeg_cut(
     if filters:
         cmd += ["-vf", ",".join(filters)]
 
+    vcodec = "h264_nvenc" if opts.use_nvenc else "libx264"
     cmd += [
         "-c:v",
-        "h264_nvenc",
+        vcodec,
         "-preset",
         opts.preset,
         "-b:v",
@@ -134,7 +136,8 @@ def ffmpeg_cut(
     ]
 
     res = _run_subprocess(cmd)
-    if res.returncode != 0:
+    if res.returncode != 0 and opts.use_nvenc:
+        # Fallback to software x264 if NVENC is unavailable.
         cmd[cmd.index("h264_nvenc")] = "libx264"
         res = _run_subprocess(cmd)
 
@@ -268,6 +271,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--v-bitrate", default="5M", help="Video bitrate")
     ap.add_argument("--a-bitrate", default="192k", help="Audio bitrate")
     ap.add_argument("--preset", default="fast", help="FFmpeg preset")
+    ap.add_argument(
+        "--nvenc",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use NVENC if available (default: enabled)",
+    )
     ap.add_argument("--padding", type=float, default=0, help="Extra seconds around moment")
     ap.add_argument("--export-webm", action="store_true", help="Export reels as .webm")
     ap.add_argument("--export-gif", action="store_true", help="Export reels as .gif")
@@ -305,6 +314,7 @@ def main(argv: list[str] | None = None) -> None:
     opts = FfmpegOptions(
         vertical_crop=args.vertical,
         smart_crop_face=bool(args.smart_crop_face),
+        use_nvenc=bool(args.nvenc),
         v_bitrate=args.v_bitrate,
         a_bitrate=args.a_bitrate,
         preset=args.preset,

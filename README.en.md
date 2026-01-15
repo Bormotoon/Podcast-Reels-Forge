@@ -1,335 +1,293 @@
 # 🎙️ Podcast Reels Forge
 
-## Automatically create viral clips (Reels/Shorts) from podcasts
-
-## Автоматическое создание вирусных клипов (Reels/Shorts) из подкастов
+## Automatically create Reels/Shorts from podcasts (local-first)
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 **English** | [Русский](README.md)
 
 ---
 
-## 📋 Description
+## 📌 Table of contents
 
-**Podcast Reels Forge** is a command-line tool for automatically creating short viral videos (Reels, Shorts, TikTok) from long podcasts and interviews.
-
-### 🎯 What this tool does
-
-1. **Transcribes** audio/video using [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (local, GPU/CPU)
-2. **Analyzes** the transcript with an LLM (Ollama) to find the most interesting moments
-3. **Cuts** the video into ready clips with automatic cropping to vertical 9:16 format
-4. **Exports** to various formats (MP4, WebM, GIF, audio)
-
-### ✨ Key Features
-
-- 🚀 **Single command** — the entire pipeline runs with one command
-- 🎛️ **Flexible configuration** — all parameters in a YAML file
-- 🧠 **Multi-model analysis** — runs several LLMs and stores results per model
-- 🌍 **Multilingual** — prompts in Russian and English, auto-detection of language
-- 📊 **A/B testing** — built-in prompt quality evaluation
-- 🎬 **Vertical format** — automatic crop from 16:9 to 9:16 for social media
-- 🔄 **Parallel processing** — multi-threaded video cutting via FFmpeg
+- What the project does
+- Quick start
+- Pipeline overview
+- Output layout
+- Models and `output/<model>/`
+- Re-render video from existing `moments.json` (no LLM)
+- Face-aware smart crop
+- Running individual stages
+- Configuration (`config.yaml`)
+- Performance & stability
+- Troubleshooting / FAQ
+- Documentation
 
 ---
 
-## 🚀 Quick Start
+## 📋 What it does
+
+**Podcast Reels Forge** is a CLI tool that:
+1) transcribes audio/video via `faster-whisper` (CUDA/CPU),
+2) finds “viral moments” via an LLM (default: Ollama),
+3) cuts clips via FFmpeg,
+4) stores outputs **per model** under `output/<model>/`.
+
+Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
+
+---
+
+## ✨ Key features
+
+- **5 supported models** (qwen3/deepseek/gemma3/gemma2/gemini3) with separate outputs.
+- **Single-pass analysis**: no multi-iteration “boosting”, no repair/selection loops.
+- **Resilient**: if one model fails/stalls, the pipeline continues with others.
+- **Ollama watchdog** (first-token / stall timeouts) + per-model overrides.
+- **Vertical 9:16 cutting** in the pipeline, plus a **strict re-render** script for guaranteed export.
+- **Optional face-aware smart crop**: shifts 9:16 crop window toward detected faces.
+
+---
+
+## 🚀 Quick start
 
 ### Requirements
 
 - Python 3.10+
-- FFmpeg (installed system-wide)
-- CUDA (optional, for GPU acceleration)
-- Ollama (optional, for local LLM)
+- FFmpeg: `ffmpeg` and `ffprobe` available in PATH
+- Ollama (for local LLM)
 
-### Installation
+Check:
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/podcast-reels-forge.git
-cd podcast-reels-forge
+ffmpeg -version
+ffprobe -version
+```
 
-# Create virtual environment
+### Install
+
+```bash
 python3 -m venv whisper-env
 source whisper-env/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-### Usage
+### Prepare input
+
+Put your video/audio into `input/`. The pipeline picks the **newest** matching file.
 
 ```bash
-# 1. Put video in input/ folder
-cp your_podcast.mp4 input/
+cp /path/to/video.mp4 input/video.mp4
+```
 
-# 2. Run the pipeline
+### Run the full pipeline
+
+```bash
 python3 start_forge.py
-
-# 3. Results will be in output/ (per-model folders)
-#    - output/<model>/reels/       — ready clips
-#    - output/<model>/moments.json — moment metadata
-#    - output/<model>/reels.md     — descriptions for publishing
 ```
+
+Useful flags:
+- `--verbose` for detailed logs
+- `--quiet` for errors-only
+- `--no-skip-existing` to rerun stages even if outputs exist
 
 ---
 
-## 📁 Project Structure
+## 🔩 Pipeline overview
 
-```text
-podcast-reels-forge/
-├── start_forge.py              # Main entry point
-├── config.yaml                 # Pipeline configuration
-├── requirements.txt            # Dependencies
-├── input/                      # Input video/audio files
-├── output/                     # Processing results
-│   ├── qwen3/                  # qwen3 results
-│   ├── deepseek/               # deepseek results
-│   ├── gemma3/                 # gemma3 results
-│   ├── gemma2/                 # gemma2 results
-│   └── gemini3/                # gemini3 results
-├── prompts/                    # LLM prompts
-│   ├── ru/                     # Russian prompts
-│   └── en/                     # English prompts
-├── podcast_reels_forge/        # Main package
-│   ├── pipeline.py             # Pipeline orchestration
-│   ├── scripts/                # CLI scripts for stages
-│   │   ├── analyze.py          # LLM analysis
-│   │   ├── transcribe.py       # Transcription
-│   │   ├── video_processor.py  # Video processing
-│   │   ├── diarize.py          # Diarization (optional)
-│   │   └── evaluate_prompts.py # A/B testing for prompts
-│   ├── llm/                    # LLM providers
-│   │   └── providers.py        # Ollama, OpenAI, Anthropic, Gemini
-│   ├── stages/                 # Stage modules
-│   └── utils/                  # Utilities
-└── tests/                      # Tests
-```
+Entry: [start_forge.py](start_forge.py) → [podcast_reels_forge/pipeline.py](podcast_reels_forge/pipeline.py)
+
+1) **Transcribe** → `output/<input_name>.json` (segments + timecodes)
+2) **Analyze** (per model) → `output/<model>/moments.json` and `output/<model>/reels.md`
+3) **Cut** (per model) → `output/<model>/reels/reel_XX.mp4` + `reels_preview.mp4`
+
+Important behavior:
+- The analyzer expects the LLM to return **valid JSON** (no second “repair” call).
+- There is **no** final LLM selection pass by default (top moments are chosen locally by `score`).
 
 ---
 
-## ⚙️ Configuration
+## 📁 Output layout
 
-All settings are in the `config.yaml` file:
+### Transcript
 
-```yaml
-# Directory paths
-paths:
-  input_dir: "input"
-  output_dir: "output"
+- `output/<input_name>.json` — transcription output.
 
-# CLI settings
-cli:
-  quiet: false      # Errors only
-  verbose: false    # Detailed output
+### Per-model outputs
 
-# Transcription (faster-whisper)
-transcription:
-  model: "small"              # tiny, base, small, medium, large-v3
-  device: "cuda"              # cuda or cpu
-  language: "en"              # ru, en, or auto
-  beam_size: 5
-  compute_type: "int8_float16"
+For each model folder (e.g. `output/gemma3/`):
 
-# Ollama settings (local models)
-ollama:
-  url: "http://127.0.0.1:11434/api/generate"
-  # All models will run; results go to output/<model>/
-  models:
-    - "qwen3:latest"
-    - "deepseek-r1:8b"
-    - "gemma3:4b"
-    - "gemma2:9b"
-    - "gemini-3-flash-preview:latest"
-  timeout: 900
-  temperature: 0.3
+- `moments.json` — extracted moments (start/end/title/quote/why/score/...)
+- `reels.md` — text snippets/metadata
+- `reels/` — cut clips `reel_01.mp4`, `reel_02.mp4`, ...
+- `reels_preview.mp4` — concatenated preview
 
-# Prompts
-prompts:
-  language: "en"              # ru | en | auto
-  variant: "default"          # default | a | b (A/B testing)
-
-# Processing parameters
-processing:
-  reels_count: 4              # Number of clips
-  reel_min_duration: 30       # Min clip length (sec)
-  reel_max_duration: 60       # Max clip length (sec)
-  reel_padding: 5             # Padding around moment (sec)
-
-# Export additional formats
-exports:
-  webm: false
-  gif: false
-  audio_only: false
-
-# Video settings
-video:
-  threads: 4
-  vertical_crop: true         # Crop to 9:16
-  video_bitrate: "5M"
-  audio_bitrate: "192k"
-  preset: "fast"
-
-# Diarization (optional)
-diarization:
-  enabled: false
-  model: "pyannote/speaker-diarization"
-```
+Model folder names are stable and short:
+- `qwen3`, `deepseek`, `gemma3`, `gemma2`, `gemini3`
 
 ---
 
-## 🤖 LLM (Ollama)
+## 🎞️ Re-render video from existing moments.json (no LLM)
 
-### Ollama (local)
+This is the best way to fix format/quality without re-running analysis.
+
+Root launcher: [rerender_videos.py](rerender_videos.py)
+
+Examples:
 
 ```bash
-# Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
+# One model
+python3 rerender_videos.py --model gemma3
 
-# Pull models
-ollama pull qwen3:latest
-ollama pull deepseek-r1:8b
-ollama pull gemma3:4b
-ollama pull gemma2:9b
-ollama pull gemini-3-flash-preview:latest
+# All models under output/
+python3 rerender_videos.py
+```
 
-# Configuration
-ollama:
-  models:
-    - "qwen3:latest"
-    - "deepseek-r1:8b"
-    - "gemma3:4b"
-    - "gemma2:9b"
-    - "gemini-3-flash-preview:latest"
+Default behavior:
+- reads `output/<model>/moments.json`
+- writes to `output/<model>/reels_rerendered/`
+- **never overwrites**: if a filename exists, it creates `reel_01_2.mp4`, `reel_01_3.mp4`, ...
+
+Default export settings:
+- 1080x1920
+- 30fps
+- H.264 (`libx264`)
+- AAC
+- `-b:v 5000k`
+
+To overwrite into `reels/`:
+
+```bash
+python3 rerender_videos.py --model gemma3 --replace
 ```
 
 ---
 
-## 📊 A/B Testing Prompts
+## 🙂 Face-aware smart crop (optional)
 
-The tool includes a system for comparing quality of different prompts:
+Enable for re-render:
 
 ```bash
-# Run evaluation of all variants
-python -m podcast_reels_forge.scripts.evaluate_prompts \
-    --transcript output/transcript.json \
-    --outdir output \
-    --variants default,a,b
-
-# Results in output/prompt_eval.json
+python3 rerender_videos.py --model gemma3 --smart-crop-face
 ```
 
-Prompt files are located in `prompts/ru/` and `prompts/en/`:
+Tuning:
+- `--face-samples 7` — how many frames to sample per clip
+- `--face-min-size 60` — minimum detected face size
 
-- `chunk_default.txt`, `chunk_a.txt`, `chunk_b.txt` — prompts for chunk analysis
-- `select_default.txt`, `select_a.txt`, `select_b.txt` — prompts for final selection
+Notes:
+- Uses OpenCV Haar cascade (fast, offline).
+- Falls back to center-crop when no face is detected.
 
 ---
 
-## 🔧 CLI Options
+## 🧩 Running individual stages
+
+### Transcription only
 
 ```bash
-python3 start_forge.py --help
-
-# Options:
-#   --config CONFIG   Path to config.yaml (default: config.yaml)
-#   --quiet           Errors only
-#   --verbose         Detailed output
-```
-
-### Running Individual Stages
-
-```bash
-# Transcription only
 python -m podcast_reels_forge.scripts.transcribe \
-    --input input/video.mp4 \
-    --outdir output \
-    --model medium \
-    --language en
-
-# Analysis only
-python -m podcast_reels_forge.scripts.analyze \
-    --transcript output/video.json \
-    --outdir output \
-    --provider ollama \
-    --model gemma2:9b
-
-# Video cutting only
-python -m podcast_reels_forge.scripts.video_processor \
-    --input input/video.mp4 \
-    --moments output/moments.json \
-    --outdir output \
-    --vertical
+	--input input/video.mp4 \
+	--outdir output \
+	--model medium \
+	--language en
 ```
 
----
-
-## 🧪 Development
+### Analysis only (single model)
 
 ```bash
-# Install development dependencies
-pip install -r requirements-dev.txt
+python -m podcast_reels_forge.scripts.analyze \
+	--transcript output/video.json \
+	--outdir output/gemma2 \
+	--provider ollama \
+	--model gemma2:9b \
+	--timeout 600 \
+	--chunk-seconds 600
+```
 
-# Run tests
-pytest
+### Cutting only (pipeline cutter)
 
-# Type checking
-mypy podcast_reels_forge/
+```bash
+python -m podcast_reels_forge.scripts.video_processor \
+	--input input/video.mp4 \
+	--moments output/gemma3/moments.json \
+	--outdir output/gemma3 \
+	--vertical \
+	--padding 5
+```
 
-# Code formatting
-black podcast_reels_forge/ tests/
+### Prompt A/B evaluation
+
+```bash
+python -m podcast_reels_forge.scripts.evaluate_prompts \
+	--transcript output/video.json \
+	--outdir output \
+	--variants default,a,b \
+	--provider ollama \
+	--model gemma2:9b
 ```
 
 ---
 
-## 📦 Output Files
+## ⚙️ Configuration (config.yaml)
 
-After running the pipeline, the `output/` folder will contain:
+File: [config.yaml](config.yaml)
 
-| File | Description |
-| ------ | ------------- |
-| `{video}.json` | Transcript with timecodes |
-| `moments.json` | Found viral moments |
-| `reels.md` | Markdown with descriptions for publishing |
-| `reels/reel_01.mp4` | Ready clips in vertical format |
-| `reels_preview.mp4` | Preview of all clips concatenated |
-| `diarization.json` | Diarization (if enabled) |
+Most important sections:
+
+### `ollama.models` + per-model overrides
+
+- The pipeline analyzes all models listed in `ollama.models`.
+- For slow models, use `ollama.model_overrides` to adjust timeouts and watchdog thresholds.
+
+### Watchdog
+
+If a model is slow to produce the first token, increase:
+- `ollama.watchdog.first_token_timeout`
+
+If a model stalls mid-stream, increase:
+- `ollama.watchdog.stall_timeout`
 
 ---
 
-## ❓ FAQ
+## ⚡ Performance & stability
 
-### How to choose a Whisper model?
+- If everything is slow: increase `ollama.chunk_seconds` (fewer requests), but watch quality.
+- If qwen3/deepseek need warm-up: use `ollama.model_overrides` with bigger `first_token_timeout`.
+- If Whisper hits CUDA OOM: reduce `transcription.model` or set `transcription.device: cpu`.
 
-| Model | VRAM | Accuracy | Speed |
-| ------- | ------ | ---------- | ------- |
-| `tiny` | ~1GB | Low | Very fast |
-| `base` | ~1GB | Below average | Fast |
-| `small` | ~2GB | Average | Medium |
-| `medium` | ~5GB | Good | Slow |
-| `large-v3` | ~10GB | Best | Very slow |
+---
 
-### NVENC not working
+## ❓ Troubleshooting / FAQ
 
-If your GPU doesn't support NVENC, the pipeline will automatically fall back to `libx264`.
+### Output video is horizontal
 
-### LLM returns invalid JSON
+- For the pipeline, ensure `video.vertical_crop: true` in [config.yaml](config.yaml).
+- For guaranteed 9:16 + consistent export, use `python3 rerender_videos.py`.
 
-The pipeline automatically attempts to "fix" JSON through a follow-up request to the LLM.
+### LLM returned invalid JSON → empty moments
+
+The pipeline **does not** do a second “repair” LLM call.
+Options:
+- try another model,
+- reduce chunk size (`ollama.chunk_seconds`),
+- adjust prompts (see [docs/PROMPTS.md](docs/PROMPTS.md)).
+
+### FFmpeg not found
+
+Install FFmpeg (Ubuntu: `sudo apt install ffmpeg`).
+
+---
+
+## 📚 Documentation
+
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md) — user guide
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — configuration
+- [docs/PROMPTS.md](docs/PROMPTS.md) — prompts
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — development
 
 ---
 
 ## 📄 License
 
-MIT License — see [LICENSE](LICENSE) file.
-
----
-
-## 🙏 Acknowledgements
-
-- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — fast transcription
-- [Ollama](https://ollama.com/) — local LLMs
-- [FFmpeg](https://ffmpeg.org/) — video processing
-- [pyannote-audio](https://github.com/pyannote/pyannote-audio) — speaker diarization
+MIT License — see [LICENSE](LICENSE).

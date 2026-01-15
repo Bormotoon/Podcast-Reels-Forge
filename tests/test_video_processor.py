@@ -16,10 +16,14 @@ def test_ffmpeg_cut_standard(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=0)
     opts = FfmpegOptions(
         vertical_crop=False,
+        smart_crop_face=False,
+        use_nvenc=True,
         v_bitrate="1M",
         a_bitrate="128k",
         preset="ultrafast",
         padding=0.0,
+        face_samples=7,
+        face_min_size=60,
     )
     video_in = Path("in.mp4")
     out_path = Path("out.mp4")
@@ -40,10 +44,14 @@ def test_ffmpeg_cut_vertical(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=0)
     opts = FfmpegOptions(
         vertical_crop=True,
+        smart_crop_face=False,
+        use_nvenc=True,
         v_bitrate="1M",
         a_bitrate="128k",
         preset="ultrafast",
         padding=1.0,
+        face_samples=7,
+        face_min_size=60,
     )
     
     ffmpeg_cut(Path("in.mp4"), 10.0, 20.0, Path("out.mp4"), opts)

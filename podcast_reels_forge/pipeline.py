@@ -680,6 +680,8 @@ def run_pipeline(
                 "--padding",
                 str(padding),
             ]
+            if "use_nvenc" in v_conf and not bool(v_conf.get("use_nvenc")):
+                video_args.append("--no-nvenc")
             if v_conf.get("vertical_crop", True):
                 video_args.append("--vertical")
             if exports_conf.get("webm", False):

@@ -72,23 +72,36 @@ ollama:
     - "gemma3:4b"
     - "gemma2:9b"
     - "gemini-3-flash-preview:latest"
-  timeout: 900           # Таймаут запроса (сек) / Request timeout (sec)
+  timeout: 240           # Таймаут запроса (сек) / Request timeout (sec)
   temperature: 0.3       # Креативность (0.0 - 1.0) / Creativity (0.0 - 1.0)
-  chunk_seconds: 600     # Размер чанка (сек) / Chunk size (sec)
+  chunk_seconds: 1200    # Размер чанка (сек) / Chunk size (sec)
   max_chars_chunk: 12000 # Макс. символов / Max chars
 
   # Watchdog: если генерация "зависла" или слишком медленная, запрос будет прерван
   # и выполнен повторно (с возможной сменой модели).
   watchdog:
     enabled: true
-    first_token_timeout: 120  # сек без какого-либо вывода до первого токена
-    stall_timeout: 120        # сек без вывода во время стриминга
+    first_token_timeout: 45   # сек без какого-либо вывода до первого токена
+    stall_timeout: 60         # сек без вывода во время стриминга
     log_interval: 10          # каждые N сек логируется прогресс
-    max_retries: 2            # сколько раз ретраить при зависании/таймауте
+    max_retries: 0            # сколько раз ретраить при зависании/таймауте
 
   # Список моделей, которые пробуются по очереди, если основная слишком медленная.
   # Важно: модели должны быть установлены в Ollama (ollama pull ...)
   fallback_models: []
+
+  # Per-model overrides / Переопределения по моделям
+  # Полезно, когда модели сильно отличаются по «разогреву» и скорости.
+  # Example:
+  # model_overrides:
+  #   qwen3:latest:
+  #     timeout: 900
+  #     chunk_seconds: 600
+  #     watchdog:
+  #       first_token_timeout: 180
+  #       stall_timeout: 120
+  #       max_retries: 1
+  model_overrides: {}
 ```
 
 ### prompts — Промпты
@@ -146,6 +159,7 @@ video:
   video_bitrate: "5M"     # Битрейт видео / Video bitrate
   audio_bitrate: "192k"   # Битрейт аудио / Audio bitrate
   preset: "fast"          # Пресет / Preset
+  use_nvenc: true          # Использовать NVENC если доступен / Use NVENC when available
 ```
 
 ### diarization — Диаризация
