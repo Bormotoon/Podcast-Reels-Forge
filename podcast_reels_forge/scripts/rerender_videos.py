@@ -22,6 +22,14 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
+from podcast_reels_forge.utils.face_crop import (
+    FaceCropSettings,
+    build_sample_times,
+    compute_crop_x_for_scaled_height,
+    detect_face_center_ratio,
+    face_detection_available,
+)
+
 try:
     from tqdm import tqdm
 except ImportError:  # pragma: no cover
@@ -41,6 +49,9 @@ class RenderSettings:
     v_bitrate_k: int
     a_bitrate_k: int
     padding_s: float
+    smart_crop_face: bool
+    face_samples: int
+    face_min_size: int
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -55,11 +66,18 @@ def _load_moments(path: Path) -> list[dict[str, object]]:
     return []
 
 
-def _vf(settings: RenderSettings) -> str:
-    # Center-crop to 9:16 and force exact size + fps.
-    # - force_original_aspect_ratio=increase makes sure we fill the target frame
-    # - crop trims the overflow
-    # - setsar=1 avoids odd pixel aspect ratios
+def _vf(settings: RenderSettings, *, crop_x: int | None = None) -> str:
+    # When crop_x is provided, we scale to target height (preserve aspect ratio)
+    # and crop the desired 9:16 window so the face sits near the center.
+    if crop_x is not None:
+        return (
+            f"scale=-2:{settings.height},"
+            f"crop={settings.width}:{settings.height}:{int(crop_x)}:0,"
+            f"fps={settings.fps},"
+            "format=yuv420p,setsar=1"
+        )
+
+    # Default: simple center-crop to 9:16 and force exact size + fps.
     return (
         f"scale={settings.width}:{settings.height}:force_original_aspect_ratio=increase,"
         f"crop={settings.width}:{settings.height},"
@@ -79,6 +97,35 @@ def _cut_one(
     start_offset = max(0.0, float(start) - float(settings.padding_s))
     end_offset = float(end) + float(settings.padding_s)
 
+    crop_x: int | None = None
+    if settings.smart_crop_face and face_detection_available():
+        face_settings = FaceCropSettings(
+            samples=int(settings.face_samples),
+            min_face_size=int(settings.face_min_size),
+        )
+        sample_times = build_sample_times(start_offset, end_offset, face_settings.samples)
+        center_ratio = detect_face_center_ratio(video_in, sample_times_s=sample_times, settings=face_settings)
+        if center_ratio is not None:
+            # Map ratio -> crop X after scaling to target height.
+            # Note: we approximate source size via ffprobe-less approach; use OpenCV to read.
+            try:
+                import cv2  # type: ignore
+
+                cap = cv2.VideoCapture(str(video_in))
+                src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+                src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+                cap.release()
+            except Exception:
+                src_w, src_h = 0, 0
+
+            crop_x = compute_crop_x_for_scaled_height(
+                src_w=src_w,
+                src_h=src_h,
+                target_w=settings.width,
+                target_h=settings.height,
+                center_ratio=center_ratio,
+            )
+
     cmd = [
         "ffmpeg",
         "-y",
@@ -92,7 +139,7 @@ def _cut_one(
         "-i",
         str(video_in),
         "-vf",
-        _vf(settings),
+        _vf(settings, crop_x=crop_x),
         "-map",
         "0:v:0",
         "-map",
@@ -193,6 +240,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--v-bitrate", type=int, default=5000, help="Video bitrate in kbit/s")
     ap.add_argument("--a-bitrate", type=int, default=192, help="Audio bitrate in kbit/s")
 
+    ap.add_argument(
+        "--smart-crop-face",
+        action="store_true",
+        help="Detect faces and center the 9:16 crop around the face when possible (requires opencv)",
+    )
+    ap.add_argument("--face-samples", type=int, default=7, help="How many frames to sample per reel")
+    ap.add_argument("--face-min-size", type=int, default=60, help="Min face size in pixels for detection")
+
     ap.add_argument("--threads", type=int, default=2, help="Parallel ffmpeg jobs")
     ap.add_argument("--verbose", action="store_true")
     return ap.parse_args(argv)
@@ -216,7 +271,13 @@ def main(argv: list[str] | None = None) -> None:
         v_bitrate_k=int(args.v_bitrate),
         a_bitrate_k=int(args.a_bitrate),
         padding_s=float(args.padding),
+        smart_crop_face=bool(args.smart_crop_face),
+        face_samples=int(args.face_samples),
+        face_min_size=int(args.face_min_size),
     )
+
+    if settings.smart_crop_face and not face_detection_available():
+        LOG.warning("--smart-crop-face enabled but opencv is not available; falling back to center crop")
 
     model_dirs = _find_model_dirs(args.output_dir)
     if args.model:

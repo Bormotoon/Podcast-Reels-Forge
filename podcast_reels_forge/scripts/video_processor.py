@@ -16,6 +16,14 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
+from podcast_reels_forge.utils.face_crop import (
+    FaceCropSettings,
+    build_sample_times,
+    compute_crop_x_for_scaled_height,
+    detect_face_center_ratio,
+    face_detection_available,
+)
+
 try:
     from tqdm import tqdm
 except ImportError:
@@ -32,10 +40,13 @@ class FfmpegOptions:
     """Container for FFmpeg tuning options."""
 
     vertical_crop: bool
+    smart_crop_face: bool
     v_bitrate: str
     a_bitrate: str
     preset: str
     padding: float
+    face_samples: int
+    face_min_size: int
 
 
 def _run_subprocess(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -57,13 +68,40 @@ def ffmpeg_cut(
 
     filters: list[str] = []
     if opts.vertical_crop:
-        filters.append(
-            (
-                "scale=w=ih*(9/16):h=ih,"
-                "scale=w=1080:h=1920:force_original_aspect_ratio=increase,"
-                "crop=1080:1920"
-            ),
-        )
+        # Default: center crop to 9:16.
+        vf = "scale=w=1080:h=1920:force_original_aspect_ratio=increase,crop=1080:1920"
+
+        # Optional: smart crop around face.
+        if opts.smart_crop_face and face_detection_available():
+            face_settings = FaceCropSettings(
+                samples=int(opts.face_samples),
+                min_face_size=int(opts.face_min_size),
+            )
+            start_offset = max(0, start - opts.padding)
+            end_offset = end + opts.padding
+            sample_times = build_sample_times(start_offset, end_offset, face_settings.samples)
+            center_ratio = detect_face_center_ratio(video_in, sample_times_s=sample_times, settings=face_settings)
+            if center_ratio is not None:
+                try:
+                    import cv2  # type: ignore
+
+                    cap = cv2.VideoCapture(str(video_in))
+                    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+                    src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+                    cap.release()
+                except Exception:
+                    src_w, src_h = 0, 0
+
+                crop_x = compute_crop_x_for_scaled_height(
+                    src_w=src_w,
+                    src_h=src_h,
+                    target_w=1080,
+                    target_h=1920,
+                    center_ratio=center_ratio,
+                )
+                vf = f"scale=-2:1920,crop=1080:1920:{crop_x}:0"
+
+        filters.append(vf)
 
     start_offset = max(0, start - opts.padding)
     end_offset = end + opts.padding
@@ -219,6 +257,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument(
         "--vertical", action="store_true", default=False, help="Crop to 9:16 format",
     )
+    ap.add_argument(
+        "--smart-crop-face",
+        action="store_true",
+        default=False,
+        help="When used with --vertical, center crop around detected face (requires opencv)",
+    )
+    ap.add_argument("--face-samples", type=int, default=7, help="Frames to sample per reel")
+    ap.add_argument("--face-min-size", type=int, default=60, help="Min face size in pixels")
     ap.add_argument("--v-bitrate", default="5M", help="Video bitrate")
     ap.add_argument("--a-bitrate", default="192k", help="Audio bitrate")
     ap.add_argument("--preset", default="fast", help="FFmpeg preset")
@@ -258,11 +304,17 @@ def main(argv: list[str] | None = None) -> None:
 
     opts = FfmpegOptions(
         vertical_crop=args.vertical,
+        smart_crop_face=bool(args.smart_crop_face),
         v_bitrate=args.v_bitrate,
         a_bitrate=args.a_bitrate,
         preset=args.preset,
         padding=args.padding,
+        face_samples=int(args.face_samples),
+        face_min_size=int(args.face_min_size),
     )
+
+    if opts.smart_crop_face and opts.vertical_crop and not face_detection_available():
+        LOG.warning("--smart-crop-face enabled but opencv is not available; falling back to center crop")
 
     def process_moment(i_m: tuple[int, dict[str, object]]) -> Path | None:
         i, m = i_m
