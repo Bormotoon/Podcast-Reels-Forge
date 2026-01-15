@@ -2,7 +2,6 @@
 """Test multiple Ollama models for viral moment detection quality."""
 
 import json
-import os
 import time
 from pathlib import Path
 
@@ -250,7 +249,7 @@ def analyze_results(results: dict) -> str:
         highest_score = max(valid_models.keys(), key=lambda m: scores[m]["avg_score"])
         
         lines.append(f"### 🏆 Лучшая модель: **{best}**\n")
-        lines.append(f"- Оптимальный баланс качества и скорости\n")
+        lines.append("- Оптимальный баланс качества и скорости\n")
         lines.append(f"### ⚡ Самая быстрая: **{fastest}** ({scores[fastest]['time']:.1f}s)\n")
         lines.append(f"### 🎯 Лучшие оценки: **{highest_score}** (avg: {scores[highest_score]['avg_score']:.1f})\n")
         
