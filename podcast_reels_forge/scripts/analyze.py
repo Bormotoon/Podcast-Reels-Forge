@@ -220,15 +220,16 @@ def find_moments(
         )
         # LLM might return "moments" key or a direct list
         resp = get_llm_json(provider, prompt, 0.3, timeout)
+        chunk_moments: list[Any] = []
         if isinstance(resp, list):
             chunk_moments = resp
         elif isinstance(resp, dict):
-            chunk_moments = resp.get("moments")
-            if not isinstance(chunk_moments, list):
-                m = resp.get("moment")
-                chunk_moments = [m] if m else []
-        else:
-            chunk_moments = []
+            val = resp.get("moments")
+            if isinstance(val, list):
+                chunk_moments = val
+            else:
+                m_val = resp.get("moment")
+                chunk_moments = [m_val] if m_val else []
 
         for moment in chunk_moments:
             try:
@@ -328,18 +329,18 @@ def find_moments(
             q = max(0, int(quotas.get(bucket, 0)))
             if q <= 0:
                 continue
-            for m in out:
+            for moment_obj in out:
                 if len([x for x in selected if _cat(x.clip_type) == bucket]) >= q:
                     break
-                if _cat(m.clip_type) == bucket and m not in selected:
-                    selected.append(m)
+                if _cat(moment_obj.clip_type) == bucket and moment_obj not in selected:
+                    selected.append(moment_obj)
         # Fill any remaining slots with best overall.
         if len(selected) < requested_total:
-            for m in out:
+            for moment_obj in out:
                 if len(selected) >= requested_total:
                     break
-                if m not in selected:
-                    selected.append(m)
+                if moment_obj not in selected:
+                    selected.append(moment_obj)
         return selected[:requested_total]
 
     return out[:limit]
