@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml
+# import yaml  <-- Move this down to avoid ModuleNotFoundError before venv activation
 
 from podcast_reels_forge.pipeline import run_pipeline
 
@@ -86,6 +86,8 @@ def main() -> None:
     args = ap.parse_args()
 
     _configure_logging(verbose=args.verbose, quiet=args.quiet)
+
+    import yaml
 
     config_path = Path(args.config)
     if not config_path.exists():

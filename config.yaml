@@ -31,19 +31,45 @@ ollama:
     - "gemma3:4b"
     - "gemma2:9b"
     - "gemini-3-flash-preview:latest"
-  timeout: 900
+  # Hard timeout per LLM call (per chunk). Keep this bounded to avoid multi-hour runs.
+  timeout: 240
   temperature: 0.3
-  chunk_seconds: 600
+  # Larger chunks = fewer LLM calls overall (usually faster end-to-end).
+  chunk_seconds: 1200
   max_chars_chunk: 12000
   # Watchdog: detects stalls/very slow generation and retries.
   watchdog:
     enabled: true
-    first_token_timeout: 120  # seconds without any output
-    stall_timeout: 120        # seconds without output during streaming
+    first_token_timeout: 45   # seconds without any output
+    stall_timeout: 60         # seconds without output during streaming
     log_interval: 10          # progress heartbeat interval (sec)
-    max_retries: 2
+    max_retries: 0
   # Optional: try these models in order if the current model stalls.
   fallback_models: []
+
+  # Per-model overrides to keep gemma3/gemini3 fast, while allowing heavier/slower
+  # models enough warmup time to start generating.
+  model_overrides:
+    qwen3:latest:
+      timeout: 900
+      chunk_seconds: 600
+      watchdog:
+        first_token_timeout: 180
+        stall_timeout: 120
+        max_retries: 1
+    deepseek-r1:8b:
+      timeout: 900
+      chunk_seconds: 600
+      watchdog:
+        first_token_timeout: 180
+        stall_timeout: 120
+        max_retries: 1
+    gemma2:9b:
+      timeout: 600
+      chunk_seconds: 600
+      watchdog:
+        first_token_timeout: 90
+        stall_timeout: 120
 
 prompts:
   language: "ru"          # ru|en

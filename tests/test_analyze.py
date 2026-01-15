@@ -98,7 +98,9 @@ def test_find_moments_orchestration() -> None:
     )
 
     assert len(moments) == 1
-    assert moments[0].title == "T1"
+    # Final selection is done locally (no extra LLM call), so we keep the best
+    # candidate from chunk analysis.
+    assert moments[0].title == "C1"
     assert moments[0].start == 10.0
 
 

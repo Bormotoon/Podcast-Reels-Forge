@@ -138,6 +138,14 @@ def _read_json_if_valid(path: Path) -> object | None:
         return None
 
 
+def _ensure_placeholder_analyze_outputs(moments_path: Path, reels_md_path: Path) -> None:
+    moments_path.parent.mkdir(parents=True, exist_ok=True)
+    if not moments_path.exists():
+        moments_path.write_text("[]\n", encoding="utf-8")
+    if not reels_md_path.exists():
+        reels_md_path.write_text("# Reels Suggestions\n\n(no moments)\n", encoding="utf-8")
+
+
 def _outputs_ready(outputs: list[Path], *, validate_json: bool) -> bool:
     for p in outputs:
         if not p.exists():
@@ -168,6 +176,43 @@ def _set_cli_arg(args: list[str], flag: str, value: str) -> bool:
             args[i + 1] = value
             return True
     return False
+
+
+def _get_model_overrides(conf: dict[str, Any], model: str) -> dict[str, Any]:
+    """Return per-model overrides for a config section, if present."""
+    overrides = conf.get("model_overrides")
+    if not isinstance(overrides, dict):
+        return {}
+    ov = overrides.get(model)
+    return ov if isinstance(ov, dict) else {}
+
+
+def _merge_ollama_conf(base: dict[str, Any], model: str) -> dict[str, Any]:
+    """Merge base ollama config with per-model overrides.
+
+    Supports shallow overrides, with a nested merge for the 'watchdog' dict.
+    """
+    merged: dict[str, Any] = dict(base)
+    ov = _get_model_overrides(base, model)
+    for k, v in ov.items():
+        if k == "watchdog" and isinstance(v, dict):
+            wd = base.get("watchdog")
+            merged_wd: dict[str, Any] = dict(wd) if isinstance(wd, dict) else {}
+            merged_wd.update(v)
+            merged["watchdog"] = merged_wd
+            continue
+        merged[k] = v
+    return merged
+
+
+def _prompt_variant_for_model(prompts_conf: dict[str, Any], model: str) -> str:
+    variant = str(prompts_conf.get("variant", "default"))
+    mv = prompts_conf.get("model_variants")
+    if isinstance(mv, dict):
+        mvv = mv.get(model)
+        if isinstance(mvv, str) and mvv.strip():
+            return mvv.strip()
+    return variant
 
 
 def run_module(
@@ -412,6 +457,7 @@ def run_pipeline(
 
     try:
         for i, model in enumerate(models, 1):
+            model_a_conf = _merge_ollama_conf(a_conf, model)
             model_dir = io.output_dir / _model_folder_name(model)
             model_dir.mkdir(parents=True, exist_ok=True)
             moments_path = model_dir / "moments.json"
@@ -442,7 +488,7 @@ def run_pipeline(
                     "--model",
                     str(model),
                     "--temperature",
-                    str(a_conf.get("temperature", 0.3)),
+                    str(model_a_conf.get("temperature", 0.3)),
                     "--reels",
                     str(p_conf.get("reels_count", 4)),
                     "--stories-count",
@@ -458,21 +504,21 @@ def run_pipeline(
                     "--reel-max",
                     str(p_conf.get("reel_max_duration", 60)),
                     "--chunk-seconds",
-                    str(a_conf.get("chunk_seconds", 600)),
+                    str(model_a_conf.get("chunk_seconds", 600)),
                     "--max_chars_chunk",
-                    str(a_conf.get("max_chars_chunk", 12000)),
+                    str(model_a_conf.get("max_chars_chunk", 12000)),
                     "--timeout",
-                    str(a_conf.get("timeout", 900)),
+                    str(model_a_conf.get("timeout", 900)),
                     "--prompt-lang",
                     str(prompts_conf.get("language", "auto")),
                     "--prompt-variant",
-                    str(prompts_conf.get("variant", "default")),
+                    _prompt_variant_for_model(prompts_conf, model),
                     "--url",
                     str(url),
                 ]
 
                 # Optional Ollama watchdog / fallback controls
-                wd = a_conf.get("watchdog", {})
+                wd = model_a_conf.get("watchdog", {})
                 if isinstance(wd, dict):
                     if "enabled" in wd:
                         if bool(wd.get("enabled")):
@@ -500,7 +546,7 @@ def run_pipeline(
                             str(wd.get("max_retries")),
                         ]
 
-                fb = a_conf.get("fallback_models", [])
+                fb = model_a_conf.get("fallback_models", [])
                 if isinstance(fb, list):
                     for m in fb:
                         ms = str(m).strip()
@@ -521,15 +567,15 @@ def run_pipeline(
                     except (TypeError, ValueError):
                         reels = 4
                     try:
-                        timeout_s = int(a_conf.get("timeout", 900))
+                        timeout_s = int(model_a_conf.get("timeout", 900))
                     except (TypeError, ValueError):
                         timeout_s = 900
                     try:
-                        chunk_s = int(a_conf.get("chunk_seconds", 600))
+                        chunk_s = int(model_a_conf.get("chunk_seconds", 600))
                     except (TypeError, ValueError):
                         chunk_s = 600
                     try:
-                        max_chars = int(a_conf.get("max_chars_chunk", 12000))
+                        max_chars = int(model_a_conf.get("max_chars_chunk", 12000))
                     except (TypeError, ValueError):
                         max_chars = 12000
 
@@ -543,14 +589,30 @@ def run_pipeline(
                     _set_cli_arg(analyze_args, "--reels", str(reels))
                     _set_cli_arg(analyze_args, "--timeout", str(timeout_s))
 
-                run_module(
-                    "podcast_reels_forge.scripts.analyze",
-                    analyze_args,
-                    quiet=quiet,
-                    verbose=verbose,
-                    env=env or None,
-                )
-                status(f"[analyze] done ({_model_folder_name(model)})", quiet=quiet)
+                try:
+                    run_module(
+                        "podcast_reels_forge.scripts.analyze",
+                        analyze_args,
+                        quiet=quiet,
+                        verbose=verbose,
+                        env=env or None,
+                    )
+                    status(f"[analyze] done ({_model_folder_name(model)})", quiet=quiet)
+                    _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
+                except SystemExit as exc:
+                    log.error(
+                        "Analyze failed; continuing. model=%s code=%s",
+                        model,
+                        exc,
+                    )
+                    _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
+                except Exception as exc:
+                    log.exception(
+                        "Analyze raised exception; continuing. model=%s error=%s",
+                        model,
+                        exc,
+                    )
+                    _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
             try:
                 next(stage_iter)
             except StopIteration:
@@ -576,6 +638,18 @@ def run_pipeline(
         reels_dir = model_dir / "reels"
         existing_reels = list(reels_dir.glob("reel_*.mp4")) if reels_dir.exists() else []
         step = cut_start_step + (i - 1)
+
+        moments_data = _read_json_if_valid(moments_path)
+        if moments_data is None:
+            status(
+                f"[{step}/{stages_count}] cut ({_model_folder_name(model)}): skip (no moments)",
+                quiet=quiet,
+            )
+            try:
+                next(stage_iter)
+            except StopIteration:
+                pass
+            continue
 
         skip_cut = skip_existing and bool(existing_reels)
         if skip_cut:

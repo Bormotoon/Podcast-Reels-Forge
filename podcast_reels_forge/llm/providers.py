@@ -135,12 +135,27 @@ class OllamaProvider:
         if read_timeout <= 0:
             read_timeout = max_total_s if max_total_s > 0 else 900
 
-        payload = {
-            "model": model,
-            "prompt": prompt,
-            "stream": True,
-            "options": {"temperature": temperature},
-        }
+        is_chat = self.cfg.url.endswith("/api/chat")
+        if is_chat:
+            payload = {
+                "model": model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant that always responds with valid JSON. Never include explanatory text outside the JSON.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                "stream": True,
+                "options": {"temperature": temperature},
+            }
+        else:
+            payload = {
+                "model": model,
+                "prompt": prompt,
+                "stream": True,
+                "options": {"temperature": temperature},
+            }
 
         with requests.post(
             self.cfg.url,
@@ -170,7 +185,11 @@ class OllamaProvider:
                     # Ignore malformed lines (shouldn't happen, but keep robust).
                     continue
 
-                piece = obj.get("response")
+                if is_chat:
+                    piece = obj.get("message", {}).get("content")
+                else:
+                    piece = obj.get("response")
+
                 if isinstance(piece, str) and piece:
                     parts.append(piece)
                     chars += len(piece)

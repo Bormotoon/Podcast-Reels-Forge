@@ -134,6 +134,14 @@ def _load_model(model_name: str, resolved_device: str, compute_type: str) -> Whi
     return WhisperModel(model_name, device=resolved_device, compute_type=compute_type)
 
 
+def _is_cuda_oom(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return (
+        "out of memory" in msg
+        and ("cuda" in msg or "cudnn" in msg or "cublas" in msg or "gpu" in msg)
+    )
+
+
 def _dump_output(out_path: Path, output: dict[str, object]) -> None:
     """Write transcription output to disk."""
     with out_path.open("w", encoding="utf-8") as f:
@@ -154,11 +162,52 @@ def transcribe_file(config: TranscribeConfig) -> Path:
 
     model: WhisperModel | None = None
     try:
+        def _cleanup_cuda() -> None:
+            gc.collect()
+            if resolved_device == "cuda" and torch is not None:
+                try:
+                    torch.cuda.empty_cache()
+                except (AttributeError, RuntimeError):
+                    pass
+
+        # RU: Пытаемся загрузить модель. При OOM на CUDA делаем деградацию.
+        # EN: Try to load model. If CUDA OOM happens, degrade settings.
         try:
-            model = _load_model(config.model_name, resolved_device, compute_type)
-        except ValueError:
-            compute_type = "float32"
-            model = _load_model(config.model_name, resolved_device, compute_type)
+            try:
+                model = _load_model(config.model_name, resolved_device, compute_type)
+            except ValueError:
+                compute_type = "float32"
+                model = _load_model(config.model_name, resolved_device, compute_type)
+        except RuntimeError as exc:
+            if resolved_device == "cuda" and _is_cuda_oom(exc):
+                LOGGER.warning(
+                    "CUDA OOM during model init; falling back. model=%s compute_type=%s",
+                    config.model_name,
+                    compute_type,
+                )
+                _cleanup_cuda()
+
+                # Prefer smaller types on CUDA first, then CPU.
+                fallback_attempts = ["float16", "int8_float16", "int8"]
+                loaded = False
+                for ct in fallback_attempts:
+                    try:
+                        model = _load_model(config.model_name, "cuda", ct)
+                        compute_type = ct
+                        resolved_device = "cuda"
+                        loaded = True
+                        break
+                    except Exception:
+                        _cleanup_cuda()
+                        continue
+
+                if not loaded:
+                    LOGGER.warning("CUDA OOM persists; switching transcription to CPU")
+                    resolved_device = "cpu"
+                    compute_type = "float32"
+                    model = _load_model(config.model_name, resolved_device, compute_type)
+            else:
+                raise
 
         if model is None:
             raise RuntimeError("Whisper model failed to initialize")
@@ -172,11 +221,31 @@ def transcribe_file(config: TranscribeConfig) -> Path:
         if config.verbose and not config.quiet:
             LOGGER.info("[transcribe] input=%s", config.input_path)
 
-        segments, info = model.transcribe(
-            str(config.input_path),
-            language=lang,
-            beam_size=config.beam_size,
-        )
+        try:
+            segments, info = model.transcribe(
+                str(config.input_path),
+                language=lang,
+                beam_size=config.beam_size,
+            )
+        except RuntimeError as exc:
+            # RU: Если OOM произошёл во время инференса — деградируем и повторяем 1 раз.
+            # EN: If OOM happens during inference, degrade and retry once.
+            if resolved_device == "cuda" and _is_cuda_oom(exc):
+                LOGGER.warning(
+                    "CUDA OOM during transcription; retrying on CPU. model=%s",
+                    config.model_name,
+                )
+                _cleanup_cuda()
+                resolved_device = "cpu"
+                compute_type = "float32"
+                model = _load_model(config.model_name, resolved_device, compute_type)
+                segments, info = model.transcribe(
+                    str(config.input_path),
+                    language=lang,
+                    beam_size=config.beam_size,
+                )
+            else:
+                raise
 
         output = {
             "audio": str(config.input_path.resolve()),

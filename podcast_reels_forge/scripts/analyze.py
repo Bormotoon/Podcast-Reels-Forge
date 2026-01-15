@@ -32,7 +32,7 @@ from podcast_reels_forge.llm.providers import (
     OpenAIConfig,
     OpenAIProvider,
 )
-from podcast_reels_forge.utils.json_utils import extract_first_json_object
+from podcast_reels_forge.utils.json_utils import extract_first_json_value
 from podcast_reels_forge.utils.logging_utils import setup_logging
 from podcast_reels_forge.utils.ollama_service import (
     ENV_MANAGED_BY_PIPELINE,
@@ -86,18 +86,20 @@ def _parse_local_ollama_host_port(url: str) -> tuple[str, int] | None:
 
 def get_llm_json(
     provider: LLMProvider, prompt: str, temperature: float, timeout: int,
-) -> dict[str, Any]:
-    """RU: Получает JSON-ответ от LLM с простой попыткой «починки».
+) -> dict[str, Any] | list[Any]:
+    """RU: Получает JSON-ответ от LLM (одна попытка, без повторных запросов).
 
-    EN: Get JSON response from LLM with simple repair logic.
+    EN: Get JSON response from LLM (single attempt, no extra repair call).
     """
     raw = provider.generate(prompt, temperature=temperature, timeout=timeout)
     try:
-        return extract_first_json_object(raw)
+        return extract_first_json_value(raw)
     except (json.JSONDecodeError, ValueError, TypeError):
-        repair = f"Fix the following JSON and return only the valid JSON:\n\n{raw}"
-        raw_repaired = provider.generate(repair, temperature=0.2, timeout=timeout)
-        return extract_first_json_object(raw_repaired)
+        # RU: Не делаем второй LLM-вызов (пользователь просит без итераций).
+        # EN: No second LLM call (user asked to avoid extra iterations).
+        preview = raw[:500].replace("\n", "\\n") if isinstance(raw, str) else str(raw)
+        LOGGER.warning("Failed to parse JSON from LLM output; returning [] (raw preview: %s)", preview)
+        return []
 
 
 # ----------------------------
@@ -216,15 +218,22 @@ def find_moments(
                 "requirements": reqs_str,
             },
         )
-        # LLM might now return multiple moments in "moments" or single "moment"
+        # LLM might return "moments" key or a direct list
         resp = get_llm_json(provider, prompt, 0.3, timeout)
-        chunk_moments = resp.get("moments")
-        if not isinstance(chunk_moments, list):
-            m = resp.get("moment")
-            chunk_moments = [m] if m else []
+        if isinstance(resp, list):
+            chunk_moments = resp
+        elif isinstance(resp, dict):
+            chunk_moments = resp.get("moments")
+            if not isinstance(chunk_moments, list):
+                m = resp.get("moment")
+                chunk_moments = [m] if m else []
+        else:
+            chunk_moments = []
 
         for moment in chunk_moments:
             try:
+                if not isinstance(moment, dict):
+                    continue
                 start = float(moment.get("start", -1))
                 end = float(moment.get("end", -1))
             except (TypeError, ValueError, AttributeError):
@@ -234,47 +243,106 @@ def find_moments(
                 candidates.append(moment)
 
     if not candidates:
+        LOGGER.info("No candidates found in transcript chunks")
         return []
 
-    prompt2 = _render_prompt(
-        select_prompt,
-        {
-            "count": str(count),
-            "candidates_json": json.dumps(candidates, ensure_ascii=False),
-            "requirements": reqs_str,
-        },
-    )
-    obj2 = get_llm_json(provider, prompt2, 0.4, timeout)
+    # RU: Без финального selection-шага: выбираем топ моментов локально.
+    # EN: No final selection step: pick top moments locally.
     out: list[Moment] = []
-    for moment in obj2.get("moments", []):
-        try:
-            hashtags_raw = moment.get("hashtags")
-            if isinstance(hashtags_raw, list):
-                hashtags = [str(x) for x in hashtags_raw if str(x).strip()]
-            else:
-                hashtags = None
-
-            out.append(
-                Moment(
-                    start=float(moment["start"]),
-                    end=float(moment["end"]),
-                    title=str(moment.get("title", "")).strip(),
-                    quote=str(moment.get("quote", "")).strip(),
-                    why=str(moment.get("why", "")).strip(),
-                    score=float(moment.get("score", 0)),
-                    clip_type=str(moment.get("clip_type", "reel")).strip(),
-                    hook=str(moment.get("hook", "")).strip(),
-                    caption=str(moment.get("caption", "")).strip(),
-                    hashtags=hashtags,
-                ),
-            )
-        except (KeyError, TypeError, ValueError):
+    seen: set[tuple[float, float, str]] = set()
+    for m in candidates:
+        if not isinstance(m, dict):
             continue
-    
-    # Heuristic filter based on score and requirements could be added here,
-    # but for now we rely on the LLM's selection in 'select_prompt'.
+        try:
+            start = float(m.get("start", -1))
+            end = float(m.get("end", -1))
+        except (TypeError, ValueError):
+            continue
+        if not (0 <= start < end <= duration):
+            continue
+
+        clip_type = str(m.get("clip_type", "reel") or "reel").strip()
+        key = (round(start, 1), round(end, 1), clip_type.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+
+        hashtags_raw = m.get("hashtags")
+        hashtags = (
+            [str(x) for x in hashtags_raw if str(x).strip()]
+            if isinstance(hashtags_raw, list)
+            else None
+        )
+
+        try:
+            score = float(m.get("score", 0) or 0)
+        except (TypeError, ValueError):
+            score = 0.0
+
+        out.append(
+            Moment(
+                start=start,
+                end=end,
+                title=str(m.get("title", "")).strip(),
+                quote=str(m.get("quote", "")).strip(),
+                why=str(m.get("why", "")).strip(),
+                score=score,
+                clip_type=clip_type,
+                hook=str(m.get("hook", "")).strip(),
+                caption=str(m.get("caption", "")).strip(),
+                hashtags=hashtags,
+            ),
+        )
+
     out.sort(key=lambda x: x.score, reverse=True)
-    return out
+
+    requested_total = sum(
+        int(x)
+        for x in (stories_count, reels_count, long_reels_count, highlights_moments)
+        if int(x) > 0
+    )
+    limit = requested_total if requested_total > 0 else int(count)
+    if limit <= 0:
+        return []
+
+    # If per-type counts are specified, do a lightweight per-type selection.
+    if requested_total > 0:
+        def _cat(ct: str) -> str:
+            s = (ct or "").lower()
+            if "story" in s:
+                return "story"
+            if "highlight" in s or "hot" in s:
+                return "highlight"
+            if "long" in s:
+                return "long_reel"
+            return "reel"
+
+        quotas = {
+            "story": int(stories_count),
+            "reel": int(reels_count),
+            "long_reel": int(long_reels_count),
+            "highlight": int(highlights_moments),
+        }
+        selected: list[Moment] = []
+        for bucket in ("story", "reel", "long_reel", "highlight"):
+            q = max(0, int(quotas.get(bucket, 0)))
+            if q <= 0:
+                continue
+            for m in out:
+                if len([x for x in selected if _cat(x.clip_type) == bucket]) >= q:
+                    break
+                if _cat(m.clip_type) == bucket and m not in selected:
+                    selected.append(m)
+        # Fill any remaining slots with best overall.
+        if len(selected) < requested_total:
+            for m in out:
+                if len(selected) >= requested_total:
+                    break
+                if m not in selected:
+                    selected.append(m)
+        return selected[:requested_total]
+
+    return out[:limit]
 
 
 def _get_prompts_dir() -> Path:
