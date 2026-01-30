@@ -83,6 +83,7 @@ def ffmpeg_cut(
             sample_times = build_sample_times(start_offset, end_offset, face_settings.samples)
             center_ratio = detect_face_center_ratio(video_in, sample_times_s=sample_times, settings=face_settings)
             if center_ratio is not None:
+                LOG.debug("Face detected at ratio %.2f; applying smart crop", center_ratio)
                 try:
                     import cv2  # type: ignore
 

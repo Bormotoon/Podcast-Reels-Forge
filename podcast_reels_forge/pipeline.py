@@ -719,6 +719,11 @@ def run_pipeline(
                     video_args.append("--no-nvenc")
                 if v_conf.get("vertical_crop", True):
                     video_args.append("--vertical")
+                if v_conf.get("smart_crop_face", True):
+                    video_args.append("--smart-crop-face")
+                    video_args += ["--face-samples", str(v_conf.get("face_samples", 7))]
+                    video_args += ["--face-min-size", str(v_conf.get("face_min_size", 60))]
+
                 if exports_conf.get("webm", False):
                     video_args.append("--export-webm")
                 if exports_conf.get("gif", False):

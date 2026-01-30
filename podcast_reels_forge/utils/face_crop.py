@@ -23,17 +23,28 @@ def face_detection_available() -> bool:
     return cv2 is not None
 
 
-def _get_cascade() -> "cv2.CascadeClassifier | None":  # type: ignore[name-defined]
+def _get_cascades() -> list["cv2.CascadeClassifier"]:  # type: ignore[name-defined]
     if cv2 is None:
-        return None
+        return []
+
+    # Cascade priority: alt2 is usually more robust than default.
+    names = [
+        "haarcascade_frontalface_alt2.xml",
+        "haarcascade_frontalface_default.xml",
+    ]
+    cascades = []
     try:
-        cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
+        base_path = Path(cv2.data.haarcascades)
     except Exception:
-        return None
-    if not cascade_path.exists():
-        return None
-    cascade = cv2.CascadeClassifier(str(cascade_path))
-    return cascade if not cascade.empty() else None
+        return []
+
+    for name in names:
+        p = base_path / name
+        if p.exists():
+            c = cv2.CascadeClassifier(str(p))
+            if not c.empty():
+                cascades.append(c)
+    return cascades
 
 
 def detect_face_center_ratio(
@@ -44,14 +55,15 @@ def detect_face_center_ratio(
 ) -> float | None:
     """Return median face center X as ratio in [0..1], or None.
 
-    Uses Haar cascade (fast, works offline). Picks the largest detected face per frame.
+    Uses Haar cascades (fast, works offline). Picks the largest detected face per frame.
     """
 
     if cv2 is None:
         return None
 
-    cascade = _get_cascade()
-    if cascade is None:
+    cascades = _get_cascades()
+    if not cascades:
+        LOG.warning("No opencv Haar cascades found; smart crop disabled")
         return None
 
     cap = cv2.VideoCapture(str(video_path))
@@ -71,26 +83,33 @@ def detect_face_center_ratio(
                 continue
 
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = cascade.detectMultiScale(
-                gray,
-                scaleFactor=1.1,
-                minNeighbors=4,
-                minSize=(settings.min_face_size, settings.min_face_size),
-            )
-            if faces is None or len(faces) == 0:
-                continue
 
-            # Pick the largest face by area
-            x, y, w, h = max(faces, key=lambda r: int(r[2]) * int(r[3]))
-            center_x = float(x) + float(w) / 2.0
-            ratios.append(max(0.0, min(1.0, center_x / width)))
+            found_face = None
+            for cascade in cascades:
+                faces = cascade.detectMultiScale(
+                    gray,
+                    scaleFactor=1.05,  # Slightly more precise than 1.1
+                    minNeighbors=5,
+                    minSize=(settings.min_face_size, settings.min_face_size),
+                )
+                if faces is not None and len(faces) > 0:
+                    # Pick the largest face by area
+                    found_face = max(faces, key=lambda r: int(r[2]) * int(r[3]))
+                    break
+
+            if found_face is not None:
+                x, _, w, _ = found_face
+                center_x = float(x) + float(w) / 2.0
+                ratios.append(max(0.0, min(1.0, center_x / width)))
 
     finally:
         cap.release()
 
     if not ratios:
+        LOG.debug("Face detection: 0/%d frames had faces", len(sample_times_s))
         return None
 
+    LOG.debug("Face detection: %d/%d frames had faces", len(ratios), len(sample_times_s))
     ratios.sort()
     return ratios[len(ratios) // 2]
 

@@ -104,10 +104,13 @@ exports:
 video:
   threads: 4
   vertical_crop: true      # Crop 16:9 to 9:16 automatically
+  smart_crop_face: true    # NEW: Detect faces and center them
   video_bitrate: "5M"
   audio_bitrate: "192k"
   preset: "fast"
   use_nvenc: true
+  face_samples: 7          # Accuracy vs speed (more samples = slower)
+  face_min_size: 60        # Min pixels for a face to be considered valid
 
 diarization:
   enabled: false
