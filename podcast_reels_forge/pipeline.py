@@ -399,11 +399,16 @@ def run_pipeline(
         t_conf = conf.get("transcription", {})
 
         transcript_path = io.output_dir / target_audio.with_suffix(".json").name
+        transcript_srt_path = io.output_dir / target_audio.with_suffix(".srt").name
         legacy_audio_json = io.output_dir / "audio.json"
         if not transcript_path.exists() and legacy_audio_json.exists():
             transcript_path = legacy_audio_json
+            transcript_srt_path = legacy_audio_json.with_suffix(".srt")
 
-        if skip_existing and _outputs_ready([transcript_path], validate_json=validate_json):
+        if skip_existing and _outputs_ready(
+            [transcript_path, transcript_srt_path],
+            validate_json=validate_json,
+        ):
             status("[transcribe] skip (exists)", quiet=quiet)
         else:
             status("[transcribe] start", quiet=quiet)

@@ -113,9 +113,11 @@ def test_transcribe_file_orchestration(mock_whisper: MagicMock, tmp_path: Path) 
     mock_model_instance.transcribe.return_value = ([mock_segment], mock_info)
     
     out_path = transcribe_file(config)
+    srt_path = out_path.with_suffix(".srt")
     
     assert out_path.exists()
     assert out_path.name == "audio.json"
+    assert srt_path.exists()
     
     import json
     with out_path.open(encoding="utf-8") as f:
@@ -123,3 +125,7 @@ def test_transcribe_file_orchestration(mock_whisper: MagicMock, tmp_path: Path) 
     
     assert data["language"] == "en"
     assert data["segments"][0]["text"] == "Hello world"
+
+    srt_text = srt_path.read_text(encoding="utf-8")
+    assert "00:00:00,000 --> 00:00:02,000" in srt_text
+    assert "Hello world" in srt_text

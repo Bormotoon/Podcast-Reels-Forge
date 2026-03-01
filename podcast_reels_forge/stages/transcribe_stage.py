@@ -148,6 +148,34 @@ def _dump_output(out_path: Path, output: dict[str, object]) -> None:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
 
+def _format_srt_timestamp(seconds: float) -> str:
+    """Format seconds into SRT timestamp (HH:MM:SS,mmm)."""
+    total_ms = max(0, int(round(seconds * 1000.0)))
+    hours = total_ms // 3_600_000
+    remainder = total_ms % 3_600_000
+    minutes = remainder // 60_000
+    remainder = remainder % 60_000
+    secs = remainder // 1000
+    millis = remainder % 1000
+    return f"{hours:02}:{minutes:02}:{secs:02},{millis:03}"
+
+
+def _dump_srt_output(srt_path: Path, segments: list[dict[str, object]]) -> None:
+    """Write SRT subtitles based on transcription segments."""
+    lines: list[str] = []
+    for idx, seg in enumerate(segments, 1):
+        start = float(seg.get("start", 0.0))
+        end = float(seg.get("end", 0.0))
+        text = str(seg.get("text", "")).strip()
+        lines.append(str(idx))
+        lines.append(f"{_format_srt_timestamp(start)} --> {_format_srt_timestamp(end)}")
+        lines.append(text)
+        lines.append("")
+
+    with srt_path.open("w", encoding="utf-8") as f:
+        f.write("\n".join(lines).rstrip() + "\n")
+
+
 def transcribe_file(config: TranscribeConfig) -> Path:
     """RU: Запускает транскрибацию faster-whisper и записывает JSON транскрипт.
 
@@ -269,11 +297,14 @@ def transcribe_file(config: TranscribeConfig) -> Path:
             out_path = config.outdir / config.input_path.with_suffix(".json").name
         else:
             out_path = config.input_path.with_suffix(".json")
+        srt_path = out_path.with_suffix(".srt")
 
         _dump_output(out_path, output)
+        _dump_srt_output(srt_path, output["segments"])
 
         if not config.quiet:
             LOGGER.info("[transcribe] saved=%s", out_path)
+            LOGGER.info("[transcribe] saved=%s", srt_path)
 
         return out_path
     finally:
