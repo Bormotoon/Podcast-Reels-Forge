@@ -707,4 +707,22 @@ def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        if LOGGER:
+            LOGGER.warning("Interrupted by user.")
+        sys.exit(130)
+    except Exception as exc:
+        import sys
+        if LOGGER:
+            LOGGER.error("Analysis failed: %s", exc)
+        else:
+            print(f"Analysis failed: {exc}", file=sys.stderr)
+        import os
+        if os.environ.get("DEBUG_FORGE") == "1":
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)

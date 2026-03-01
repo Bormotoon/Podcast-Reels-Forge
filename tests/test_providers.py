@@ -32,8 +32,9 @@ class DummyResponse:
 class DummyStreamResponse:
     """Streaming response stub that supports `with` and `iter_lines()`."""
 
-    def __init__(self, lines: list[str]) -> None:
+    def __init__(self, lines: list[str], status_code: int = 200) -> None:
         self._lines = lines
+        self.status_code = status_code
 
     def __enter__(self) -> "DummyStreamResponse":
         return self

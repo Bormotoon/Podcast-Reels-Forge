@@ -163,6 +163,16 @@ class OllamaProvider:
             stream=True,
             timeout=(connect_timeout, read_timeout),
         ) as r:
+            if r.status_code == 404:
+                err_msg = ""
+                try:
+                    err_msg = r.json().get("error", "")
+                except Exception:
+                    pass
+                if "not found" in err_msg.lower() or not err_msg:
+                    raise RuntimeError(f"Ollama returned 404: {err_msg or 'Not Found'}. Do you need to run 'ollama pull {model}'?")
+                raise RuntimeError(f"Ollama returned 404: {err_msg}")
+                
             r.raise_for_status()
 
             for line in r.iter_lines(decode_unicode=True):

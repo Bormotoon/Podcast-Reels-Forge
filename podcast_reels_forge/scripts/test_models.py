@@ -322,4 +322,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        import sys
+        sys.exit(130)
+    except Exception as exc:
+        import sys
+        print(f"Testing failed: {exc}", file=sys.stderr)
+        import os
+        if os.environ.get("DEBUG_FORGE") == "1":
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)

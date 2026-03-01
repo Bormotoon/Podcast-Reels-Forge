@@ -35,9 +35,11 @@ except ImportError:  # pragma: no cover
 
 from podcast_reels_forge.utils.ollama_service import (
     ENV_MANAGED_BY_PIPELINE,
+    get_ollama_models,
     ollama_start,
     ollama_stop,
     parse_local_ollama_host_port,
+    pull_ollama_model,
 )
 
 log = logging.getLogger("Forge")
@@ -497,6 +499,22 @@ def run_pipeline(
             env[ENV_MANAGED_BY_PIPELINE] = "1"
             host, port = local_ollama
             ollama_proc = ollama_start(host=host, port=port)
+
+        # Proactively check/pull models if using Ollama
+        if "ollama" in str(url).lower():
+            try:
+                available = get_ollama_models(url)
+                # Normalize available names (ollama often appends :latest)
+                for model in models:
+                    # Skip cloud/non-ollama models that might be in the list by mistake
+                    if "gemini" in model.lower() or "claude" in model.lower() or "gpt-" in model.lower():
+                        continue
+                    
+                    if model not in available and f"{model}:latest" not in available:
+                        status(f"[ollama] model '{model}' not found, pulling...", quiet=quiet)
+                        pull_ollama_model(url, model)
+            except Exception as e:
+                log.warning("Could not verify/pull Ollama models: %s", e)
 
         try:
             for i, model in enumerate(models, 1):

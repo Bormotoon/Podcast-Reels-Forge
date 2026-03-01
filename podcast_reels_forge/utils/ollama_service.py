@@ -103,3 +103,56 @@ def ollama_stop(p: subprocess.Popen) -> None:
             LOGGER.exception("Failed to kill Ollama process")
     except OSError:
         LOGGER.exception("Failed to terminate Ollama process")
+
+def get_ollama_models(url: str) -> list[str]:
+    """Retrieve the list of model names already available in Ollama."""
+    import requests
+    try:
+        req_url = f"{url.rstrip(\"/\")}/tags"
+        if "/api/generate" in req_url:
+             req_url = req_url.replace("/api/generate", "/api/tags")
+        elif "/api/chat" in req_url:
+             req_url = req_url.replace("/api/chat", "/api/tags")
+
+        r = requests.get(req_url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return [m["name"] for m in data.get("models", [])]
+    except Exception as exc:
+        LOGGER.warning("Failed to list Ollama models: %s", exc)
+        return []
+
+def pull_ollama_model(url: str, model: str) -> bool:
+    """Pull a model from Ollama library with streaming progress logs."""
+    import requests
+    import json
+    try:
+        req_url = f"{url.rstrip(\"/\")}/pull"
+        if "/api/generate" in req_url:
+             req_url = req_url.replace("/api/generate", "/api/pull")
+        elif "/api/chat" in req_url:
+             req_url = req_url.replace("/api/chat", "/api/pull")
+
+        LOGGER.info("Pulling model %s from %s...", model, req_url)
+        with requests.post(req_url, json={"name": model}, stream=True, timeout=None) as r:
+            r.raise_for_status()
+            last_status = ""
+            for line in r.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    status = obj.get("status", "")
+                    if status != last_status:
+                        LOGGER.info("Ollama pull [%s]: %s", model, status)
+                        last_status = status
+                    if "error" in obj:
+                        LOGGER.error("Ollama pull failed for %s: %s", model, obj["error"])
+                        return False
+                except (json.JSONDecodeError, KeyError):
+                    continue
+        return True
+    except Exception as exc:
+        LOGGER.error("Failed to pull model %s: %s", model, exc)
+        return False
+
