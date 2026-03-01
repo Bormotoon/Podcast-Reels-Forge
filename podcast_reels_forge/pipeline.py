@@ -146,13 +146,15 @@ def find_input_queue(input_dir: Path) -> list[dict[str, Any]]:
             if stem not in stems:
                 stems[stem] = {"video": None, "audio": None}
             # Pick newest if multiple video formats for same stem
-            if stems[stem]["video"] is None or p.stat().st_mtime > stems[stem]["video"].stat().st_mtime:
+            curr_v = stems[stem]["video"]
+            if curr_v is None or p.stat().st_mtime > curr_v.stat().st_mtime:
                 stems[stem]["video"] = p
         elif ext in audio_exts:
             if stem not in stems:
                 stems[stem] = {"video": None, "audio": None}
             # Pick newest if multiple audio formats for same stem
-            if stems[stem]["audio"] is None or p.stat().st_mtime > stems[stem]["audio"].stat().st_mtime:
+            curr_a = stems[stem]["audio"]
+            if curr_a is None or p.stat().st_mtime > curr_a.stat().st_mtime:
                 stems[stem]["audio"] = p
 
     queue = []

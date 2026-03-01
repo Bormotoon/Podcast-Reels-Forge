@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -716,7 +717,6 @@ if __name__ == "__main__":
             LOGGER.warning("Interrupted by user.")
         sys.exit(130)
     except Exception as exc:
-        import sys
         if LOGGER:
             LOGGER.error("Analysis failed: %s", exc)
         else:

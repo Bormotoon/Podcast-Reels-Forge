@@ -7,7 +7,7 @@ import gc
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 from faster_whisper import WhisperModel
 
@@ -160,7 +160,7 @@ def _format_srt_timestamp(seconds: float) -> str:
     return f"{hours:02}:{minutes:02}:{secs:02},{millis:03}"
 
 
-def _dump_srt_output(srt_path: Path, segments: list[dict[str, object]]) -> None:
+def _dump_srt_output(srt_path: Path, segments: list[dict[str, Any]]) -> None:
     """Write SRT subtitles based on transcription segments."""
     lines: list[str] = []
     for idx, seg in enumerate(segments, 1):

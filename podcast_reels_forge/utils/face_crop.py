@@ -3,14 +3,15 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 LOG = logging.getLogger(__name__)
 
 
 try:  # Optional dependency
-    import cv2  # type: ignore
+    import cv2
 except Exception:  # pragma: no cover
-    cv2 = None  # type: ignore
+    cv2 = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -23,7 +24,7 @@ def face_detection_available() -> bool:
     return cv2 is not None
 
 
-def _get_cascades() -> list["cv2.CascadeClassifier"]:  # type: ignore[name-defined]
+def _get_cascades() -> list[Any]:
     if cv2 is None:
         return []
 
@@ -34,7 +35,7 @@ def _get_cascades() -> list["cv2.CascadeClassifier"]:  # type: ignore[name-defin
     ]
     cascades = []
     try:
-        base_path = Path(cv2.data.haarcascades)
+        base_path = Path(cv2.data.haarcascades)  # type: ignore[attr-defined]
     except Exception:
         return []
 

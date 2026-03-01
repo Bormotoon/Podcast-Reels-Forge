@@ -236,7 +236,7 @@ def analyze_results(results: dict) -> str:
     
     if valid_models:
         # Score by: JSON quality, number of moments, avg score, speed
-        def model_score(m):
+        def model_score(m: str) -> float:
             s = scores[m]
             return (
                 s["count"] * 2 +  # More moments is better
@@ -272,7 +272,7 @@ def analyze_results(results: dict) -> str:
     return "\n".join(lines)
 
 
-def main():
+def main() -> None:
     transcript_path = Path("/home/borm/VibeCoding/Podcast Reels Forge/output/audio.json")
     output_dir = Path("/home/borm/VibeCoding/Podcast Reels Forge/anal")
     

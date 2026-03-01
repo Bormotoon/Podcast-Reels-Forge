@@ -21,6 +21,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from podcast_reels_forge.utils.face_crop import (
     FaceCropSettings,
@@ -34,7 +35,7 @@ try:
     from tqdm import tqdm
 except ImportError:  # pragma: no cover
 
-    def tqdm(x, **_):
+    def tqdm(x: Any, **_: Any) -> Any:
         return x
 
 
@@ -109,7 +110,7 @@ def _cut_one(
             # Map ratio -> crop X after scaling to target height.
             # Note: we approximate source size via ffprobe-less approach; use OpenCV to read.
             try:
-                import cv2  # type: ignore
+                import cv2
 
                 cap = cv2.VideoCapture(str(video_in))
                 src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
@@ -307,14 +308,14 @@ def main(argv: list[str] | None = None) -> None:
 
         LOG.info("%s: re-render %d reels -> %s", model_dir.name, len(moments), reels_dir)
 
-        def work(item: tuple[int, dict[str, object]]):
+        def work(item: tuple[int, dict[str, Any]]) -> tuple[bool, Path, str]:
             i, m = item
             out_path = reels_dir / f"reel_{i + 1:02d}.mp4"
             if not args.replace:
                 out_path = _make_unique_path(out_path)
             try:
-                start = float(m.get("start", 0) or 0)
-                end = float(m.get("end", 0) or 0)
+                start = float(str(m.get("start", 0) or 0))
+                end = float(str(m.get("end", 0) or 0))
             except (TypeError, ValueError):
                 return False, out_path, "bad start/end"
             if not (0 <= start < end):

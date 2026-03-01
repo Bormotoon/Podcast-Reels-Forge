@@ -83,7 +83,12 @@ def prepare_transcript_for_model(model: str, segments: list[dict]) -> tuple[str,
 
         # De-dupe while preserving order
         seen: set[int] = set()
-        picked_idx = [i for i in picked_idx if not (i in seen or seen.add(i))]
+        deduped = []
+        for i in picked_idx:
+            if i not in seen:
+                seen.add(i)
+                deduped.append(i)
+        picked_idx = deduped
 
         out_lines = []
         used_segments: list[dict] = []
@@ -116,7 +121,7 @@ def get_prompt(model: str, transcript: str, *, already_selected: list[dict] | No
         ranges = []
         for m in already_selected:
             try:
-                ranges.append(f"[{int(m.get('start'))}-{int(m.get('end'))}]")
+                ranges.append(f"[{int(m.get('start', -1))}-{int(m.get('end', -1))}]")
             except (TypeError, ValueError):
                 continue
         if ranges:
@@ -245,8 +250,8 @@ def extract_json_array(text: str) -> list:
 
 def is_duration_valid(m: dict, allowed_starts: set[int], allowed_ends: set[int]) -> bool:
     try:
-        start = int(m.get("start"))
-        end = int(m.get("end"))
+        start = int(m.get("start", -1))
+        end = int(m.get("end", -1))
     except (TypeError, ValueError):
         return False
     if start not in allowed_starts:
@@ -274,8 +279,8 @@ def snap_to_allowed(value: int, allowed: set[int], *, max_delta: int = 10) -> in
 def normalize_timestamps(m: dict, allowed_starts: set[int], allowed_ends: set[int]) -> dict:
     """Snap start/end to nearby segment boundaries when the model is slightly off."""
     try:
-        start = int(m.get("start"))
-        end = int(m.get("end"))
+        start = int(m.get("start", -1))
+        end = int(m.get("end", -1))
     except (TypeError, ValueError):
         return m
 
@@ -294,8 +299,8 @@ def normalize_timestamps(m: dict, allowed_starts: set[int], allowed_ends: set[in
 
 def ranges_overlap(a: dict, b: dict) -> bool:
     try:
-        a0, a1 = int(a.get("start")), int(a.get("end"))
-        b0, b1 = int(b.get("start")), int(b.get("end"))
+        a0, a1 = int(a.get("start", -1)), int(a.get("end", -1))
+        b0, b1 = int(b.get("start", -1)), int(b.get("end", -1))
     except (TypeError, ValueError):
         return False
     return not (a1 <= b0 or b1 <= a0)
@@ -307,8 +312,8 @@ def normalize_duration(m: dict, allowed_ends: set[int]) -> dict:
     Helps models that keep choosing a single short segment.
     """
     try:
-        start = int(m.get("start"))
-        end = int(m.get("end"))
+        start = int(m.get("start", -1))
+        end = int(m.get("end", -1))
     except (TypeError, ValueError):
         return m
 
@@ -347,9 +352,9 @@ def dedupe_moments(
             continue
         # Always avoid exact duplicates
         try:
-            s = int(m.get("start"))
-            e = int(m.get("end"))
-            if any(int(prev.get("start")) == s and int(prev.get("end")) == e for prev in out):
+            s = int(m.get("start", -1))
+            e = int(m.get("end", -1))
+            if any(int(prev.get("start", -1)) == s and int(prev.get("end", -1)) == e for prev in out):
                 continue
         except Exception:
             pass
@@ -457,7 +462,7 @@ def avg_score(moments: list[dict]) -> float:
             v = v / 10
         return float(max(0.0, min(10.0, v)))
 
-    scores = [norm(float(m.get("score"))) for m in moments if isinstance(m.get("score"), (int, float))]
+    scores = [norm(float(m.get("score", 0))) for m in moments if isinstance(m.get("score"), (int, float))]
     return (sum(scores) / len(scores)) if scores else 0.0
 
 
@@ -510,7 +515,7 @@ def generate_report(output_dir: Path, models: list[str]) -> None:
     (output_dir / "model_comparison_v2.md").write_text("\n".join(report_lines), encoding="utf-8")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark multiple Ollama models.")
     parser.add_argument(
         "--models",
