@@ -108,7 +108,7 @@ def get_ollama_models(url: str) -> list[str]:
     """Retrieve the list of model names already available in Ollama."""
     import requests
     try:
-        req_url = f"{url.rstrip(\"/\")}/tags"
+        req_url = f"{url.rstrip('/')}/tags"
         if "/api/generate" in req_url:
              req_url = req_url.replace("/api/generate", "/api/tags")
         elif "/api/chat" in req_url:
@@ -127,7 +127,7 @@ def pull_ollama_model(url: str, model: str) -> bool:
     import requests
     import json
     try:
-        req_url = f"{url.rstrip(\"/\")}/pull"
+        req_url = f"{url.rstrip('/')}/pull"
         if "/api/generate" in req_url:
              req_url = req_url.replace("/api/generate", "/api/pull")
         elif "/api/chat" in req_url:
