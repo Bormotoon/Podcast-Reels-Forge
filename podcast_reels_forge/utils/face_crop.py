@@ -53,29 +53,29 @@ def detect_face_center_ratio(
     *,
     sample_times_s: list[float],
     settings: FaceCropSettings,
-) -> float | None:
-    """Return median face center X as ratio in [0..1], or None.
+) -> tuple[float | None, float]:
+    """Return tuple of (median face center X as ratio in [0..1] or None, detection rate [0..1]).
 
     Uses Haar cascades (fast, works offline). Picks the largest detected face per frame.
     """
 
     if cv2 is None:
-        return None
+        return None, 0.0
 
     cascades = _get_cascades()
     if not cascades:
         LOG.warning("No opencv Haar cascades found; smart crop disabled")
-        return None
+        return None, 0.0
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
-        return None
+        return None, 0.0
 
     ratios: list[float] = []
     try:
         width = float(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
         if width <= 0:
-            return None
+            return None, 0.0
 
         for t in sample_times_s:
             cap.set(cv2.CAP_PROP_POS_MSEC, float(t) * 1000.0)
@@ -106,13 +106,15 @@ def detect_face_center_ratio(
     finally:
         cap.release()
 
+    rate = len(ratios) / len(sample_times_s) if sample_times_s else 0.0
+
     if not ratios:
         LOG.debug("Face detection: 0/%d frames had faces", len(sample_times_s))
-        return None
+        return None, rate
 
     LOG.debug("Face detection: %d/%d frames had faces", len(ratios), len(sample_times_s))
     ratios.sort()
-    return ratios[len(ratios) // 2]
+    return ratios[len(ratios) // 2], rate
 
 
 def compute_crop_x_for_scaled_height(

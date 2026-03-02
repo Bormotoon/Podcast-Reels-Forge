@@ -749,6 +749,16 @@ def run_pipeline(
                     video_args += ["--face-samples", str(v_conf.get("face_samples", 7))]
                     video_args += ["--face-min-size", str(v_conf.get("face_min_size", 60))]
 
+                q_conf = conf.get("processing", {}).get("quality_filters", {})
+                if "min_score" in q_conf:
+                    video_args += ["--filter-min-score", str(q_conf["min_score"])]
+                if "min_duration" in q_conf:
+                    video_args += ["--filter-min-duration", str(q_conf["min_duration"])]
+                if "max_duration" in q_conf:
+                    video_args += ["--filter-max-duration", str(q_conf["max_duration"])]
+                if "face_min_ratio" in q_conf:
+                    video_args += ["--filter-face-ratio", str(q_conf["face_min_ratio"])]
+
                 if exports_conf.get("webm", False):
                     video_args.append("--export-webm")
                 if exports_conf.get("gif", False):

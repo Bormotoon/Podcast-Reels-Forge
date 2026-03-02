@@ -53,6 +53,7 @@ class RenderSettings:
     smart_crop_face: bool
     face_samples: int
     face_min_size: int
+    filter_face_ratio: float = 0.0
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -94,7 +95,9 @@ def _cut_one(
     start: float,
     end: float,
     settings: RenderSettings,
-) -> tuple[bool, str]:
+    is_rejected: bool = False,
+    rejected_dir: Path | None = None,
+) -> tuple[bool, Path, str]:
     start_offset = max(0.0, float(start) - float(settings.padding_s))
     end_offset = float(end) + float(settings.padding_s)
 
@@ -105,7 +108,12 @@ def _cut_one(
             min_face_size=int(settings.face_min_size),
         )
         sample_times = build_sample_times(start_offset, end_offset, face_settings.samples)
-        center_ratio = detect_face_center_ratio(video_in, sample_times_s=sample_times, settings=face_settings)
+        center_ratio, face_rate = detect_face_center_ratio(video_in, sample_times_s=sample_times, settings=face_settings)
+        
+        if settings.filter_face_ratio > 0 and face_rate < settings.filter_face_ratio:
+            LOG.debug("Rejecting clip (face rate %.2f < %.2f)", face_rate, settings.filter_face_ratio)
+            is_rejected = True
+
         if center_ratio is not None:
             # Map ratio -> crop X after scaling to target height.
             # Note: we approximate source size via ffprobe-less approach; use OpenCV to read.
@@ -126,6 +134,9 @@ def _cut_one(
                 target_h=settings.height,
                 center_ratio=center_ratio,
             )
+
+    if is_rejected and rejected_dir:
+        out_path = rejected_dir / out_path.name
 
     cmd = [
         "ffmpeg",
@@ -176,9 +187,9 @@ def _cut_one(
     if res.returncode != 0:
         # Keep stderr short but useful.
         err = (res.stderr or "").strip()
-        return False, err[-2000:]
+        return False, out_path, err[-2000:]
 
-    return True, ""
+    return True, out_path, ""
 
 
 def _find_model_dirs(output_dir: Path) -> list[Path]:
@@ -251,6 +262,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     ap.add_argument("--threads", type=int, default=2, help="Parallel ffmpeg jobs")
     ap.add_argument("--verbose", action="store_true")
+    
+    # Quality Filters
+    ap.add_argument("--filter-min-score", type=float, default=0.0)
+    ap.add_argument("--filter-min-duration", type=float, default=0.0)
+    ap.add_argument("--filter-max-duration", type=float, default=9999.0)
+    ap.add_argument("--filter-face-ratio", type=float, default=0.0)
+    
     return ap.parse_args(argv)
 
 
@@ -275,6 +293,7 @@ def main(argv: list[str] | None = None) -> None:
         smart_crop_face=bool(args.smart_crop_face),
         face_samples=int(args.face_samples),
         face_min_size=int(args.face_min_size),
+        filter_face_ratio=float(args.filter_face_ratio),
     )
 
     if settings.smart_crop_face and not face_detection_available():
@@ -320,14 +339,32 @@ def main(argv: list[str] | None = None) -> None:
                 return False, out_path, "bad start/end"
             if not (0 <= start < end):
                 return False, out_path, "invalid time range"
-            ok, err = _cut_one(
+                
+            score = float(m.get("score", 0.0) or 0.0)
+            duration = end - start
+            
+            is_rejected = False
+            if args.filter_min_score > 0 and score < args.filter_min_score:
+                is_rejected = True
+            if args.filter_min_duration > 0 and duration < args.filter_min_duration:
+                is_rejected = True
+            if args.filter_max_duration > 0 and duration > args.filter_max_duration:
+                is_rejected = True
+
+            rejected_dir = reels_dir / "rejected"
+            if is_rejected:
+                rejected_dir.mkdir(exist_ok=True)
+                
+            ok, out_path_used, err = _cut_one(
                 video_in=args.input,
                 out_path=out_path,
                 start=start,
                 end=end,
                 settings=settings,
+                is_rejected=is_rejected,
+                rejected_dir=rejected_dir,
             )
-            return ok, out_path, err
+            return ok, out_path_used, err
 
         with ThreadPoolExecutor(max_workers=max(1, int(args.threads))) as pool:
             it = pool.map(work, list(enumerate(moments)))

@@ -76,6 +76,13 @@ prompts:
   variant: "default"      # A/B testing: default|a|b
 
 processing:
+  # Quality Filters: reject bad clips into `rejected/` folder
+  quality_filters:
+    min_score: 7          # Out of 10, discard if LLM gave a lower score
+    min_duration: 15      # Discard if clip is shorter than 15s
+    max_duration: 180     # Discard if clip is longer than 180s
+    face_min_ratio: 0.3   # Discard if face is detected in less than 30% of sampled frames
+
   # Counts and duration limits for different clip types
   clips:
     stories:

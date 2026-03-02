@@ -28,9 +28,10 @@ def test_ffmpeg_cut_standard(mock_run: MagicMock) -> None:
     video_in = Path("in.mp4")
     out_path = Path("out.mp4")
     
-    success = ffmpeg_cut(video_in, 10.0, 20.0, out_path, opts)
+    success, out_p = ffmpeg_cut(video_in, 10.0, 20.0, out_path, opts)
     
     assert success is True
+    assert out_p == out_path
     cmd = mock_run.call_args[0][0]
     assert "ffmpeg" in cmd
     # Check SS and TO
@@ -54,7 +55,9 @@ def test_ffmpeg_cut_vertical(mock_run: MagicMock) -> None:
         face_min_size=60,
     )
     
-    ffmpeg_cut(Path("in.mp4"), 10.0, 20.0, Path("out.mp4"), opts)
+    success, out_p = ffmpeg_cut(Path("in.mp4"), 10.0, 20.0, Path("out.mp4"), opts)
+    
+    assert success is True
     
     cmd = mock_run.call_args[0][0]
     assert "-vf" in cmd

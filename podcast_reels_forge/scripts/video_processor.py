@@ -48,6 +48,7 @@ class FfmpegOptions:
     padding: float
     face_samples: int
     face_min_size: int
+    filter_face_ratio: float = 0.0
 
 
 def _run_subprocess(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -63,8 +64,14 @@ def _status(msg: str, *, quiet: bool) -> None:
 
 
 def ffmpeg_cut(
-    video_in: Path, start: float, end: float, out_path: Path, opts: FfmpegOptions,
-) -> bool:
+    video_in: Path,
+    start: float,
+    end: float,
+    out_path: Path,
+    opts: FfmpegOptions,
+    is_rejected: bool = False,
+    rejected_dir: Path | None = None,
+) -> tuple[bool, Path]:
     """Cut a segment from video with optional vertical crop."""
 
     filters: list[str] = []
@@ -81,7 +88,12 @@ def ffmpeg_cut(
             start_offset = max(0, start - opts.padding)
             end_offset = end + opts.padding
             sample_times = build_sample_times(start_offset, end_offset, face_settings.samples)
-            center_ratio = detect_face_center_ratio(video_in, sample_times_s=sample_times, settings=face_settings)
+            center_ratio, face_rate = detect_face_center_ratio(video_in, sample_times_s=sample_times, settings=face_settings)
+            
+            if opts.filter_face_ratio > 0 and face_rate < opts.filter_face_ratio:
+                LOG.debug("Rejecting clip (face detection rate %.2f < %.2f)", face_rate, opts.filter_face_ratio)
+                is_rejected = True
+
             if center_ratio is not None:
                 LOG.debug("Face detected at ratio %.2f; applying smart crop", center_ratio)
                 try:
@@ -104,6 +116,9 @@ def ffmpeg_cut(
                 vf = f"scale=-2:1920,crop=1080:1920:{crop_x}:0"
 
         filters.append(vf)
+
+    if is_rejected and rejected_dir:
+        out_path = rejected_dir / out_path.name
 
     start_offset = max(0, start - opts.padding)
     end_offset = end + opts.padding
@@ -142,7 +157,7 @@ def ffmpeg_cut(
         cmd[cmd.index("h264_nvenc")] = "libx264"
         res = _run_subprocess(cmd)
 
-    return res.returncode == 0
+    return res.returncode == 0, out_path
 
 
 def create_concat_sample(reels: list[Path], out_path: Path) -> bool:
@@ -284,6 +299,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument(
         "--export-audio", action="store_true", help="Export reels audio-only as .m4a",
     )
+    
+    # Quality Filters
+    ap.add_argument("--filter-min-score", type=float, default=0.0, help="Reject if LLM score is below this")
+    ap.add_argument("--filter-min-duration", type=float, default=0.0, help="Reject if duration is below this")
+    ap.add_argument("--filter-max-duration", type=float, default=9999.0, help="Reject if duration is above this")
+    ap.add_argument("--filter-face-ratio", type=float, default=0.0, help="Reject if face detected ratio is below this")
+
     ap.add_argument("--quiet", action="store_true", help="Suppress non-error output")
     ap.add_argument("--verbose", action="store_true", help="Verbose output (incl. progress)")
     return ap.parse_args(argv)
@@ -322,6 +344,7 @@ def main(argv: list[str] | None = None) -> None:
         padding=args.padding,
         face_samples=int(args.face_samples),
         face_min_size=int(args.face_min_size),
+        filter_face_ratio=float(args.filter_face_ratio),
     )
 
     if opts.smart_crop_face and opts.vertical_crop and not face_detection_available():
@@ -338,14 +361,37 @@ def main(argv: list[str] | None = None) -> None:
             end_f = float(end_val) if end_val is not None else 0.0  # type: ignore[arg-type]
         except (TypeError, ValueError):
             start_f, end_f = 0.0, 0.0
-        success = ffmpeg_cut(
+            
+        score_val = m.get("score", 0.0)
+        try:
+            score = float(score_val) if score_val is not None else 0.0  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            score = 0.0
+            
+        duration = end_f - start_f
+        
+        is_rejected = False
+        if args.filter_min_score > 0 and score < args.filter_min_score:
+            is_rejected = True
+        if args.filter_min_duration > 0 and duration < args.filter_min_duration:
+            is_rejected = True
+        if args.filter_max_duration > 0 and duration > args.filter_max_duration:
+            is_rejected = True
+
+        rejected_dir = reels_dir / "rejected"
+        if is_rejected:
+            rejected_dir.mkdir(exist_ok=True)
+
+        success, final_path = ffmpeg_cut(
             args.input,
             start_f,
             end_f,
             out_file,
             opts,
+            is_rejected=is_rejected,
+            rejected_dir=rejected_dir,
         )
-        return out_file if success else None
+        return final_path if success else None
 
     _status(f"[cut] {len(moments)} moments", quiet=args.quiet)
     with ThreadPoolExecutor(max_workers=args.threads) as pool:
