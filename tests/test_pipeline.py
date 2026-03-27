@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 from podcast_reels_forge import pipeline
@@ -36,6 +38,44 @@ def test_pick_input_file_picks_newest(tmp_path: Path) -> None:
         raise AssertionError(message)
 
 
+def test_find_input_queue_creates_mp3_companion(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Ensure missing same-stem MP3 is created from video input."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    video_path = input_dir / "episode.mp4"
+    video_path.write_text("video")
+
+    calls: list[list[str]] = []
+
+    def fake_run(
+        cmd: list[str] | tuple[str, ...],
+        *,
+        capture_output: bool = False,
+        text: bool = False,
+        **_: object,
+    ) -> SimpleNamespace:
+        cmd_list = list(cmd)
+        calls.append(cmd_list)
+        out_path = Path(cmd_list[-1])
+        out_path.write_text("mp3")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fake_run)
+
+    queue = pipeline.find_input_queue(input_dir)
+
+    assert len(queue) == 1
+    assert queue[0]["video"] == video_path
+    assert queue[0]["audio"] == input_dir / "episode.mp3"
+    assert (input_dir / "episode.mp3").exists()
+    assert calls
+    assert calls[0][0] == "ffmpeg"
+    assert "-b:a" in calls[0]
+    assert "320k" in calls[0]
+
+
 def test_run_pipeline_builds_and_calls_stages(
     monkeypatch: MonkeyPatch, tmp_path: Path,
 ) -> None:
@@ -45,6 +85,20 @@ def test_run_pipeline_builds_and_calls_stages(
     input_dir = tmp_path / "input"
     input_dir.mkdir()
     (input_dir / "video.mp4").write_text("x")
+
+    def fake_ffmpeg_run(
+        cmd: list[str] | tuple[str, ...],
+        *,
+        capture_output: bool = False,
+        text: bool = False,
+        **_: object,
+    ) -> SimpleNamespace:
+        cmd_list = list(cmd)
+        out_path = Path(cmd_list[-1])
+        out_path.write_text("mp3")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fake_ffmpeg_run)
 
     calls: list[tuple[str, list[str], dict[str, str] | None]] = []
 
@@ -153,6 +207,20 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
     input_dir = tmp_path / "input"
     input_dir.mkdir()
     (input_dir / "video.mp4").write_text("x")
+
+    def fake_ffmpeg_run(
+        cmd: list[str] | tuple[str, ...],
+        *,
+        capture_output: bool = False,
+        text: bool = False,
+        **_: object,
+    ) -> SimpleNamespace:
+        cmd_list = list(cmd)
+        out_path = Path(cmd_list[-1])
+        out_path.write_text("mp3")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fake_ffmpeg_run)
 
     output_root = tmp_path / "output"
     model_dir = output_root / "video" / "qwen3"

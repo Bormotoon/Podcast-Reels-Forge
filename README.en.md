@@ -74,7 +74,7 @@ pip install -r requirements.txt
 ### Prepare Input
 
 Place your video files (mp4, mkv, mov) in the `input/` directory.
-*Tip: If you have a separate high-quality audio file with the same name, the script will prefer it for better transcription.*
+*Tip: If a same-name `mp3` already exists, Forge will use it. Otherwise it automatically extracts audio from the video into `video.mp3` at 320 kbps and continues the pipeline as usual.*
 
 ### Run
 

@@ -125,48 +125,82 @@ def pick_input_file(input_dir: Path, suffixes: tuple[str, ...]) -> Path | None:
     return files[0]
 
 
+def _file_has_content(path: Path) -> bool:
+    try:
+        return path.exists() and path.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _ensure_mp3_companion(video_path: Path) -> Path:
+    """Create a same-stem MP3 companion from video if it does not exist yet."""
+    mp3_path = video_path.with_suffix(".mp3")
+    if _file_has_content(mp3_path):
+        return mp3_path
+
+    log.info(
+        "Creating MP3 companion for %s -> %s",
+        video_path.name,
+        mp3_path.name,
+    )
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
+        "-vn",
+        "-c:a",
+        "libmp3lame",
+        "-b:a",
+        "320k",
+        str(mp3_path),
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError as exc:
+        raise SystemExit("ffmpeg not found; required to create MP3 companions") from exc
+    if res.returncode != 0:
+        stderr = (res.stderr or "").strip()
+        stdout = (res.stdout or "").strip()
+        detail = stderr or stdout or "unknown ffmpeg error"
+        raise SystemExit(
+            f"Failed to create MP3 companion for {video_path.name}: {detail[-500:]}",
+        )
+    return mp3_path
+
+
 def find_input_queue(input_dir: Path) -> list[dict[str, Any]]:
-    """RU: Находит все видео-файлы и соответствующие им аудио-файлы с тем же именем.
-    EN: Find all video files and matching audio files with the same stem.
+    """RU: Находит видео и гарантирует MP3-спутник для каждого ролика.
+
+    EN: Find video files and ensure each one has a same-stem MP3 companion.
     """
     video_exts = {".mp4", ".mkv", ".mov", ".avi"}
-    audio_exts = {".mp3", ".wav", ".flac", ".m4a"}
 
     if not input_dir.exists():
         return []
 
-    stems: dict[str, dict[str, Path | None]] = {}
+    stems: dict[str, Path] = {}
 
     for p in input_dir.iterdir():
         if not p.is_file():
             continue
-        ext = p.suffix.lower()
+        if p.suffix.lower() not in video_exts:
+            continue
         stem = p.stem
-
-        if ext in video_exts:
-            if stem not in stems:
-                stems[stem] = {"video": None, "audio": None}
-            # Pick newest if multiple video formats for same stem
-            curr_v = stems[stem]["video"]
-            if curr_v is None or p.stat().st_mtime > curr_v.stat().st_mtime:
-                stems[stem]["video"] = p
-        elif ext in audio_exts:
-            if stem not in stems:
-                stems[stem] = {"video": None, "audio": None}
-            # Pick newest if multiple audio formats for same stem
-            curr_a = stems[stem]["audio"]
-            if curr_a is None or p.stat().st_mtime > curr_a.stat().st_mtime:
-                stems[stem]["audio"] = p
+        curr_v = stems.get(stem)
+        # Pick newest if multiple video formats for the same stem.
+        if curr_v is None or p.stat().st_mtime > curr_v.stat().st_mtime:
+            stems[stem] = p
 
     queue = []
     for stem in sorted(stems.keys()):
-        info = stems[stem]
-        if info["video"]:
-            queue.append({
-                "stem": stem,
-                "video": info["video"],
-                "audio": info["audio"] or info["video"],
-            })
+        video_path = stems[stem]
+        mp3_path = _ensure_mp3_companion(video_path)
+        queue.append({
+            "stem": stem,
+            "video": video_path,
+            "audio": mp3_path,
+        })
     return queue
 
 
