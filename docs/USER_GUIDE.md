@@ -137,7 +137,7 @@ python -m podcast_reels_forge.scripts.video_processor \
 - `ollama.*` — модели, таймауты, watchdog
 - `video.*` — нарезка и базовые параметры FFmpeg
 - `subtitles.*` — вшитые субтитры через `pycaps`; ключ `subtitles.font` по умолчанию указывает на `assets/fonts/bignoodletoooblique.ttf`, а `subtitles.css` - на `assets/subtitles/forge_subtitles.css`
-- Для визуальной настройки сабов откройте `assets/subtitles/style-editor.html`
+- Для визуальной настройки сабов откройте `assets/subtitles/style-editor.html`; после выбора корня проекта кнопки Apply записывают текущие настройки прямо в `config.yaml` и `assets/subtitles/forge_subtitles.css`
 - `cache.*` — пропуск стадий, если результаты уже есть
 
 Если некоторые модели Ollama долго «думают» до первого токена, используйте `ollama.model_overrides.*` (уже настроено в дефолтном `config.yaml`).

@@ -150,7 +150,7 @@ output/
   - `font`: Путь к файлу шрифта. По умолчанию: `assets/fonts/bignoodletoooblique.ttf`.
   - `css`: Путь к CSS-шаблону внешнего вида сабов. По умолчанию: `assets/subtitles/forge_subtitles.css`.
   - `font_size_px`, `max_lines`, `vertical_align`, `vertical_offset`: Тонкая подстройка визуала сабов.
-  - Для визуальной настройки откройте `assets/subtitles/style-editor.html`.
+  - Для визуальной настройки откройте `assets/subtitles/style-editor.html`; после выбора корня проекта кнопки Apply записывают текущие настройки прямо в `config.yaml` и `assets/subtitles/forge_subtitles.css`.
 - **`diarization`**: Включение и настройка определения спикеров (требуется HuggingFace token).
 
 ---

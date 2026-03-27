@@ -151,7 +151,7 @@ Main flags for `start_forge.py`:
   - `font`: Path to the subtitle font file. Default: `assets/fonts/bignoodletoooblique.ttf`.
   - `css`: Path to the subtitle CSS template. Default: `assets/subtitles/forge_subtitles.css`.
   - `font_size_px`, `max_lines`, `vertical_align`, `vertical_offset`: Fine-tune subtitle styling/layout.
-  - Use `assets/subtitles/style-editor.html` for WYSIWYG style tuning.
+  - Use `assets/subtitles/style-editor.html` for WYSIWYG style tuning; after selecting the project root, the Apply buttons write the current settings straight into `config.yaml` and `assets/subtitles/forge_subtitles.css`.
 - **`diarization`**: Enable and configure speaker detection (requires HuggingFace token).
 
 ---

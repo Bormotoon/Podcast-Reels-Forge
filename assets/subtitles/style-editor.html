@@ -994,10 +994,12 @@
             <button id="resetBtn" class="primary" type="button">Reset defaults</button>
             <button id="saveBtn" type="button">Save state</button>
             <button id="clearBtn" type="button">Clear saved state</button>
+            <button id="connectProjectBtn" class="primary" type="button">Connect project folder</button>
+            <span id="projectStatus" class="pill warn">Project: <strong>not connected</strong></span>
           </div>
           <p class="footer-note">
             <strong>Tip:</strong> the preview shows how the subtitle card behaves in a vertical reel.
-            Use the estimated height badge on the right to stay under the 25% cap.
+            Connect the project folder once and then use Apply to write the current CSS and config back into the repo.
           </p>
           <div class="output-grid" style="margin-top: 12px;">
             <div class="code-card">
@@ -1142,6 +1144,8 @@
       resetBtn: document.getElementById("resetBtn"),
       saveBtn: document.getElementById("saveBtn"),
       clearBtn: document.getElementById("clearBtn"),
+      connectProjectBtn: document.getElementById("connectProjectBtn"),
+      projectStatus: document.getElementById("projectStatus"),
       applyCssBtn: document.getElementById("applyCssBtn"),
       downloadCssBtn: document.getElementById("downloadCssBtn"),
       applyConfigBtn: document.getElementById("applyConfigBtn"),
@@ -1183,6 +1187,7 @@
     let autoTimer = null;
     let activeIndex = 0;
     let fitInProgress = false;
+    let projectRootHandle = null;
 
     function loadState() {
       try {
@@ -1880,6 +1885,104 @@
       setTimeout(() => URL.revokeObjectURL(url), 0);
     }
 
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;",
+      }[ch]));
+    }
+
+    function setProjectStatus(label, tone = "warn") {
+      els.projectStatus.className = `pill ${tone}`;
+      els.projectStatus.innerHTML = `Project: <strong>${escapeHtml(label)}</strong>`;
+    }
+
+    function supportsProjectWrites() {
+      return typeof window.showDirectoryPicker === "function";
+    }
+
+    async function ensureProjectPermission(handle) {
+      const options = { mode: "readwrite" };
+      if (await handle.queryPermission(options) === "granted") {
+        return true;
+      }
+      return (await handle.requestPermission(options)) === "granted";
+    }
+
+    async function ensureProjectRootHandle() {
+      if (!supportsProjectWrites()) {
+        throw new Error("This browser does not support direct project writes.");
+      }
+      if (projectRootHandle && await ensureProjectPermission(projectRootHandle)) {
+        return projectRootHandle;
+      }
+      projectRootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+      if (!(await ensureProjectPermission(projectRootHandle))) {
+        throw new Error("Project folder permission was denied.");
+      }
+      return projectRootHandle;
+    }
+
+    async function writeProjectTextFile(relativePath, text) {
+      const rootHandle = await ensureProjectRootHandle();
+      const parts = relativePath.split("/").filter(Boolean);
+      if (!parts.length) {
+        throw new Error("Missing output path.");
+      }
+      let dirHandle = rootHandle;
+      for (const part of parts.slice(0, -1)) {
+        dirHandle = await dirHandle.getDirectoryHandle(part, { create: true });
+      }
+      const fileHandle = await dirHandle.getFileHandle(parts[parts.length - 1], { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(text);
+      await writable.close();
+    }
+
+    function replaceTopLevelSection(text, sectionName, replacement) {
+      const lines = text.split(/\r?\n/);
+      const start = lines.findIndex((line) => line.trim() === `${sectionName}:`);
+      if (start === -1) {
+        throw new Error(`Could not find the ${sectionName}: section in config.yaml.`);
+      }
+      let end = lines.length;
+      for (let i = start + 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (line && !/^\s/.test(line) && /^[A-Za-z_][A-Za-z0-9_-]*:\s*$/.test(line)) {
+          end = i;
+          break;
+        }
+      }
+      return [
+        ...lines.slice(0, start),
+        ...replacement.split(/\r?\n/),
+        ...lines.slice(end),
+      ].join("\n");
+    }
+
+    async function applyCssToProject() {
+      const cssText = renderCssTemplate();
+      els.cssOutput.value = cssText;
+      await writeProjectTextFile("assets/subtitles/forge_subtitles.css", cssText);
+      setProjectStatus(projectRootHandle ? (projectRootHandle.name || "connected") : "connected", "good");
+    }
+
+    async function applyConfigToProject() {
+      const configText = renderConfigSnippet();
+      els.configOutput.value = configText;
+      const rootHandle = await ensureProjectRootHandle();
+      const fileHandle = await rootHandle.getFileHandle("config.yaml");
+      const file = await fileHandle.getFile();
+      const updatedConfig = replaceTopLevelSection(await file.text(), "subtitles", configText);
+      const writable = await fileHandle.createWritable();
+      await writable.write(updatedConfig);
+      await writable.close();
+      setProjectStatus(rootHandle.name || "connected", "good");
+    }
+
     function wireControls() {
       const inputs = [
         els.fontSize,
@@ -1939,18 +2042,39 @@
         localStorage.removeItem(STORAGE_KEY);
       });
 
-      els.applyCssBtn.addEventListener("click", () => {
+      els.connectProjectBtn.addEventListener("click", async () => {
+        try {
+          const rootHandle = await ensureProjectRootHandle();
+          setProjectStatus(rootHandle.name || "connected", "good");
+        } catch (error) {
+          setProjectStatus(error && error.message ? error.message : "connect failed", "warn");
+        }
+      });
+
+      els.applyCssBtn.addEventListener("click", async () => {
         els.cssOutput.value = renderCssTemplate();
-        els.applyCssBtn.textContent = "Applied";
-        setTimeout(() => (els.applyCssBtn.textContent = "Apply CSS"), 1000);
+        try {
+          await applyCssToProject();
+          els.applyCssBtn.textContent = "Saved";
+          setTimeout(() => (els.applyCssBtn.textContent = "Apply CSS"), 1000);
+        } catch (error) {
+          setProjectStatus(error && error.message ? error.message : "CSS not saved", "warn");
+          els.applyCssBtn.textContent = "Apply CSS";
+        }
       });
       els.downloadCssBtn.addEventListener("click", () => {
         downloadText("forge_subtitles.css", renderCssTemplate(), "text/css;charset=utf-8");
       });
-      els.applyConfigBtn.addEventListener("click", () => {
+      els.applyConfigBtn.addEventListener("click", async () => {
         els.configOutput.value = renderConfigSnippet();
-        els.applyConfigBtn.textContent = "Applied";
-        setTimeout(() => (els.applyConfigBtn.textContent = "Apply config"), 1000);
+        try {
+          await applyConfigToProject();
+          els.applyConfigBtn.textContent = "Saved";
+          setTimeout(() => (els.applyConfigBtn.textContent = "Apply config"), 1000);
+        } catch (error) {
+          setProjectStatus(error && error.message ? error.message : "config not saved", "warn");
+          els.applyConfigBtn.textContent = "Apply config";
+        }
       });
       els.downloadConfigBtn.addEventListener("click", () => {
         downloadText("subtitles-config-snippet.yaml", renderConfigSnippet(), "text/yaml;charset=utf-8");
@@ -1969,6 +2093,7 @@
       wireControls();
       syncPreviewVars();
       buildOutput();
+      setProjectStatus(supportsProjectWrites() ? "not connected" : "unsupported", "warn");
       renderWords();
       updateGuideVisibility();
       await loadPreviewFont();
