@@ -4,6 +4,11 @@ Choose candidates with maximum practical value.
 # Requirements
 {requirements}
 
+# Rules
+- caption must be self-contained: avoid vague demonstratives/pronouns ("this", "that", "it") when you can name the subject explicitly
+- caption must not contain hashtags; keep tags only in the hashtags array
+- hashtags must contain exactly 5 relevant tags
+
 # Response (JSON only)
 ```json
 {

@@ -16,7 +16,8 @@ Select the best moments from candidates, following composition requirements.
 # Rules
 - Keep start/end from candidates (can adjust boundaries ±3 sec)
 - You may improve title, hook, caption, hashtags
-- caption must be a ready-to-post description up to 1000 characters
+- caption must be self-contained: avoid vague demonstratives/pronouns ("this", "that", "it") when you can name the subject explicitly
+- caption must not contain hashtags; keep tags only in the hashtags array
 - hashtags must contain exactly 5 relevant tags
 - Re-evaluate score if needed
 

@@ -28,7 +28,8 @@ Analyze this transcript fragment and identify moments with maximum viral potenti
 - start/end MUST match exact timestamps from transcript
 - Moment should begin with a strong hook
 - Moment should end naturally (not mid-sentence)
-- caption must be a ready-to-post description up to 1000 characters
+- caption must be self-contained: avoid vague demonstratives/pronouns ("this", "that", "it") when you can name the subject explicitly
+- caption must not contain hashtags; keep tags only in the hashtags array
 - hashtags must contain exactly 5 relevant tags
 - If no worthy moments found, return empty array
 
