@@ -18,11 +18,15 @@ from podcast_reels_forge.utils.reel_markdown import reel_index_from_path
 LOG = logging.getLogger(__name__)
 
 DEFAULT_SUBTITLE_FONT = Path("assets/fonts/bignoodletoooblique.ttf")
-DEFAULT_FONT_SIZE_PX = 72
-DEFAULT_MAX_LINES = 3
-DEFAULT_MAX_WIDTH_RATIO = 0.82
+DEFAULT_SUBTITLE_CSS_TEMPLATE = Path("assets/subtitles/forge_subtitles.css")
+DEFAULT_FONT_SIZE_PX = 44
+DEFAULT_MAX_LINES = 2
+DEFAULT_MAX_WIDTH_RATIO = 0.9
 DEFAULT_VERTICAL_ALIGN = "bottom"
-DEFAULT_VERTICAL_OFFSET = -0.08
+DEFAULT_VERTICAL_OFFSET = 0.0
+DEFAULT_WORD_X_SPACE = 6
+DEFAULT_WORD_Y_SPACE = 8
+DEFAULT_TEXT_OVERFLOW_STRATEGY = "exceed_width"
 _PYCAPS_TEMPLATE_DIRNAME = ".pycaps_template"
 
 
@@ -37,6 +41,7 @@ class SubtitleSegment:
 class SubtitleRenderSettings:
     enabled: bool
     font_path: Path
+    css_path: Path = DEFAULT_SUBTITLE_CSS_TEMPLATE
     font_size_px: int = DEFAULT_FONT_SIZE_PX
     max_lines: int = DEFAULT_MAX_LINES
     max_width_ratio: float = DEFAULT_MAX_WIDTH_RATIO
@@ -54,13 +59,22 @@ def subtitle_settings_from_conf(
         subtitles_conf = {}
     enabled = bool(subtitles_conf.get("enabled", True))
     font_value = subtitles_conf.get("font") or subtitles_conf.get("font_path")
-    font_path = Path(font_value) if font_value else DEFAULT_SUBTITLE_FONT
-    if not font_path.is_absolute():
-        font_path = repo_dir / font_path
+    css_value = subtitles_conf.get("css") or subtitles_conf.get("css_path")
+    font_path = _resolve_config_path(
+        font_value,
+        repo_dir=repo_dir,
+        default=DEFAULT_SUBTITLE_FONT,
+    )
+    css_path = _resolve_config_path(
+        css_value,
+        repo_dir=repo_dir,
+        default=DEFAULT_SUBTITLE_CSS_TEMPLATE,
+    )
 
     return SubtitleRenderSettings(
         enabled=enabled,
-        font_path=font_path.resolve(),
+        font_path=font_path,
+        css_path=css_path,
         font_size_px=_coerce_int(
             subtitles_conf.get("font_size_px"),
             default=DEFAULT_FONT_SIZE_PX,
@@ -107,6 +121,8 @@ def ensure_reel_burned_subtitles(
         raise FileNotFoundError(f"Transcript JSON not found: {transcript_json_path}")
     if not settings.font_path.exists():
         raise FileNotFoundError(f"Subtitle font not found: {settings.font_path}")
+    if not settings.css_path.exists():
+        raise FileNotFoundError(f"Subtitle CSS template not found: {settings.css_path}")
 
     start = _coerce_float(moment.get("start"), default=0.0)
     end = _coerce_float(moment.get("end"), default=0.0)
@@ -129,7 +145,7 @@ def ensure_reel_burned_subtitles(
     srt_path = reel_path.with_suffix(".srt")
     write_srt_file(srt_path, clip_segments)
 
-    template_config = prepare_pycaps_template(
+    template_dir = prepare_pycaps_template(
         reel_path.parent / _PYCAPS_TEMPLATE_DIRNAME,
         settings=settings,
     )
@@ -143,8 +159,8 @@ def ensure_reel_burned_subtitles(
         "render",
         "--input",
         str(reel_path),
-        "--config",
-        str(template_config),
+        "--template",
+        str(template_dir),
         "--transcript",
         str(srt_path),
         "--transcript-format",
@@ -271,7 +287,8 @@ def prepare_pycaps_template(
     shutil.copyfile(settings.font_path, resources_dir / font_name)
 
     (template_dir / "styles.css").write_text(
-        _build_styles_css(
+        _render_styles_css_template(
+            settings.css_path,
             font_filename=font_name,
             font_size_px=settings.font_size_px,
             font_format=_font_format_for_suffix(font_suffix),
@@ -287,7 +304,7 @@ def prepare_pycaps_template(
         + "\n",
         encoding="utf-8",
     )
-    return template_dir / "pycaps.template.json"
+    return template_dir
 
 
 def _build_template_config(settings: SubtitleRenderSettings) -> dict[str, Any]:
@@ -295,10 +312,12 @@ def _build_template_config(settings: SubtitleRenderSettings) -> dict[str, Any]:
         "css": "styles.css",
         "resources": "resources",
         "layout": {
-            "x_words_space": 8,
-            "y_words_space": 18,
+            "x_words_space": DEFAULT_WORD_X_SPACE,
+            "y_words_space": DEFAULT_WORD_Y_SPACE,
             "max_width_ratio": settings.max_width_ratio,
             "max_number_of_lines": settings.max_lines,
+            "min_number_of_lines": 1,
+            "on_text_overflow_strategy": DEFAULT_TEXT_OVERFLOW_STRATEGY,
             "vertical_align": {
                 "align": settings.vertical_align,
                 "offset": settings.vertical_offset,
@@ -321,48 +340,20 @@ def _build_template_config(settings: SubtitleRenderSettings) -> dict[str, Any]:
     }
 
 
-def _build_styles_css(*, font_filename: str, font_size_px: int, font_format: str) -> str:
-    return f"""@font-face {{
-    font-family: 'ForgeSubtitleFont';
-    src: url('{font_filename}') format('{font_format}');
-}}
-
-.word {{
-    font-family: 'ForgeSubtitleFont', 'Impact', sans-serif;
-    font-size: {int(font_size_px)}px;
-    line-height: 1.0;
-    color: #ffffff;
-    font-weight: 700;
-    background-color: rgba(0, 0, 0, 0.58);
-    border-radius: 12px;
-    padding: 8px 12px;
-    text-shadow:
-        -2px -2px 0 rgba(0, 0, 0, 0.92),
-         2px -2px 0 rgba(0, 0, 0, 0.92),
-        -2px  2px 0 rgba(0, 0, 0, 0.92),
-         2px  2px 0 rgba(0, 0, 0, 0.92),
-         0    4px 10px rgba(0, 0, 0, 0.7);
-}}
-
-.word-being-narrated {{
-    color: #ffd54a;
-    background-color: rgba(18, 18, 18, 0.82);
-}}
-
-.word-already-narrated {{
-    color: #ffffff;
-}}
-
-.first-word-in-line {{
-    border-top-left-radius: 14px;
-    border-bottom-left-radius: 14px;
-}}
-
-.last-word-in-line {{
-    border-top-right-radius: 14px;
-    border-bottom-right-radius: 14px;
-}}
-"""
+def _render_styles_css_template(
+    template_path: Path,
+    *,
+    font_filename: str,
+    font_size_px: int,
+    font_format: str,
+) -> str:
+    template = template_path.read_text(encoding="utf-8")
+    rendered = (
+        template.replace("__FONT_FILENAME__", font_filename)
+        .replace("__FONT_FORMAT__", font_format)
+        .replace("__FONT_SIZE_PX__", str(int(font_size_px)))
+    )
+    return rendered
 
 
 def _pycaps_base_command() -> list[str]:
@@ -410,6 +401,18 @@ def _font_format_for_suffix(suffix: str) -> str:
         ".woff": "woff",
         ".woff2": "woff2",
     }.get(suffix.lower(), "truetype")
+
+
+def _resolve_config_path(
+    value: object,
+    *,
+    repo_dir: Path,
+    default: Path,
+) -> Path:
+    path = Path(value).expanduser() if value else default
+    if not path.is_absolute():
+        path = repo_dir / path
+    return path.resolve()
 
 
 def _coerce_float(

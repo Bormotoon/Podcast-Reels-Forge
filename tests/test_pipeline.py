@@ -152,7 +152,11 @@ def test_run_pipeline_builds_and_calls_stages(
         },
         "video": {"threads": 1, "vertical_crop": True},
         "exports": {"webm": True, "gif": False, "audio_only": True},
-        "subtitles": {"enabled": True, "font": "assets/fonts/custom.ttf"},
+        "subtitles": {
+            "enabled": True,
+            "font": "assets/fonts/custom.ttf",
+            "css": "assets/subtitles/custom.css",
+        },
         "diarization": {"enabled": False},
         "prompts": {"language": "auto", "variant": "a"},
     }
@@ -204,6 +208,9 @@ def test_run_pipeline_builds_and_calls_stages(
             raise AssertionError(message)
         if str(tmp_path / "assets" / "fonts" / "custom.ttf") not in video_args:
             message = "Video stage missing configured subtitle font path"
+            raise AssertionError(message)
+        if str(tmp_path / "assets" / "subtitles" / "custom.css") not in video_args:
+            message = "Video stage missing configured subtitle css path"
             raise AssertionError(message)
 
 

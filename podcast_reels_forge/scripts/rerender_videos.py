@@ -19,11 +19,12 @@ import json
 import logging
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from podcast_reels_forge.utils.burned_subtitles import (
+    DEFAULT_SUBTITLE_CSS_TEMPLATE,
     DEFAULT_SUBTITLE_FONT,
     SubtitleRenderSettings,
     ensure_reel_burned_subtitles,
@@ -324,6 +325,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Font file for burned subtitles (defaults to config or assets/fonts/bignoodletoooblique.ttf)",
     )
+    ap.add_argument(
+        "--subtitle-css",
+        type=Path,
+        default=None,
+        help="CSS template for burned subtitles (defaults to config or assets/subtitles/forge_subtitles.css)",
+    )
     
     # Quality Filters
     ap.add_argument("--filter-min-score", type=float, default=0.0)
@@ -348,34 +355,29 @@ def main(argv: list[str] | None = None) -> None:
     conf = _load_config(args.config)
     subtitle_settings = subtitle_settings_from_conf(conf, repo_dir=Path.cwd())
     if args.burn_subtitles is not None:
-        subtitle_settings = SubtitleRenderSettings(
+        subtitle_settings = replace(
+            subtitle_settings,
             enabled=bool(args.burn_subtitles),
-            font_path=subtitle_settings.font_path,
-            font_size_px=subtitle_settings.font_size_px,
-            max_lines=subtitle_settings.max_lines,
-            max_width_ratio=subtitle_settings.max_width_ratio,
-            vertical_align=subtitle_settings.vertical_align,
-            vertical_offset=subtitle_settings.vertical_offset,
         )
     if args.subtitle_font is not None:
-        subtitle_settings = SubtitleRenderSettings(
-            enabled=subtitle_settings.enabled,
+        subtitle_settings = replace(
+            subtitle_settings,
             font_path=args.subtitle_font.resolve(),
-            font_size_px=subtitle_settings.font_size_px,
-            max_lines=subtitle_settings.max_lines,
-            max_width_ratio=subtitle_settings.max_width_ratio,
-            vertical_align=subtitle_settings.vertical_align,
-            vertical_offset=subtitle_settings.vertical_offset,
         )
-    elif not subtitle_settings.font_path.exists():
-        subtitle_settings = SubtitleRenderSettings(
-            enabled=subtitle_settings.enabled,
+    if args.subtitle_css is not None:
+        subtitle_settings = replace(
+            subtitle_settings,
+            css_path=args.subtitle_css.resolve(),
+        )
+    if not subtitle_settings.font_path.exists():
+        subtitle_settings = replace(
+            subtitle_settings,
             font_path=(Path.cwd() / DEFAULT_SUBTITLE_FONT).resolve(),
-            font_size_px=subtitle_settings.font_size_px,
-            max_lines=subtitle_settings.max_lines,
-            max_width_ratio=subtitle_settings.max_width_ratio,
-            vertical_align=subtitle_settings.vertical_align,
-            vertical_offset=subtitle_settings.vertical_offset,
+        )
+    if not subtitle_settings.css_path.exists():
+        subtitle_settings = replace(
+            subtitle_settings,
+            css_path=(Path.cwd() / DEFAULT_SUBTITLE_CSS_TEMPLATE).resolve(),
         )
 
     settings = RenderSettings(

@@ -111,12 +111,13 @@ exports:
 subtitles:
   enabled: true
   font: "assets/fonts/bignoodletoooblique.ttf"
-  # Optional fine-tuning for pycaps styling/layout.
-  font_size_px: 72
-  max_lines: 3
-  max_width_ratio: 0.82
+  css: "assets/subtitles/forge_subtitles.css"
+  # Conservative defaults keep subtitles compact and in the lower third.
+  font_size_px: 44
+  max_lines: 2
+  max_width_ratio: 0.9
   vertical_align: "bottom"
-  vertical_offset: -0.08
+  vertical_offset: 0.0
 
 video:
   threads: 4

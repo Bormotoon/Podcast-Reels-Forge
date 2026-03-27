@@ -1,0 +1,66 @@
+/* Editable pycaps subtitle stylesheet.
+   Placeholders are filled in by Podcast Reels Forge at render time.
+   Supported placeholders:
+   - __FONT_FILENAME__
+   - __FONT_FORMAT__
+   - __FONT_SIZE_PX__
+*/
+
+@font-face {
+    font-family: 'ForgeSubtitleFont';
+    src: url('__FONT_FILENAME__') format('__FONT_FORMAT__');
+}
+
+:root {
+    --subtitle-font-family: 'ForgeSubtitleFont', 'Impact', sans-serif;
+    --subtitle-font-size: __FONT_SIZE_PX__px;
+    --subtitle-line-height: 1.0;
+    --subtitle-letter-spacing: 0px;
+    --subtitle-font-weight: 700;
+    --subtitle-text-color: #ffffff;
+    --subtitle-active-text-color: #ffd54a;
+    --subtitle-bg-color: rgba(0, 0, 0, 0.58);
+    --subtitle-active-bg-color: rgba(18, 18, 18, 0.82);
+    --subtitle-radius: 12px;
+    --subtitle-padding-y: 4px;
+    --subtitle-padding-x: 8px;
+    --subtitle-shadow:
+        -2px -2px 0 rgba(0, 0, 0, 0.92),
+         2px -2px 0 rgba(0, 0, 0, 0.92),
+        -2px  2px 0 rgba(0, 0, 0, 0.92),
+         2px  2px 0 rgba(0, 0, 0, 0.92),
+         0    4px 10px rgba(0, 0, 0, 0.7);
+    --subtitle-highlight-radius: 14px;
+}
+
+.word {
+    font-family: var(--subtitle-font-family);
+    font-size: var(--subtitle-font-size);
+    line-height: var(--subtitle-line-height);
+    letter-spacing: var(--subtitle-letter-spacing);
+    color: var(--subtitle-text-color);
+    font-weight: var(--subtitle-font-weight);
+    background-color: var(--subtitle-bg-color);
+    border-radius: var(--subtitle-radius);
+    padding: var(--subtitle-padding-y) var(--subtitle-padding-x);
+    text-shadow: var(--subtitle-shadow);
+}
+
+.word-being-narrated {
+    color: var(--subtitle-active-text-color);
+    background-color: var(--subtitle-active-bg-color);
+}
+
+.word-already-narrated {
+    color: var(--subtitle-text-color);
+}
+
+.first-word-in-line {
+    border-top-left-radius: var(--subtitle-highlight-radius);
+    border-bottom-left-radius: var(--subtitle-highlight-radius);
+}
+
+.last-word-in-line {
+    border-top-right-radius: var(--subtitle-highlight-radius);
+    border-bottom-right-radius: var(--subtitle-highlight-radius);
+}

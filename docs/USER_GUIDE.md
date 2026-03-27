@@ -136,7 +136,8 @@ python -m podcast_reels_forge.scripts.video_processor \
 - `transcription.*` — качество/скорость транскрибации
 - `ollama.*` — модели, таймауты, watchdog
 - `video.*` — нарезка и базовые параметры FFmpeg
-- `subtitles.*` — вшитые субтитры через `pycaps`; ключ `subtitles.font` по умолчанию указывает на `assets/fonts/bignoodletoooblique.ttf`
+- `subtitles.*` — вшитые субтитры через `pycaps`; ключ `subtitles.font` по умолчанию указывает на `assets/fonts/bignoodletoooblique.ttf`, а `subtitles.css` - на `assets/subtitles/forge_subtitles.css`
+- Для визуальной настройки сабов откройте `assets/subtitles/style-editor.html`
 - `cache.*` — пропуск стадий, если результаты уже есть
 
 Если некоторые модели Ollama долго «думают» до первого токена, используйте `ollama.model_overrides.*` (уже настроено в дефолтном `config.yaml`).
@@ -162,7 +163,7 @@ python -m podcast_reels_forge.scripts.video_processor \
 ### Сабы не вшиваются
 
 - Если в ошибке фигурирует Chromium или Playwright, выполните `playwright install chromium`
-- Проверьте, что `subtitles.font` указывает на существующий `.ttf`/`.otf` файл
+- Проверьте, что `subtitles.font` указывает на существующий `.ttf`/`.otf` файл, а `subtitles.css` - на существующий CSS-шаблон
 
 ---
 

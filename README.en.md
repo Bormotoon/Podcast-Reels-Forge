@@ -149,7 +149,9 @@ Main flags for `start_forge.py`:
 - **`subtitles`**:
   - `enabled`: Toggle automatic burned subtitle rendering with `pycaps`.
   - `font`: Path to the subtitle font file. Default: `assets/fonts/bignoodletoooblique.ttf`.
+  - `css`: Path to the subtitle CSS template. Default: `assets/subtitles/forge_subtitles.css`.
   - `font_size_px`, `max_lines`, `vertical_align`, `vertical_offset`: Fine-tune subtitle styling/layout.
+  - Use `assets/subtitles/style-editor.html` for WYSIWYG style tuning.
 - **`diarization`**: Enable and configure speaker detection (requires HuggingFace token).
 
 ---

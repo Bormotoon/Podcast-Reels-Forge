@@ -809,6 +809,7 @@ def run_pipeline(
                     video_args.append("--burn-subtitles")
                     video_args += ["--transcript-json", str(transcript_path)]
                     video_args += ["--subtitle-font", str(subtitle_settings.font_path)]
+                    video_args += ["--subtitle-css", str(subtitle_settings.css_path)]
                 if quiet:
                     video_args.append("--quiet")
                 if verbose:

@@ -13,10 +13,11 @@ import subprocess
 import sys
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from podcast_reels_forge.utils.burned_subtitles import (
+    DEFAULT_SUBTITLE_CSS_TEMPLATE,
     DEFAULT_SUBTITLE_FONT,
     SubtitleRenderSettings,
     ensure_reel_burned_subtitles,
@@ -321,6 +322,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_SUBTITLE_FONT,
         help="Font file for burned subtitles (default: assets/fonts/bignoodletoooblique.ttf)",
     )
+    ap.add_argument(
+        "--subtitle-css",
+        type=Path,
+        default=DEFAULT_SUBTITLE_CSS_TEMPLATE,
+        help="CSS template for burned subtitles (default: assets/subtitles/forge_subtitles.css)",
+    )
     
     # Quality Filters
     ap.add_argument("--filter-min-score", type=float, default=0.0, help="Reject if LLM score is below this")
@@ -359,6 +366,24 @@ def main(argv: list[str] | None = None) -> None:
     if args.burn_subtitles and args.transcript_json is None:
         LOG.error("--burn-subtitles requires --transcript-json")
         sys.exit(1)
+
+    subtitle_settings = None
+    if args.burn_subtitles:
+        subtitle_settings = SubtitleRenderSettings(
+            enabled=True,
+            font_path=args.subtitle_font.resolve(),
+            css_path=args.subtitle_css.resolve(),
+        )
+        if not subtitle_settings.font_path.exists():
+            subtitle_settings = replace(
+                subtitle_settings,
+                font_path=(Path.cwd() / DEFAULT_SUBTITLE_FONT).resolve(),
+            )
+        if not subtitle_settings.css_path.exists():
+            subtitle_settings = replace(
+                subtitle_settings,
+                css_path=(Path.cwd() / DEFAULT_SUBTITLE_CSS_TEMPLATE).resolve(),
+            )
 
     opts = FfmpegOptions(
         vertical_crop=args.vertical,
@@ -428,11 +453,7 @@ def main(argv: list[str] | None = None) -> None:
 
     final_reels = [r for r in results if r is not None]
     if final_reels:
-        if args.burn_subtitles:
-            subtitle_settings = SubtitleRenderSettings(
-                enabled=True,
-                font_path=args.subtitle_font.resolve(),
-            )
+        if subtitle_settings is not None:
             for i, mp4 in enumerate(results):
                 if mp4 is None:
                     continue
