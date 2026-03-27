@@ -112,15 +112,12 @@ subtitles:
   enabled: true
   font: "assets/fonts/bignoodletoooblique.ttf"
   css: "assets/subtitles/forge_subtitles.css"
-  # Toggle whether captions may wrap across multiple lines at word boundaries.
+  font_size_px: 42
   wrap_words: true
-  # Conservative defaults keep subtitles compact and in the lower third.
-  font_size_px: 44
   max_lines: 2
-  max_width_ratio: 0.9
+  max_width_ratio: 1
   vertical_align: "bottom"
   vertical_offset: 0.0
-
 video:
   threads: 4
   vertical_crop: true      # Crop 16:9 to 9:16 automatically
