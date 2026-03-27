@@ -14,6 +14,24 @@ _WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё0-9]+", re.UNICODE)
 _REEL_STEM_RE = re.compile(r"^reel_(\d+)(?:_\d+)?$", re.IGNORECASE)
 _CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
 _HASHTAG_TOKEN_RE = re.compile(r"#?[\wА-Яа-яЁё]+", re.UNICODE)
+_INLINE_HASHTAG_RE = re.compile(r"(?<!\w)#[\wА-Яа-яЁё]+", re.UNICODE)
+
+_TOPIC_PATTERNS = (
+    re.compile(r"\b(?:[A-ZА-ЯЁ](?:&[A-ZА-ЯЁ])+)\s+\d+[A-Za-zА-Яа-яЁё]*\b"),
+    re.compile(r"\b[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё0-9&/-]*\d[A-Za-zА-Яа-яЁё0-9&/-]*\b"),
+    re.compile(r"\b[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё]{2,}\s+\d+[A-Za-zА-Яа-яЁё]*\b"),
+    re.compile(r"\b[A-ZА-ЯЁ]{2,}(?:[&/-][A-ZА-ЯЁ0-9]+)*\b"),
+)
+
+_VAGUE_PHRASE_RE = re.compile(
+    r"\b(?:эту|этот|эта|это|этой|этом|эти|этих)\s+"
+    r"(?:систем[ауеы]?|игр[ауеы]?|редакц[июеы]?|подкаст[ауеы]?|видео|"
+    r"книг[ауеы]?|фильм[ауеы]?|сериал[ауеы]?|проект[ауеы]?|тему|иде[юеи]?|"
+    r"истори[юеи]?|механику|момент[ауеы]?|ситуац[июеы]?|вещ[ьауеы]?|штук[ауеы]?|"
+    r"сцен[ауеы]?|правил[ауеы]?|кампани[юеи]?|системе|игре|редакции|подкасте|видео|"
+    r"книге|фильме|сериале|проекте|теме|идее|истории|механике|моменте|ситуации|штуке)\b",
+    re.IGNORECASE,
+)
 
 _SHORT_KEYWORDS = {"ai", "ml", "ux", "vr", "tv", "llm", "gpt"}
 
@@ -203,6 +221,14 @@ def _clean_text(value: Any) -> str:
     return _collapse_whitespace(str(value))
 
 
+def _strip_inline_hashtags(text: str) -> str:
+    if not text:
+        return ""
+    text = _INLINE_HASHTAG_RE.sub("", text)
+    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+    return _collapse_whitespace(text)
+
+
 def _contains_cyrillic(text: str) -> bool:
     return bool(_CYRILLIC_RE.search(text))
 
@@ -267,24 +293,48 @@ def _extract_keywords(text: str) -> list[str]:
     return out
 
 
+def _extract_subject_phrase(moment: Mapping[str, Any]) -> str:
+    for key in ("title", "hook", "quote", "why"):
+        text = _strip_inline_hashtags(_clean_text(moment.get(key)))
+        if not text:
+            continue
+        for pattern in _TOPIC_PATTERNS:
+            match = pattern.search(text)
+            if match:
+                subject = _collapse_whitespace(match.group(0))
+                if subject:
+                    return subject
+    return ""
+
+
+def _rewrite_vague_phrases(text: str, subject: str) -> str:
+    if not text or not subject:
+        return text
+    return _VAGUE_PHRASE_RE.sub(subject, text)
+
+
 def build_description_text(
     moment: Mapping[str, Any],
     *,
     max_chars: int = DESCRIPTION_MAX_CHARS,
 ) -> str:
-    caption = _clean_text(moment.get("caption"))
+    subject = _extract_subject_phrase(moment)
+    caption = _strip_inline_hashtags(_clean_text(moment.get("caption")))
     if caption:
-        base = caption
+        base = _rewrite_vague_phrases(caption, subject)
     else:
         parts = [
-            _clean_text(moment.get(key))
+            _strip_inline_hashtags(_clean_text(moment.get(key)))
             for key in ("hook", "title", "quote", "why")
         ]
-        base = " ".join(part for part in parts if part)
+        base = _rewrite_vague_phrases(
+            " ".join(part for part in parts if part),
+            subject,
+        )
 
     if not base:
         combined = " ".join(
-            _clean_text(moment.get(key))
+            _strip_inline_hashtags(_clean_text(moment.get(key)))
             for key in ("title", "hook", "quote", "why", "caption")
         ).strip()
         base = "Сильный момент из подкаста." if _contains_cyrillic(combined) else "Strong podcast moment."
@@ -316,7 +366,7 @@ def build_hashtags(
 
     source_texts = [
         description_text or "",
-        _clean_text(moment.get("caption")),
+        _strip_inline_hashtags(_clean_text(moment.get("caption"))),
         _clean_text(moment.get("hook")),
         _clean_text(moment.get("title")),
         _clean_text(moment.get("quote")),

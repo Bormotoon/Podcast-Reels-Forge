@@ -41,6 +41,10 @@ from podcast_reels_forge.utils.ollama_service import (
     ollama_stop,
     parse_local_ollama_host_port,
 )
+from podcast_reels_forge.utils.reel_markdown import (
+    build_description_text,
+    build_hashtags,
+)
 
 LOGGER = setup_logging()
 
@@ -79,6 +83,32 @@ def fmt_hms(sec: float) -> str:
     m = int((sec % 3600) // 60)
     s = int(sec % 60)
     return f"{h:02d}:{m:02d}:{s:02d}" if h > 0 else f"{m:02d}:{s:02d}"
+
+
+def render_reels_summary_markdown(moments: list[Moment]) -> str:
+    """RU: Рендерит компактный md-список идей для reels.
+
+    EN: Render a compact markdown list of reel ideas.
+    """
+    lines = ["# Reels Suggestions", ""]
+    for i, m in enumerate(moments, 1):
+        moment_data = asdict(m)
+        description = build_description_text(moment_data)
+        hashtags = build_hashtags(moment_data, description_text=description)
+
+        lines.append(f"## {i}. {m.title} [{m.clip_type}]")
+        lines.append(f"Time: {fmt_hms(m.start)}-{fmt_hms(m.end)}")
+        lines.append(f"Why: {m.why}")
+        if m.hook:
+            lines.append(f"Hook: {m.hook}")
+        lines.append("")
+        if description:
+            lines.append(description)
+            lines.append("")
+        if hashtags:
+            lines.append(" ".join(hashtags))
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _parse_local_ollama_host_port(url: str) -> tuple[str, int] | None:
@@ -684,19 +714,7 @@ def main(argv: list[str] | None = None) -> None:
         )
 
         reels_md = outdir / "reels.md"
-        with reels_md.open("w", encoding="utf-8") as f:
-            f.write("# Reels Suggestions\n\n")
-            for i, m in enumerate(moments, 1):
-                f.write(
-                    f"## {i}. {m.title} [{m.clip_type}]\n- Time: {fmt_hms(m.start)}-{fmt_hms(m.end)}\n- Why: {m.why}\n",
-                )
-                if m.hook:
-                    f.write(f"- Hook: {m.hook}\n")
-                if m.caption:
-                    f.write(f"- Caption: {m.caption}\n")
-                if m.hashtags:
-                    f.write(f"- Hashtags: {' '.join(m.hashtags)}\n")
-                f.write("\n")
+        reels_md.write_text(render_reels_summary_markdown(moments), encoding="utf-8")
 
         if args.verbose:
             _status(f"[analyze] moments={len(moments)}", quiet=args.quiet)

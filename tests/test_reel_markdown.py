@@ -13,7 +13,7 @@ from podcast_reels_forge.utils.reel_markdown import (
 def test_render_reel_markdown_limits_description_and_hashtags() -> None:
     moment = {
         "title": "Podcast Moment",
-        "caption": "This is a long caption " * 80,
+        "caption": "This is a long caption " * 80 + "#podcast #AI",
         "quote": "Key quote",
         "why": "Why it matters",
         "hashtags": ["#podcast", "#AI", "podcast", "#podcast"],
@@ -21,6 +21,8 @@ def test_render_reel_markdown_limits_description_and_hashtags() -> None:
 
     description = build_description_text(moment)
     assert len(description) <= 1000
+    assert "#podcast" not in description
+    assert "#ai" not in description.lower()
 
     hashtags = build_hashtags(moment, description_text=description)
     assert len(hashtags) == 5
@@ -32,6 +34,22 @@ def test_render_reel_markdown_limits_description_and_hashtags() -> None:
     assert lines[0] == "# Podcast Moment"
     assert description in md
     assert " ".join(hashtags) == lines[-1]
+    assert "- Hashtags:" not in md
+
+
+def test_build_description_text_rewrites_vague_mentions() -> None:
+    moment = {
+        "title": "Запретное мнение о DMD-4",
+        "hook": "DMD-4 — это извращение?",
+        "caption": "Разбираемся, почему эту систему так хейтят. #dnd #настолки",
+    }
+
+    description = build_description_text(moment)
+
+    assert "DMD-4" in description
+    assert "эту систему" not in description
+    assert "#dnd" not in description.lower()
+    assert "#настолки" not in description.lower()
 
 
 def test_sync_reel_markdowns_creates_adjacent_files(tmp_path) -> None:

@@ -104,6 +104,31 @@ def test_find_moments_orchestration() -> None:
     assert moments[0].start == 10.0
 
 
+def test_render_reels_summary_markdown_is_copy_friendly() -> None:
+    md = analyze.render_reels_summary_markdown(
+        [
+            analyze.Moment(
+                start=44.0,
+                end=51.0,
+                title="Запретное мнение о DMD-4",
+                quote="DMD-4 — это извращение?",
+                why="Провокационное сравнение с популярной игрой.",
+                score=9,
+                clip_type="story",
+                hook="DMD-4 — это извращение?",
+                caption="Разбираемся, почему эту систему так хейтят. #dnd #настолки",
+                hashtags=["#dnd", "#настолки", "#герои4", "#мнение", "#игры"],
+            ),
+        ],
+    )
+
+    assert md.startswith("# Reels Suggestions\n\n## 1. Запретное мнение о DMD-4 [story]")
+    assert "- Caption:" not in md
+    assert "- Hashtags:" not in md
+    assert "Разбираемся, почему DMD-4 так хейтят." in md
+    assert "\n#dnd #настолки #герои4 #мнение #игры\n" in md
+
+
 def test_parse_local_ollama_host_port() -> None:
     assert ollama_service.parse_local_ollama_host_port(
         "http://127.0.0.1:11434/api/generate",
