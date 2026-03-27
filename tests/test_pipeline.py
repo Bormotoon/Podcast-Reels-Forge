@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from podcast_reels_forge import pipeline
@@ -143,3 +144,122 @@ def test_run_pipeline_builds_and_calls_stages(
         if "--padding" not in video_args:
             message = "Video stage missing padding flag"
             raise AssertionError(message)
+
+
+def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Ensure cached outputs still get per-reel markdown files."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "video.mp4").write_text("x")
+
+    output_root = tmp_path / "output"
+    model_dir = output_root / "video" / "qwen3"
+    reels_dir = model_dir / "reels"
+    rejected_dir = reels_dir / "rejected"
+    rejected_dir.mkdir(parents=True)
+
+    transcript_path = output_root / "video" / "video.json"
+    transcript_path.parent.mkdir(parents=True, exist_ok=True)
+    transcript_path.write_text(
+        json.dumps({"segments": [], "duration": 0.0}),
+        encoding="utf-8",
+    )
+    (output_root / "video" / "video.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nhi\n")
+
+    model_dir.mkdir(parents=True, exist_ok=True)
+    (model_dir / "moments.json").write_text(
+        json.dumps(
+            [
+                {
+                    "start": 10.0,
+                    "end": 20.0,
+                    "title": "First",
+                    "quote": "Quote 1",
+                    "why": "Why 1",
+                    "score": 9,
+                    "hook": "Hook 1",
+                    "caption": "Caption 1",
+                    "hashtags": ["#podcast"],
+                },
+                {
+                    "start": 30.0,
+                    "end": 40.0,
+                    "title": "Second",
+                    "quote": "Quote 2",
+                    "why": "Why 2",
+                    "score": 8,
+                    "hook": "Hook 2",
+                    "caption": "Caption 2",
+                    "hashtags": ["#reels"],
+                },
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (model_dir / "reels.md").write_text("# Reels Suggestions\n\n(existing)\n", encoding="utf-8")
+    (reels_dir / "reel_01.mp4").write_text("mp4")
+    (rejected_dir / "reel_02.mp4").write_text("mp4")
+
+    calls: list[str] = []
+
+    def fake_run_module(
+        module: str,
+        args: list[str],
+        *,
+        quiet: bool,
+        verbose: bool,
+        env: dict[str, str] | None = None,
+    ) -> None:
+        calls.append(module)
+
+    monkeypatch.setattr(pipeline, "run_module", fake_run_module)
+
+    started: list[tuple[str, int]] = []
+    stopped: list[int] = []
+
+    class FakeProc:
+        def __init__(self, pid: int):
+            self.pid = pid
+
+    monkeypatch.setattr(
+        pipeline,
+        "ollama_start",
+        lambda *, host, port: (started.append((host, port)) or FakeProc(321)),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "ollama_stop",
+        lambda proc: stopped.append(getattr(proc, "pid", 0)),
+    )
+    monkeypatch.setattr(pipeline, "get_ollama_models", lambda url: ["qwen3:latest"])
+    monkeypatch.setattr(pipeline, "pull_ollama_model", lambda url, model: True)
+
+    conf = {
+        "paths": {"input_dir": str(input_dir), "output_dir": str(output_root)},
+        "transcription": {"language": "auto"},
+        "ollama": {
+            "models": ["qwen3:latest"],
+            "url": "http://127.0.0.1:11434/api/generate",
+        },
+        "processing": {
+            "reels_count": 1,
+            "reel_min_duration": 10,
+            "reel_max_duration": 20,
+            "reel_padding": 5,
+        },
+        "video": {"threads": 1, "vertical_crop": True},
+        "exports": {"webm": False, "gif": False, "audio_only": False},
+        "diarization": {"enabled": False},
+        "prompts": {"language": "auto", "variant": "default"},
+    }
+
+    pipeline.run_pipeline(conf=conf, repo_dir=tmp_path, quiet=True, verbose=False)
+
+    assert calls == []
+    assert started == [("127.0.0.1", 11434)]
+    assert stopped == [321]
+    assert (reels_dir / "reel_01.md").exists()
+    assert (rejected_dir / "reel_02.md").exists()

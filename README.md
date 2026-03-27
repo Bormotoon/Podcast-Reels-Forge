@@ -91,7 +91,7 @@ python3 start_forge.py
 1. **Transcription**: Используется `faster-whisper`. Выход: `output/<file_stem>/<audio_name>.json`.
 2. **Diarization**: (Если включено) Создает `diarization.json`.
 3. **Analyze (Parallel)**: Анализ транскрипта всеми моделями, указанными в конфиге. Каждая модель сохраняет результаты в `output/<file_stem>/<model_name>/`.
-4. **Video Processing**: Нарезка клипов на основе `moments.json`, созданного каждой моделью.
+4. **Video Processing**: Нарезка клипов на основе `moments.json`, созданного каждой моделью. Для каждого ролика рядом с видео создаётся отдельный `reel_XX.md` с готовым описанием и 5 хештегами.
 
 ---
 
@@ -108,6 +108,7 @@ output/
       moments.json        # Список найденных моментов
       reels.md            # Описания клипов
       reels/              # Нарезанные .mp4 клипы
+        reel_01.md        # Описание + 5 хештегов для reel_01.mp4
       reels_preview.mp4   # Превью всех клипов одним файлом
     deepseek/             # Результаты модели DeepSeek
       ...

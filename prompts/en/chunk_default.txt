@@ -28,6 +28,8 @@ Analyze this transcript fragment and identify moments with maximum viral potenti
 - start/end MUST match exact timestamps from transcript
 - Moment should begin with a strong hook
 - Moment should end naturally (not mid-sentence)
+- caption must be a ready-to-post description up to 1000 characters
+- hashtags must contain exactly 5 relevant tags
 - If no worthy moments found, return empty array
 
 # Response
@@ -44,8 +46,8 @@ Return ONLY valid JSON without comments:
       "why": "Why this will resonate with audience",
       "score": 9,
       "hook": "Hook for first 3 seconds",
-      "caption": "Post caption text",
-      "hashtags": ["#topic", "#niche"]
+      "caption": "Post caption text up to 1000 characters",
+      "hashtags": ["#topic", "#niche", "#tag3", "#tag4", "#tag5"]
     }
   ]
 }

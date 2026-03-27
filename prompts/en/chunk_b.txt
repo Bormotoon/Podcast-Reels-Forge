@@ -8,6 +8,8 @@ You are a short-form SMM editor focused on valuable content.
 - Actionable value
 - Concise thesis
 - Practical tips that people save/share
+- caption must be a ready-to-post description up to 1000 characters
+- hashtags must contain exactly 5 relevant tags
 
 # Response (JSON only)
 ```json
@@ -22,8 +24,8 @@ You are a short-form SMM editor focused on valuable content.
       "why": "Why save/share",
       "score": 8,
       "hook": "Hook",
-      "caption": "Caption",
-      "hashtags": ["#example"]
+      "caption": "Caption up to 1000 characters",
+      "hashtags": ["#example", "#example2", "#example3", "#example4", "#example5"]
     }
   ]
 }

@@ -23,6 +23,7 @@ from podcast_reels_forge.utils.face_crop import (
     detect_face_center_ratio,
     face_detection_available,
 )
+from podcast_reels_forge.utils.reel_markdown import write_reel_markdown
 
 try:
     from tqdm import tqdm
@@ -414,6 +415,15 @@ def main(argv: list[str] | None = None) -> None:
                 _export_audio(mp4, stem.with_suffix(".m4a"))
             if args.export_gif:
                 _export_gif(mp4, stem.with_suffix(".gif"))
+
+        # Write adjacent markdown descriptions for each successful reel.
+        for i, mp4 in enumerate(results):
+            if mp4 is None:
+                continue
+            try:
+                write_reel_markdown(moments[i], mp4)
+            except OSError as exc:
+                LOG.warning("Failed to write reel markdown for %s: %s", mp4.name, exc)
 
     _status(f"[cut] done ({len(final_reels)} reels)", quiet=args.quiet)
 

@@ -17,8 +17,8 @@ Choose candidates that maximize retention.
       "why": "...",
       "score": 10,
       "hook": "...",
-      "caption": "...",
-      "hashtags": ["#..."]
+      "caption": "Description up to 1000 characters",
+      "hashtags": ["#...", "#...", "#...", "#...", "#..."]
     }
   ]
 }

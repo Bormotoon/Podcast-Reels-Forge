@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from podcast_reels_forge.scripts.video_processor import (
     FfmpegOptions,
+    main,
     ffmpeg_cut,
     create_concat_sample,
 )
@@ -82,3 +84,51 @@ def test_create_concat_sample(mock_run: MagicMock, mock_unlink: MagicMock, tmp_p
     assert "file '" in content
     assert "r1.mp4" in content
     assert mock_unlink.called
+
+
+@patch("podcast_reels_forge.scripts.video_processor._run_subprocess")
+def test_main_writes_reel_markdown(mock_run: MagicMock, tmp_path: Path) -> None:
+    mock_run.return_value = MagicMock(returncode=0)
+
+    input_video = tmp_path / "input.mp4"
+    input_video.write_text("video")
+
+    moments_path = tmp_path / "moments.json"
+    moments_path.write_text(
+        json.dumps(
+            [
+                {
+                    "start": 10.0,
+                    "end": 20.0,
+                    "title": "Strong moment",
+                    "quote": "Key quote",
+                    "why": "Because it is compelling",
+                    "score": 9,
+                    "hook": "Hook",
+                    "caption": "A ready caption for the reel",
+                    "hashtags": ["#podcast", "#reels"],
+                }
+            ],
+        ),
+        encoding="utf-8",
+    )
+
+    outdir = tmp_path / "out"
+    main(
+        [
+            "--input",
+            str(input_video),
+            "--moments",
+            str(moments_path),
+            "--outdir",
+            str(outdir),
+            "--threads",
+            "1",
+        ],
+    )
+
+    md_path = outdir / "reels" / "reel_01.md"
+    assert md_path.exists()
+    content = md_path.read_text(encoding="utf-8")
+    assert "A ready caption for the reel" in content
+    assert "#podcast" in content

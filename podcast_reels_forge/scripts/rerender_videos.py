@@ -30,6 +30,7 @@ from podcast_reels_forge.utils.face_crop import (
     detect_face_center_ratio,
     face_detection_available,
 )
+from podcast_reels_forge.utils.reel_markdown import write_reel_markdown
 
 try:
     from tqdm import tqdm
@@ -373,9 +374,18 @@ def main(argv: list[str] | None = None) -> None:
             results = list(it)
 
         ok_count = 0
-        for ok, out_path, err in results:
+        for i, (ok, out_path, err) in enumerate(results):
             if ok:
                 ok_count += 1
+                try:
+                    write_reel_markdown(moments[i], out_path)
+                except OSError as exc:
+                    LOG.warning(
+                        "%s: failed to write markdown for %s: %s",
+                        model_dir.name,
+                        out_path.name,
+                        exc,
+                    )
             else:
                 LOG.warning("%s: failed %s (%s)", model_dir.name, out_path.name, err)
 

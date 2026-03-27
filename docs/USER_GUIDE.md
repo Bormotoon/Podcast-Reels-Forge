@@ -56,6 +56,7 @@ python3 start_forge.py
 - `output/<model>/moments.json` — найденные моменты
 - `output/<model>/reels.md` — описание/заголовки/мета (если модель вернула)
 - `output/<model>/reels/` — нарезанные ролики (если включён шаг нарезки)
+- `output/<model>/reels/reel_XX.md` — готовое описание до 1000 символов + 5 хештегов для каждого ролика
 
 Папки моделей фиксированы и короткие:
 - `qwen3`, `deepseek`, `gemma3`, `gemma2`, `gemini3`
@@ -76,6 +77,7 @@ python3 rerender_videos.py --model gemma3
 По умолчанию:
 - читает `output/<model>/moments.json`
 - пишет клипы в `output/<model>/reels_rerendered/`
+- рядом с каждым клипом создаёт `reel_XX.md` с описанием и 5 хештегами
 - если файл уже существует, создаёт новый с суффиксом `_2`, `_3`, ... (ничего не затирает)
 
 Чтобы перезаписать:
@@ -177,6 +179,7 @@ python3 rerender_videos.py --model gemma3
 
 Defaults:
 - writes into `output/<model>/reels_rerendered/`
+- creates a `reel_XX.md` next to each clip with a description and 5 hashtags
 - never overwrites: if a file exists, it creates `*_2`, `*_3`, ...
 
 To overwrite:

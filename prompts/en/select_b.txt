@@ -17,8 +17,8 @@ Choose candidates with maximum practical value.
       "why": "...",
       "score": 10,
       "hook": "...",
-      "caption": "...",
-      "hashtags": ["#..."]
+      "caption": "Description up to 1000 characters",
+      "hashtags": ["#...", "#...", "#...", "#...", "#..."]
     }
   ]
 }

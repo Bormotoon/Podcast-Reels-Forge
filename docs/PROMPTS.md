@@ -49,8 +49,8 @@ Expected response format (default):
     "score": 0.9,
     "clip_type": "reel",
     "hook": "...",
-    "caption": "...",
-    "hashtags": ["#podcast", "#shorts"]
+    "caption": "Ready-to-post description up to 1000 characters",
+    "hashtags": ["#podcast", "#shorts", "#clip3", "#clip4", "#clip5"]
   }
 ]
 ```
@@ -85,8 +85,8 @@ If you use `select_*` manually, recommended format:
       "why": "...",
       "score": 0.95,
       "hook": "...",
-      "caption": "...",
-      "hashtags": ["#podcast", "#shorts"]
+      "caption": "Ready-to-post description up to 1000 characters",
+      "hashtags": ["#podcast", "#shorts", "#clip3", "#clip4", "#clip5"]
     }
   ]
 }
@@ -165,7 +165,7 @@ For select prompts
 
 1. **Приоритизация** — укажите критерии ранжирования
 2. **Разнообразие** — попросите выбирать разные типы моментов
-3. **SMM метаданные** — попросите генерировать hook, caption, hashtags
+3. **SMM метаданные** — попросите генерировать hook, caption до 1000 символов и 5 hashtags
 4. **Score** — определите критерии для score (0-1)
 
 ## Примеры промптов
@@ -197,7 +197,11 @@ Prompt examples
     "end": <число>,
     "title": "<короткий заголовок>",
     "quote": "<ключевая цитата>",
-    "why": "<почему это виральный момент>"
+    "why": "<почему это виральный момент>",
+    "score": <0-1>,
+    "hook": "<хук>",
+    "caption": "Готовое описание до 1000 символов",
+    "hashtags": ["<тег1>", "<тег2>", "<тег3>", "<тег4>", "<тег5>"]
   }
 }
 ```
@@ -216,8 +220,8 @@ Prompt examples
 Для каждого момента добавь:
 - score (0-1): оценка виральности
 - hook: интригующее начало для привлечения внимания
-- caption: подпись для поста
-- hashtags: релевантные хештеги
+- caption: готовое описание до 1000 символов
+- hashtags: 5 релевантных хештегов
 
 Ответь ТОЛЬКО валидным JSON:
 {
@@ -230,8 +234,8 @@ Prompt examples
       "why": "<причина>",
       "score": <0-1>,
       "hook": "<крючок>",
-      "caption": "<подпись>",
-      "hashtags": ["<тег1>", "<тег2>"]
+      "caption": "<подпись до 1000 символов>",
+      "hashtags": ["<тег1>", "<тег2>", "<тег3>", "<тег4>", "<тег5>"]
     }
   ]
 }
@@ -261,7 +265,11 @@ Reply with ONLY valid JSON:
     "end": <number>,
     "title": "<short title>",
     "quote": "<key quote>",
-    "why": "<why it's viral>"
+    "why": "<why it's viral>",
+    "score": <0-1>,
+    "hook": "<hook>",
+    "caption": "Ready-to-post description up to 1000 characters",
+    "hashtags": ["<tag1>", "<tag2>", "<tag3>", "<tag4>", "<tag5>"]
   }
 }
 ```
@@ -280,8 +288,8 @@ Candidates:
 For each moment add:
 - score (0-1): virality score
 - hook: intriguing opener
-- caption: post caption
-- hashtags: relevant hashtags
+- caption: ready-to-post description up to 1000 characters
+- hashtags: 5 relevant hashtags
 
 Reply with ONLY valid JSON:
 {
@@ -294,8 +302,8 @@ Reply with ONLY valid JSON:
       "why": "<why>",
       "score": <0-1>,
       "hook": "<hook>",
-      "caption": "<caption>",
-      "hashtags": ["<tag1>", "<tag2>"]
+      "caption": "<caption up to 1000 characters>",
+      "hashtags": ["<tag1>", "<tag2>", "<tag3>", "<tag4>", "<tag5>"]
     }
   ]
 }

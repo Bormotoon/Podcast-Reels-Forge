@@ -41,6 +41,7 @@ from podcast_reels_forge.utils.ollama_service import (
     parse_local_ollama_host_port,
     pull_ollama_model,
 )
+from podcast_reels_forge.utils.reel_markdown import sync_reel_markdowns
 
 log = logging.getLogger("Forge")
 
@@ -777,6 +778,19 @@ def run_pipeline(
                     verbose=verbose,
                 )
                 status(f"[cut] done ({_model_folder_name(model)})", quiet=quiet)
+
+            if isinstance(moments_data, list):
+                try:
+                    sync_reel_markdowns(
+                        [m for m in moments_data if isinstance(m, dict)],
+                        reels_dir,
+                    )
+                except OSError as exc:
+                    log.warning(
+                        "Failed to write reel markdowns for %s: %s",
+                        _model_folder_name(model),
+                        exc,
+                    )
 
             try:
                 next(stage_iter)
