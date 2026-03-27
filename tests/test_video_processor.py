@@ -176,6 +176,7 @@ def test_main_burns_subtitles_when_requested(
             str(subtitle_font),
             "--subtitle-css",
             str(subtitle_css),
+            "--no-subtitle-wrap-words",
         ],
     )
 
@@ -184,3 +185,4 @@ def test_main_burns_subtitles_when_requested(
     assert burn_kwargs["transcript_json_path"] == transcript_json
     assert burn_kwargs["settings"].font_path == subtitle_font.resolve()
     assert burn_kwargs["settings"].css_path == subtitle_css.resolve()
+    assert burn_kwargs["settings"].wrap_words is False

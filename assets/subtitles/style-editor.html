@@ -921,6 +921,13 @@
                 <option value="4">4</option>
               </select>
             </div>
+            <div class="field full">
+              <label class="toggle">
+                <input id="wrapWords" type="checkbox">
+                Перенос по словам
+              </label>
+              <div class="hint">Break captions at spaces so the subtitle can flow onto multiple lines. Turn this off to keep the sample on one line.</div>
+            </div>
             <div class="field">
               <label for="gapX">Word gap X <span class="value" id="gapXValue"></span></label>
               <input id="gapX" type="range" min="0" max="16" step="1">
@@ -1094,6 +1101,7 @@
       shadowOpacity: 0.92,
       maxWidthRatio: 0.90,
       maxLines: 2,
+      wrapWords: true,
       gapXPx: 6,
       gapYPx: 8,
       wrapperCenterXPct: 50,
@@ -1130,6 +1138,7 @@
       shadowOpacity: document.getElementById("shadowOpacity"),
       maxWidth: document.getElementById("maxWidth"),
       maxLines: document.getElementById("maxLines"),
+      wrapWords: document.getElementById("wrapWords"),
       gapX: document.getElementById("gapX"),
       gapY: document.getElementById("gapY"),
       wrapperCenterX: document.getElementById("wrapperCenterX"),
@@ -1223,6 +1232,7 @@
         shadowOpacity: state.shadowOpacity,
         maxWidthRatio: state.maxWidthRatio,
         maxLines: state.maxLines,
+        wrapWords: state.wrapWords,
         gapXPx: state.gapXPx,
         gapYPx: state.gapYPx,
         wrapperCenterXPct: state.wrapperCenterXPct,
@@ -1298,6 +1308,13 @@
 
     function groupWordsIntoLines(words, maxWidthPx) {
       const lines = [];
+      if (!state.wrapWords) {
+        const tokens = Array.isArray(words) ? words.slice() : [];
+        if (tokens.length) {
+          lines.push(tokens);
+        }
+        return lines;
+      }
       const maxLines = Math.max(1, Number(state.maxLines));
       const tokens = Array.isArray(words) ? words.slice() : [];
       if (!tokens.length) {
@@ -1356,12 +1373,13 @@
         els.subtitleBand.scrollHeight > bandClientHeight + 1
       );
       const lineCount = countRenderedLines();
+      const lineBudget = state.wrapWords ? Math.max(1, Number(state.maxLines)) : 1;
       return {
         widthPct: frameBox.width ? (bandBox.width / frameBox.width) * 100 : 0,
         heightPct: frameBox.height ? (bandBox.height / frameBox.height) * 100 : 0,
         clipped,
         lineCount,
-        fits: !clipped && lineCount <= Math.max(1, Number(state.maxLines)),
+        fits: !clipped && lineCount <= lineBudget,
       };
     }
 
@@ -1385,6 +1403,7 @@
       state.shadowOpacity = next.shadowOpacity;
       state.maxWidthRatio = next.maxWidthRatio;
       state.maxLines = next.maxLines;
+      state.wrapWords = next.wrapWords;
       state.gapXPx = next.gapXPx;
       state.gapYPx = next.gapYPx;
       state.wrapperCenterXPct = next.wrapperCenterXPct;
@@ -1519,6 +1538,7 @@
   font: "${state.fontPath}"
   css: "assets/subtitles/forge_subtitles.css"
   font_size_px: ${state.fontSizePx}
+  wrap_words: ${state.wrapWords}
   max_lines: ${state.maxLines}
   max_width_ratio: ${formatDecimal(state.maxWidthRatio, 2)}
   vertical_align: "bottom"
@@ -1625,6 +1645,8 @@
       els.shadowBlurValue.textContent = `${state.shadowBlurPx}px`;
       els.shadowOpacityValue.textContent = formatDecimal(state.shadowOpacity, 2);
       els.maxWidthValue.textContent = formatPercent(state.maxWidthRatio * 100, 1);
+      els.maxLines.disabled = !state.wrapWords;
+      els.maxLines.title = state.wrapWords ? "" : "Enable word wrap to use multiple lines.";
       els.gapXValue.textContent = `${state.gapXPx}px`;
       els.gapYValue.textContent = `${state.gapYPx}px`;
       els.wrapperCenterXValue.textContent = `${state.wrapperCenterXPct}%`;
@@ -1654,6 +1676,7 @@
       els.shadowOpacity.value = state.shadowOpacity;
       els.maxWidth.value = state.maxWidthRatio;
       els.maxLines.value = String(state.maxLines);
+      els.wrapWords.checked = state.wrapWords;
       els.gapX.value = state.gapXPx;
       els.gapY.value = state.gapYPx;
       els.wrapperCenterX.value = state.wrapperCenterXPct;
@@ -1697,7 +1720,7 @@
     function updateBandGeometry() {
       const fontSize = state.fontSizePx;
       const lineHeight = state.lineHeight;
-      const lineBudget = Math.max(1, Number(state.maxLines));
+      const lineBudget = state.wrapWords ? Math.max(1, Number(state.maxLines)) : 1;
       const bandHeightPx = Math.round(
         (fontSize * lineHeight * lineBudget) +
         (state.paddingYPx * 2) +
@@ -1717,12 +1740,12 @@
           els.subtitleBand.scrollHeight > bandClientHeight + 1
         );
         const lineCount = countRenderedLines();
-        const fits = !clipped && lineCount <= Math.max(1, Number(state.maxLines));
+        const fits = !clipped && lineCount <= lineBudget;
         const overLimit = heightPct > 25;
         els.heightStatus.className = overLimit ? "pill warn" : "pill good";
         els.heightStatus.innerHTML = `Wrapper: <strong>${widthPct.toFixed(1)}% × ${heightPct.toFixed(1)}%</strong>`;
         els.clipStatus.className = fits ? "pill good" : "pill warn";
-        els.clipStatus.innerHTML = `Fit: <strong>${fits ? "ok" : "tight"}</strong> · ${lineCount}/${state.maxLines} lines`;
+        els.clipStatus.innerHTML = `Fit: <strong>${fits ? "ok" : "tight"}</strong> · ${lineCount}/${lineBudget} lines`;
       });
     }
 
@@ -1733,7 +1756,7 @@
     function buildOutput() {
       els.cssOutput.value = renderCssTemplate();
       els.configOutput.value = renderConfigSnippet();
-      els.previewMeta.innerHTML = `Inner <strong>${formatPercent(state.maxWidthRatio * 100, 1)}</strong> · wrapper <strong>${state.wrapperWidthPct}% × ${state.wrapperHeightPct}%</strong>`;
+      els.previewMeta.innerHTML = `Inner <strong>${formatPercent(state.maxWidthRatio * 100, 1)}</strong> · wrap <strong>${state.wrapWords ? "on" : "off"}</strong> · wrapper <strong>${state.wrapperWidthPct}% × ${state.wrapperHeightPct}%</strong>`;
     }
 
     function updateAll() {
@@ -1766,6 +1789,7 @@
       state.shadowOpacity = Number(els.shadowOpacity.value);
       state.maxWidthRatio = Number(els.maxWidth.value);
       state.maxLines = Number(els.maxLines.value);
+      state.wrapWords = els.wrapWords.checked;
       state.gapXPx = Number(els.gapX.value);
       state.gapYPx = Number(els.gapY.value);
       state.wrapperCenterXPct = Number(els.wrapperCenterX.value);
@@ -2003,6 +2027,7 @@
         els.shadowOpacity,
         els.maxWidth,
         els.maxLines,
+        els.wrapWords,
         els.gapX,
         els.gapY,
         els.wrapperCenterX,

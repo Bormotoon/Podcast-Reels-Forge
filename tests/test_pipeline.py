@@ -156,6 +156,7 @@ def test_run_pipeline_builds_and_calls_stages(
             "enabled": True,
             "font": "assets/fonts/custom.ttf",
             "css": "assets/subtitles/custom.css",
+            "wrap_words": False,
         },
         "diarization": {"enabled": False},
         "prompts": {"language": "auto", "variant": "a"},
@@ -205,6 +206,9 @@ def test_run_pipeline_builds_and_calls_stages(
             raise AssertionError(message)
         if "--burn-subtitles" not in video_args or "--transcript-json" not in video_args:
             message = "Video stage missing subtitle args"
+            raise AssertionError(message)
+        if "--no-subtitle-wrap-words" not in video_args:
+            message = "Video stage missing wrap-word toggle"
             raise AssertionError(message)
         if str(tmp_path / "assets" / "fonts" / "custom.ttf") not in video_args:
             message = "Video stage missing configured subtitle font path"

@@ -22,6 +22,7 @@ DEFAULT_SUBTITLE_CSS_TEMPLATE = Path("assets/subtitles/forge_subtitles.css")
 DEFAULT_FONT_SIZE_PX = 44
 DEFAULT_MAX_LINES = 2
 DEFAULT_MAX_WIDTH_RATIO = 0.9
+DEFAULT_WRAP_WORDS = True
 DEFAULT_VERTICAL_ALIGN = "bottom"
 DEFAULT_VERTICAL_OFFSET = 0.0
 DEFAULT_WORD_X_SPACE = 6
@@ -45,6 +46,7 @@ class SubtitleRenderSettings:
     font_size_px: int = DEFAULT_FONT_SIZE_PX
     max_lines: int = DEFAULT_MAX_LINES
     max_width_ratio: float = DEFAULT_MAX_WIDTH_RATIO
+    wrap_words: bool = DEFAULT_WRAP_WORDS
     vertical_align: str = DEFAULT_VERTICAL_ALIGN
     vertical_offset: float = DEFAULT_VERTICAL_OFFSET
 
@@ -90,6 +92,10 @@ def subtitle_settings_from_conf(
             default=DEFAULT_MAX_WIDTH_RATIO,
             minimum=0.1,
             maximum=1.0,
+        ),
+        wrap_words=_coerce_bool(
+            subtitles_conf.get("wrap_words"),
+            default=DEFAULT_WRAP_WORDS,
         ),
         vertical_align=_coerce_align(
             subtitles_conf.get("vertical_align"),
@@ -308,6 +314,7 @@ def prepare_pycaps_template(
 
 
 def _build_template_config(settings: SubtitleRenderSettings) -> dict[str, Any]:
+    max_number_of_lines = settings.max_lines if settings.wrap_words else 1
     return {
         "css": "styles.css",
         "resources": "resources",
@@ -315,7 +322,7 @@ def _build_template_config(settings: SubtitleRenderSettings) -> dict[str, Any]:
             "x_words_space": DEFAULT_WORD_X_SPACE,
             "y_words_space": DEFAULT_WORD_Y_SPACE,
             "max_width_ratio": settings.max_width_ratio,
-            "max_number_of_lines": settings.max_lines,
+            "max_number_of_lines": max_number_of_lines,
             "min_number_of_lines": 1,
             "on_text_overflow_strategy": DEFAULT_TEXT_OVERFLOW_STRATEGY,
             "vertical_align": {
@@ -439,6 +446,22 @@ def _coerce_int(value: object, *, default: int, minimum: int = 1) -> int:
     except (TypeError, ValueError):
         out = int(default)
     return max(out, minimum)
+
+
+def _coerce_bool(value: object, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return default
 
 
 def _coerce_align(value: object, *, default: str) -> str:

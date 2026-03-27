@@ -328,6 +328,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_SUBTITLE_CSS_TEMPLATE,
         help="CSS template for burned subtitles (default: assets/subtitles/forge_subtitles.css)",
     )
+    ap.add_argument(
+        "--subtitle-wrap-words",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Allow subtitles to wrap onto multiple lines at spaces (default: enabled)",
+    )
     
     # Quality Filters
     ap.add_argument("--filter-min-score", type=float, default=0.0, help="Reject if LLM score is below this")
@@ -373,6 +379,7 @@ def main(argv: list[str] | None = None) -> None:
             enabled=True,
             font_path=args.subtitle_font.resolve(),
             css_path=args.subtitle_css.resolve(),
+            wrap_words=bool(args.subtitle_wrap_words),
         )
         if not subtitle_settings.font_path.exists():
             subtitle_settings = replace(

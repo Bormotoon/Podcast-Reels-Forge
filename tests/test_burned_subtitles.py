@@ -37,6 +37,7 @@ def test_subtitle_settings_defaults_are_conservative(tmp_path: Path) -> None:
     assert settings.font_size_px == 44
     assert settings.max_lines == 2
     assert settings.max_width_ratio == 0.9
+    assert settings.wrap_words is True
     assert settings.vertical_align == "bottom"
     assert settings.vertical_offset == 0.0
     assert settings.css_path == (tmp_path / bs.DEFAULT_SUBTITLE_CSS_TEMPLATE).resolve()
@@ -49,6 +50,7 @@ def test_subtitle_settings_from_conf_resolves_css_path(tmp_path: Path) -> None:
                 "enabled": True,
                 "font": "assets/fonts/custom.ttf",
                 "css": "assets/subtitles/custom.css",
+                "wrap_words": False,
             },
         },
         repo_dir=tmp_path,
@@ -57,6 +59,7 @@ def test_subtitle_settings_from_conf_resolves_css_path(tmp_path: Path) -> None:
     assert settings.enabled is True
     assert settings.font_path == (tmp_path / "assets/fonts/custom.ttf").resolve()
     assert settings.css_path == (tmp_path / "assets/subtitles/custom.css").resolve()
+    assert settings.wrap_words is False
 
 
 def test_prepare_pycaps_template_uses_external_css_template(tmp_path: Path) -> None:
@@ -94,6 +97,31 @@ def test_prepare_pycaps_template_uses_external_css_template(tmp_path: Path) -> N
     assert "src: url('subtitle_font.ttf') format('truetype');" in styles
     assert "--subtitle-font-size: 37px;" in styles
     assert "padding: var(--subtitle-padding-y) var(--subtitle-padding-x);" in styles
+
+
+def test_prepare_pycaps_template_disables_word_wrap_when_requested(tmp_path: Path) -> None:
+    font_path = tmp_path / "font.ttf"
+    font_path.write_text("font", encoding="utf-8")
+
+    css_template = tmp_path / "subtitles.css"
+    css_template.write_text(
+        ".word { font-size: __FONT_SIZE_PX__px; }\n",
+        encoding="utf-8",
+    )
+
+    template_dir = tmp_path / "template"
+    out_dir = bs.prepare_pycaps_template(
+        template_dir,
+        settings=bs.SubtitleRenderSettings(
+            enabled=True,
+            font_path=font_path,
+            css_path=css_template,
+            wrap_words=False,
+        ),
+    )
+
+    template = json.loads((out_dir / "pycaps.template.json").read_text(encoding="utf-8"))
+    assert template["layout"]["max_number_of_lines"] == 1
 
 
 def test_ensure_reel_burned_subtitles_writes_srt_and_runs_pycaps(
