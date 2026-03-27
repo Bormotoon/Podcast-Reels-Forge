@@ -1,0 +1,1989 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Forge Subtitle Style Studio</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page-bg: #070a10;
+      --page-bg-2: #0d1220;
+      --panel-bg: rgba(10, 14, 22, 0.82);
+      --panel-border: rgba(255, 255, 255, 0.10);
+      --panel-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
+      --text: #f5efe4;
+      --muted: rgba(245, 239, 228, 0.70);
+      --faint: rgba(245, 239, 228, 0.45);
+      --accent: #f2b46a;
+      --accent-2: #65dbd3;
+      --danger: #ff7a6e;
+      --success: #8ce6a8;
+      --shadow: rgba(0, 0, 0, 0.35);
+      --radius: 24px;
+      --radius-lg: 32px;
+      --control-bg: rgba(255, 255, 255, 0.04);
+      --control-bg-hover: rgba(255, 255, 255, 0.08);
+      --control-border: rgba(255, 255, 255, 0.12);
+      --control-border-focus: rgba(242, 180, 106, 0.55);
+      --code-bg: #0b0f17;
+      --code-border: rgba(255, 255, 255, 0.09);
+      --grid-gap: 20px;
+      --font-ui: "Avenir Next", "Aptos", "Segoe UI", sans-serif;
+      --font-code: "SFMono-Regular", "Cascadia Mono", "IBM Plex Mono", "Consolas", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+    }
+
+    body {
+      min-height: 100vh;
+      font-family: var(--font-ui);
+      color: var(--text);
+      background:
+        radial-gradient(circle at 15% 12%, rgba(242, 180, 106, 0.18), transparent 25%),
+        radial-gradient(circle at 85% 18%, rgba(101, 219, 211, 0.12), transparent 22%),
+        radial-gradient(circle at 50% 100%, rgba(242, 180, 106, 0.09), transparent 34%),
+        linear-gradient(180deg, var(--page-bg) 0%, var(--page-bg-2) 100%);
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 84px 84px, 84px 84px;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.65), transparent 88%);
+      opacity: 0.22;
+    }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 2.15fr) minmax(340px, 0.95fr);
+      gap: var(--grid-gap);
+      padding: var(--grid-gap);
+      min-height: 100vh;
+    }
+
+    .panel {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--panel-shadow);
+      backdrop-filter: blur(22px);
+      overflow: hidden;
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      min-height: calc(100vh - (var(--grid-gap) * 2));
+    }
+
+    .sidebar-header {
+      padding: 24px 24px 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      background:
+        linear-gradient(135deg, rgba(242, 180, 106, 0.16), transparent 45%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 70%);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.84);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .eyebrow-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 0 12px rgba(242, 180, 106, 0.55);
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(30px, 4vw, 42px);
+      line-height: 0.98;
+      letter-spacing: -0.04em;
+    }
+
+    .lede {
+      margin: 0;
+      max-width: 52ch;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .sidebar-body {
+      padding: 18px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      align-content: start;
+      overflow: auto;
+    }
+
+    .section {
+      padding: 12px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      min-width: 0;
+    }
+
+    .section.wide {
+      grid-column: 1 / -1;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    details.section > summary.section-title {
+      cursor: pointer;
+      list-style: none;
+      margin-bottom: 12px;
+    }
+
+    details.section > summary.section-title::-webkit-details-marker {
+      display: none;
+    }
+
+    .section-title h2 {
+      margin: 0;
+      font-size: 13px;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    .section-title span {
+      font-size: 12px;
+      color: var(--faint);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    .field label {
+      font-size: 11px;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .field .hint {
+      margin-top: -2px;
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--faint);
+    }
+
+    .mini-label {
+      margin: 4px 0 0;
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.56);
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .row > * {
+      flex: 1 1 auto;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    input[type="file"],
+    textarea,
+    select {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--control-border);
+      border-radius: 14px;
+      background: var(--control-bg);
+      color: var(--text);
+      font: inherit;
+      outline: none;
+      transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    select {
+      padding: 9px 10px;
+      font-size: 13px;
+    }
+
+    textarea {
+      padding: 10px 10px;
+      resize: vertical;
+      min-height: 82px;
+      line-height: 1.45;
+      font-size: 13px;
+    }
+
+    input[type="text"]:focus,
+    input[type="number"]:focus,
+    textarea:focus,
+    select:focus {
+      border-color: var(--control-border-focus);
+      background: var(--control-bg-hover);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+      margin: 0;
+    }
+
+    input[type="color"] {
+      width: 100%;
+      min-width: 0;
+      height: 38px;
+      padding: 3px;
+      border: 1px solid var(--control-border);
+      border-radius: 14px;
+      background: var(--control-bg);
+      cursor: pointer;
+    }
+
+    .value {
+      justify-self: end;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      color: rgba(255, 255, 255, 0.88);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      user-select: none;
+      cursor: pointer;
+    }
+
+    .toggle input {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .field.full > button {
+      width: 100%;
+    }
+
+    button {
+      appearance: none;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+      color: var(--text);
+      border-radius: 999px;
+      padding: 9px 12px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      border-color: rgba(242, 180, 106, 0.42);
+      background: linear-gradient(180deg, rgba(242, 180, 106, 0.18), rgba(255, 255, 255, 0.06));
+    }
+
+    button.primary {
+      border-color: rgba(242, 180, 106, 0.45);
+      background: linear-gradient(180deg, rgba(242, 180, 106, 0.30), rgba(242, 180, 106, 0.12));
+    }
+
+    .workspace {
+      display: flex;
+      flex-direction: column;
+      min-height: calc(100vh - (var(--grid-gap) * 2));
+      max-width: min(100%, 36vw);
+      justify-self: end;
+    }
+
+    .workspace-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 24px 24px 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      background:
+        linear-gradient(135deg, rgba(101, 219, 211, 0.08), transparent 38%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 72%);
+    }
+
+    .workspace-title {
+      display: grid;
+      gap: 8px;
+    }
+
+    .workspace-title h2 {
+      margin: 0;
+      font-size: clamp(22px, 2.8vw, 34px);
+      letter-spacing: -0.04em;
+      line-height: 1;
+    }
+
+    .workspace-title p {
+      margin: 0;
+      max-width: 64ch;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .status-bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.90);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      white-space: nowrap;
+    }
+
+    .pill strong {
+      color: #fff;
+      font-weight: 700;
+    }
+
+    .pill.good {
+      background: rgba(140, 230, 168, 0.10);
+      border-color: rgba(140, 230, 168, 0.20);
+    }
+
+    .pill.warn {
+      background: rgba(255, 122, 110, 0.10);
+      border-color: rgba(255, 122, 110, 0.20);
+    }
+
+    .workspace-body {
+      padding: var(--grid-gap);
+      display: grid;
+      gap: 16px;
+      overflow: auto;
+    }
+
+    .preview-card {
+      position: relative;
+      min-height: 0;
+      border-radius: 30px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 18% 16%, rgba(242, 180, 106, 0.26), transparent 18%),
+        radial-gradient(circle at 82% 20%, rgba(101, 219, 211, 0.22), transparent 22%),
+        linear-gradient(180deg, #141c31 0%, #0d111d 36%, #090b11 100%);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      box-shadow: 0 26px 80px rgba(0, 0, 0, 0.36);
+      aspect-ratio: 9 / 16;
+      max-height: min(76vh, 1040px);
+      isolation: isolate;
+    }
+
+    .preview-card.wrapper-shell {
+      border: 1px solid rgba(242, 180, 106, 0.22);
+      box-shadow:
+        0 26px 80px rgba(0, 0, 0, 0.36),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+    }
+
+    .preview-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 18%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.03), transparent 45%),
+        radial-gradient(circle at 50% 70%, rgba(255, 255, 255, 0.06), transparent 34%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .preview-card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(180deg, transparent 0 66%, rgba(242, 180, 106, 0.10) 66% 100%),
+        linear-gradient(180deg, transparent 0 32%, rgba(255, 255, 255, 0.03) 32% 33%, transparent 33% 100%);
+      mix-blend-mode: screen;
+      z-index: 1;
+    }
+
+    .preview-topbar {
+      position: absolute;
+      inset: 16px 16px auto;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    .frame-pill {
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      letter-spacing: 0.03em;
+      color: rgba(255, 255, 255, 0.92);
+      background: rgba(11, 13, 19, 0.64);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(14px);
+      white-space: nowrap;
+    }
+
+    .frame-pill strong {
+      color: #fff;
+      font-weight: 700;
+    }
+
+    .stage-guide {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      display: none;
+    }
+
+    .stage-guide.show {
+      display: block;
+    }
+
+    .stage-guide .line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .stage-guide .line.lower-third {
+      top: 66.666%;
+      background: rgba(242, 180, 106, 0.36);
+    }
+
+    .stage-guide .line.safe-top {
+      top: 33%;
+      opacity: 0.28;
+    }
+
+    .subtitle-stage {
+      position: absolute;
+      inset: 0;
+      z-index: 4;
+      pointer-events: none;
+    }
+
+    .subtitle-wrapper-frame {
+      position: absolute;
+      left: var(--wrapper-center-x, 50%);
+      top: var(--wrapper-center-y, 72%);
+      width: var(--wrapper-width, 88%);
+      height: var(--wrapper-height, 26%);
+      transform: translate(-50%, -50%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1.5px solid rgba(255, 255, 255, 0.30);
+      border-radius: 20px;
+      background: var(--wrapper-bg-color, rgba(10, 14, 22, 0.14));
+      box-shadow:
+        inset 0 0 0 1px rgba(242, 180, 106, 0.10),
+        0 0 0 1px rgba(0, 0, 0, 0.12);
+      backdrop-filter: blur(2px);
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .subtitle-wrapper-frame::before {
+      content: "wrapper";
+      position: absolute;
+      top: -10px;
+      left: 14px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.72);
+      background: rgba(10, 14, 22, 0.86);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+    }
+
+    .subtitle-band {
+      width: calc(var(--subtitle-max-width, 0.90) * 100%);
+      max-width: 100%;
+      height: 100%;
+      max-height: var(--band-max-height, 100%);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: var(--subtitle-gap-y, 8px);
+      overflow: hidden;
+      transform: translateY(var(--subtitle-vertical-shift, 0px));
+      padding: 10px 12px;
+    }
+
+    .subtitle-line {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      justify-content: center;
+      gap: var(--subtitle-gap-x, 6px);
+      width: fit-content;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    .word {
+      font-family: var(--subtitle-font-family, "ForgeSubtitleFont", "Impact", sans-serif);
+      font-size: var(--subtitle-font-size, 44px);
+      line-height: var(--subtitle-line-height, 1.0);
+      letter-spacing: var(--subtitle-letter-spacing, 0px);
+      color: var(--subtitle-text-color, #fff);
+      font-weight: var(--subtitle-font-weight, 700);
+      background-color: var(--subtitle-bg-color, rgba(0, 0, 0, 0.58));
+      border-radius: var(--subtitle-radius, 12px);
+      padding: var(--subtitle-padding-y, 4px) var(--subtitle-padding-x, 8px);
+      text-shadow: var(--subtitle-shadow, 0 4px 10px rgba(0, 0, 0, 0.7));
+      user-select: none;
+      white-space: nowrap;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+      box-shadow: 0 16px 30px rgba(0, 0, 0, 0.18);
+      max-width: 100%;
+    }
+
+    .word-being-narrated {
+      color: var(--subtitle-active-text-color, #ffd54a);
+      background-color: var(--subtitle-active-bg-color, rgba(18, 18, 18, 0.82));
+      transform: translateY(-1px);
+    }
+
+    .word-already-narrated {
+      color: var(--subtitle-text-color, #fff);
+    }
+
+    .first-word-in-line {
+      border-top-left-radius: var(--subtitle-highlight-radius, 14px);
+      border-bottom-left-radius: var(--subtitle-highlight-radius, 14px);
+    }
+
+    .last-word-in-line {
+      border-top-right-radius: var(--subtitle-highlight-radius, 14px);
+      border-bottom-right-radius: var(--subtitle-highlight-radius, 14px);
+    }
+
+    .output-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .code-card {
+      padding: 12px;
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      display: grid;
+      gap: 12px;
+    }
+
+    .code-card header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .code-card h3 {
+      margin: 0;
+      font-size: 12px;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    .code-card p {
+      margin: 0;
+      color: var(--faint);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .code-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    textarea.code {
+      min-height: 182px;
+      font-family: var(--font-code);
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre;
+      tab-size: 2;
+      color: #f3f1ec;
+      background: var(--code-bg);
+      border-color: var(--code-border);
+    }
+
+    .footer-note {
+      color: var(--faint);
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    .footer-note strong {
+      color: rgba(255, 255, 255, 0.92);
+    }
+
+    @media (max-width: 1120px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar,
+      .workspace {
+        min-height: auto;
+      }
+
+      .preview-card {
+        max-height: 72vh;
+      }
+
+      .workspace {
+        max-width: none;
+        justify-self: stretch;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .grid-2,
+      .output-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar-body {
+        grid-template-columns: 1fr;
+      }
+
+      .workspace-header,
+      .sidebar-header {
+        padding-inline: 18px;
+      }
+
+      .sidebar-body,
+      .workspace-body {
+        padding: 18px;
+      }
+
+      .preview-card {
+        border-radius: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="panel sidebar">
+      <div class="sidebar-header">
+        <div class="eyebrow"><span class="eyebrow-dot"></span>Live subtitle styling</div>
+        <h1>Forge Subtitle Style Studio</h1>
+        <p class="lede">
+          Tune the subtitle look in a 9:16 preview, keep the block in the lower third, and export
+          the CSS/config values you want to keep. The preview font is loaded locally when possible;
+          you can also upload a font file for quick visual checks.
+        </p>
+      </div>
+
+      <div class="sidebar-body">
+        <section class="section wide">
+          <div class="section-title">
+            <h2>Font source</h2>
+            <span>preview only</span>
+          </div>
+          <div class="grid-2">
+            <div class="field full">
+              <label for="fontPath">Font path</label>
+              <input id="fontPath" type="text" value="assets/fonts/bignoodletoooblique.ttf" spellcheck="false">
+              <div class="hint">Repo-relative path used by the config snippet. The preview resolves it against this HTML file.</div>
+            </div>
+            <div class="field full">
+              <label for="fontFile">Upload font file</label>
+              <input id="fontFile" type="file" accept=".ttf,.otf,.woff,.woff2">
+              <div class="hint">Optional. Loaded only in the browser preview, so you can inspect another typeface without touching the repo.</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">
+            <h2>Typography</h2>
+            <span>actual subtitle feel</span>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="fontSize">Font size <span class="value" id="fontSizeValue"></span></label>
+              <input id="fontSize" type="range" min="8" max="96" step="1">
+            </div>
+            <div class="field">
+              <label for="fontWeight">Weight</label>
+              <select id="fontWeight">
+                <option value="400">400</option>
+                <option value="500">500</option>
+                <option value="600">600</option>
+                <option value="700">700</option>
+                <option value="800">800</option>
+                <option value="900">900</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="lineHeight">Line height <span class="value" id="lineHeightValue"></span></label>
+              <input id="lineHeight" type="range" min="0.80" max="1.40" step="0.01">
+            </div>
+            <div class="field">
+              <label for="letterSpacing">Letter spacing <span class="value" id="letterSpacingValue"></span></label>
+              <input id="letterSpacing" type="range" min="-1.0" max="3.0" step="0.1">
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">
+            <h2>Colors</h2>
+            <span>legibility first</span>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="textColor">Text color</label>
+              <input id="textColor" type="color">
+            </div>
+            <div class="field">
+              <label for="activeTextColor">Active word</label>
+              <input id="activeTextColor" type="color">
+            </div>
+            <div class="field">
+              <label for="bgColor">Background</label>
+              <input id="bgColor" type="color">
+            </div>
+            <div class="field">
+              <label for="bgOpacity">Background opacity <span class="value" id="bgOpacityValue"></span></label>
+              <input id="bgOpacity" type="range" min="0.10" max="0.95" step="0.01">
+            </div>
+            <div class="field">
+              <label for="activeBgColor">Active background</label>
+              <input id="activeBgColor" type="color">
+            </div>
+            <div class="field">
+              <label for="activeBgOpacity">Active bg opacity <span class="value" id="activeBgOpacityValue"></span></label>
+              <input id="activeBgOpacity" type="range" min="0.10" max="1.00" step="0.01">
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">
+            <h2>Shape</h2>
+            <span>block geometry</span>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="radius">Corner radius <span class="value" id="radiusValue"></span></label>
+              <input id="radius" type="range" min="0" max="28" step="1">
+            </div>
+            <div class="field">
+              <label for="highlightRadius">End-cap radius <span class="value" id="highlightRadiusValue"></span></label>
+              <input id="highlightRadius" type="range" min="8" max="28" step="1">
+            </div>
+            <div class="field">
+              <label for="paddingX">Padding X <span class="value" id="paddingXValue"></span></label>
+              <input id="paddingX" type="range" min="0" max="24" step="1">
+            </div>
+            <div class="field">
+              <label for="paddingY">Padding Y <span class="value" id="paddingYValue"></span></label>
+              <input id="paddingY" type="range" min="0" max="20" step="1">
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">
+            <h2>Depth</h2>
+            <span>outline + shadow</span>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="shadowBlur">Shadow blur <span class="value" id="shadowBlurValue"></span></label>
+              <input id="shadowBlur" type="range" min="0" max="22" step="1">
+            </div>
+            <div class="field">
+              <label for="shadowOpacity">Shadow opacity <span class="value" id="shadowOpacityValue"></span></label>
+              <input id="shadowOpacity" type="range" min="0.20" max="1.00" step="0.01">
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">
+            <h2>Layout</h2>
+            <span>keep it compact</span>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="maxWidth">Inner width <span class="value" id="maxWidthValue"></span></label>
+              <input id="maxWidth" type="range" min="0.70" max="1.00" step="0.01">
+              <div class="hint">How wide the subtitle block may spread inside the wrapper frame.</div>
+            </div>
+            <div class="field">
+              <label for="maxLines">Max lines</label>
+              <select id="maxLines">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="gapX">Word gap X <span class="value" id="gapXValue"></span></label>
+              <input id="gapX" type="range" min="0" max="16" step="1">
+            </div>
+            <div class="field">
+              <label for="gapY">Word gap Y <span class="value" id="gapYValue"></span></label>
+              <input id="gapY" type="range" min="0" max="20" step="1">
+            </div>
+
+            <div class="field full">
+              <div class="mini-label">Wrapper</div>
+            </div>
+            <div class="field">
+              <label for="wrapperCenterX">Center X <span class="value" id="wrapperCenterXValue"></span></label>
+              <input id="wrapperCenterX" type="range" min="0" max="100" step="1">
+            </div>
+            <div class="field">
+              <label for="wrapperCenterY">Center Y <span class="value" id="wrapperCenterYValue"></span></label>
+              <input id="wrapperCenterY" type="range" min="0" max="100" step="1">
+            </div>
+            <div class="field">
+              <label for="wrapperWidth">Wrapper width <span class="value" id="wrapperWidthValue"></span></label>
+              <input id="wrapperWidth" type="range" min="20" max="100" step="1">
+            </div>
+            <div class="field">
+              <label for="wrapperHeight">Wrapper height <span class="value" id="wrapperHeightValue"></span></label>
+              <input id="wrapperHeight" type="range" min="8" max="60" step="1">
+            </div>
+            <div class="field">
+              <label for="wrapperBgColor">Wrapper background</label>
+              <input id="wrapperBgColor" type="color">
+            </div>
+            <div class="field">
+              <label for="wrapperBgOpacity">Wrapper opacity <span class="value" id="wrapperBgOpacityValue"></span></label>
+              <input id="wrapperBgOpacity" type="range" min="0.00" max="0.75" step="0.01">
+            </div>
+            <div class="field full">
+              <button id="fitWrapperBtn" class="primary" type="button">Подогнать под враппер</button>
+              <div class="hint">Подбирает размер шрифта под текущий wrapper и выбранное число строк без обрезки.</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section wide">
+          <div class="section-title">
+            <h2>Sample</h2>
+            <span>what the eye sees</span>
+          </div>
+          <div class="field full">
+            <label for="sampleText">Subtitle text</label>
+            <textarea id="sampleText" spellcheck="false"></textarea>
+          </div>
+          <div class="row" style="margin-top: 12px;">
+            <label class="toggle">
+              <input id="autoAnimate" type="checkbox">
+              Animate active word
+            </label>
+            <label class="toggle">
+              <input id="showGuides" type="checkbox">
+              Lower-third guides
+            </label>
+          </div>
+        </section>
+
+        <details class="section wide export-panel">
+          <summary class="section-title">
+            <h2>Export snippets</h2>
+            <span>apply or download</span>
+          </summary>
+          <div class="actions">
+            <button id="resetBtn" class="primary" type="button">Reset defaults</button>
+            <button id="saveBtn" type="button">Save state</button>
+            <button id="clearBtn" type="button">Clear saved state</button>
+          </div>
+          <p class="footer-note">
+            <strong>Tip:</strong> the preview shows how the subtitle card behaves in a vertical reel.
+            Use the estimated height badge on the right to stay under the 25% cap.
+          </p>
+          <div class="output-grid" style="margin-top: 12px;">
+            <div class="code-card">
+              <header>
+                <div>
+                  <h3>CSS template</h3>
+                  <p>Apply to refresh the runtime stylesheet preview. Font size stays in <code>config.yaml</code>; the template carries the rest of the visual styling.</p>
+                </div>
+                <div class="code-actions">
+                  <button id="applyCssBtn" type="button">Apply CSS</button>
+                  <button id="downloadCssBtn" type="button">Download CSS</button>
+                </div>
+              </header>
+              <textarea id="cssOutput" class="code" readonly></textarea>
+            </div>
+
+            <div class="code-card">
+              <header>
+                <div>
+                  <h3>Config snippet</h3>
+                  <p>Apply to refresh the config snippet. Paste the result into <code>config.yaml</code> to match the previewed font and layout choices.</p>
+                </div>
+                <div class="code-actions">
+                  <button id="applyConfigBtn" type="button">Apply config</button>
+                  <button id="downloadConfigBtn" type="button">Download YAML</button>
+                </div>
+              </header>
+              <textarea id="configOutput" class="code" readonly></textarea>
+            </div>
+          </div>
+        </details>
+      </div>
+    </aside>
+
+    <main class="panel workspace">
+      <div class="workspace-header">
+        <div class="workspace-title">
+          <div class="eyebrow"><span class="eyebrow-dot"></span>WYSIWYG preview</div>
+          <h2>See subtitle styling exactly where it matters</h2>
+          <p>
+            The frame below mirrors a vertical reel. The subtitle block is anchored to the lower
+            third, and the live metrics tell you whether the current style stays compact enough.
+          </p>
+        </div>
+        <div class="status-bar" aria-live="polite">
+          <div class="pill" id="fontStatus">Font: <strong>loading…</strong></div>
+          <div class="pill" id="heightStatus">Wrapper: <strong>--</strong></div>
+          <div class="pill" id="clipStatus">Fit: <strong>--</strong></div>
+        </div>
+      </div>
+
+      <div class="workspace-body">
+        <section class="preview-card wrapper-shell" aria-label="Subtitle preview">
+          <div class="preview-topbar">
+            <div class="frame-pill">9:16 reel preview</div>
+            <div class="frame-pill" id="previewMeta">Inner <strong>--</strong> · wrapper <strong>--</strong></div>
+          </div>
+          <div class="stage-guide" id="stageGuide" aria-hidden="true">
+            <span class="line safe-top"></span>
+            <span class="line lower-third"></span>
+          </div>
+          <div class="subtitle-stage">
+            <div class="subtitle-wrapper-frame" id="subtitleWrapperFrame">
+              <div class="subtitle-band" id="subtitleBand"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const PREVIEW_FAMILY = "ForgeSubtitleFont";
+    const STORAGE_KEY = "forge.subtitleStyleStudio.v1";
+    const DEFAULTS = {
+      fontPath: "assets/fonts/bignoodletoooblique.ttf",
+      fontSizePx: 44,
+      lineHeight: 1.00,
+      letterSpacingPx: 0.0,
+      fontWeight: 700,
+      textColor: "#ffffff",
+      activeTextColor: "#ffd54a",
+      bgColor: "#000000",
+      bgOpacity: 0.58,
+      activeBgColor: "#121212",
+      activeBgOpacity: 0.82,
+      radiusPx: 12,
+      highlightRadiusPx: 14,
+      paddingXPx: 8,
+      paddingYPx: 4,
+      shadowBlurPx: 10,
+      shadowOpacity: 0.92,
+      maxWidthRatio: 0.90,
+      maxLines: 2,
+      gapXPx: 6,
+      gapYPx: 8,
+      wrapperCenterXPct: 50,
+      wrapperCenterYPct: 72,
+      wrapperWidthPct: 88,
+      wrapperHeightPct: 25,
+      wrapperBgColor: "#0a0e16",
+      wrapperBgOpacity: 0.14,
+      sampleText: "Разбираемся, почему этот выпуск вызывает столько споров и что именно делает его таким цепляющим.",
+      autoAnimate: true,
+      showGuides: true,
+    };
+
+    const state = loadState();
+
+    const els = {
+      fontPath: document.getElementById("fontPath"),
+      fontFile: document.getElementById("fontFile"),
+      fontSize: document.getElementById("fontSize"),
+      lineHeight: document.getElementById("lineHeight"),
+      letterSpacing: document.getElementById("letterSpacing"),
+      fontWeight: document.getElementById("fontWeight"),
+      textColor: document.getElementById("textColor"),
+      activeTextColor: document.getElementById("activeTextColor"),
+      bgColor: document.getElementById("bgColor"),
+      bgOpacity: document.getElementById("bgOpacity"),
+      activeBgColor: document.getElementById("activeBgColor"),
+      activeBgOpacity: document.getElementById("activeBgOpacity"),
+      radius: document.getElementById("radius"),
+      highlightRadius: document.getElementById("highlightRadius"),
+      paddingX: document.getElementById("paddingX"),
+      paddingY: document.getElementById("paddingY"),
+      shadowBlur: document.getElementById("shadowBlur"),
+      shadowOpacity: document.getElementById("shadowOpacity"),
+      maxWidth: document.getElementById("maxWidth"),
+      maxLines: document.getElementById("maxLines"),
+      gapX: document.getElementById("gapX"),
+      gapY: document.getElementById("gapY"),
+      wrapperCenterX: document.getElementById("wrapperCenterX"),
+      wrapperCenterY: document.getElementById("wrapperCenterY"),
+      wrapperWidth: document.getElementById("wrapperWidth"),
+      wrapperHeight: document.getElementById("wrapperHeight"),
+      wrapperBgColor: document.getElementById("wrapperBgColor"),
+      wrapperBgOpacity: document.getElementById("wrapperBgOpacity"),
+      sampleText: document.getElementById("sampleText"),
+      autoAnimate: document.getElementById("autoAnimate"),
+      showGuides: document.getElementById("showGuides"),
+      resetBtn: document.getElementById("resetBtn"),
+      saveBtn: document.getElementById("saveBtn"),
+      clearBtn: document.getElementById("clearBtn"),
+      applyCssBtn: document.getElementById("applyCssBtn"),
+      downloadCssBtn: document.getElementById("downloadCssBtn"),
+      applyConfigBtn: document.getElementById("applyConfigBtn"),
+      downloadConfigBtn: document.getElementById("downloadConfigBtn"),
+      cssOutput: document.getElementById("cssOutput"),
+      configOutput: document.getElementById("configOutput"),
+      subtitleWrapperFrame: document.getElementById("subtitleWrapperFrame"),
+      subtitleBand: document.getElementById("subtitleBand"),
+      stageGuide: document.getElementById("stageGuide"),
+      fontStatus: document.getElementById("fontStatus"),
+      heightStatus: document.getElementById("heightStatus"),
+      clipStatus: document.getElementById("clipStatus"),
+      fontSizeValue: document.getElementById("fontSizeValue"),
+      lineHeightValue: document.getElementById("lineHeightValue"),
+      letterSpacingValue: document.getElementById("letterSpacingValue"),
+      bgOpacityValue: document.getElementById("bgOpacityValue"),
+      activeBgOpacityValue: document.getElementById("activeBgOpacityValue"),
+      radiusValue: document.getElementById("radiusValue"),
+      highlightRadiusValue: document.getElementById("highlightRadiusValue"),
+      paddingXValue: document.getElementById("paddingXValue"),
+      paddingYValue: document.getElementById("paddingYValue"),
+      shadowBlurValue: document.getElementById("shadowBlurValue"),
+      shadowOpacityValue: document.getElementById("shadowOpacityValue"),
+      maxWidthValue: document.getElementById("maxWidthValue"),
+      gapXValue: document.getElementById("gapXValue"),
+      gapYValue: document.getElementById("gapYValue"),
+      wrapperCenterXValue: document.getElementById("wrapperCenterXValue"),
+      wrapperCenterYValue: document.getElementById("wrapperCenterYValue"),
+      wrapperWidthValue: document.getElementById("wrapperWidthValue"),
+      wrapperHeightValue: document.getElementById("wrapperHeightValue"),
+      wrapperBgOpacityValue: document.getElementById("wrapperBgOpacityValue"),
+      previewMeta: document.getElementById("previewMeta"),
+      previewCard: document.querySelector(".preview-card"),
+      fitWrapperBtn: document.getElementById("fitWrapperBtn"),
+    };
+
+    let currentFontFace = null;
+    let currentFontObjectUrl = null;
+    let autoTimer = null;
+    let activeIndex = 0;
+    let fitInProgress = false;
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+          return { ...DEFAULTS };
+        }
+        const parsed = JSON.parse(raw);
+        return { ...DEFAULTS, ...parsed };
+      } catch (_) {
+        return { ...DEFAULTS };
+      }
+    }
+
+    function saveState() {
+      const snapshot = {
+        fontPath: state.fontPath,
+        fontSizePx: state.fontSizePx,
+        lineHeight: state.lineHeight,
+        letterSpacingPx: state.letterSpacingPx,
+        fontWeight: state.fontWeight,
+        textColor: state.textColor,
+        activeTextColor: state.activeTextColor,
+        bgColor: state.bgColor,
+        bgOpacity: state.bgOpacity,
+        activeBgColor: state.activeBgColor,
+        activeBgOpacity: state.activeBgOpacity,
+        radiusPx: state.radiusPx,
+        highlightRadiusPx: state.highlightRadiusPx,
+        paddingXPx: state.paddingXPx,
+        paddingYPx: state.paddingYPx,
+        shadowBlurPx: state.shadowBlurPx,
+        shadowOpacity: state.shadowOpacity,
+        maxWidthRatio: state.maxWidthRatio,
+        maxLines: state.maxLines,
+        gapXPx: state.gapXPx,
+        gapYPx: state.gapYPx,
+        wrapperCenterXPct: state.wrapperCenterXPct,
+        wrapperCenterYPct: state.wrapperCenterYPct,
+        wrapperWidthPct: state.wrapperWidthPct,
+        wrapperHeightPct: state.wrapperHeightPct,
+        wrapperBgColor: state.wrapperBgColor,
+        wrapperBgOpacity: state.wrapperBgOpacity,
+        sampleText: state.sampleText,
+        autoAnimate: state.autoAnimate,
+        showGuides: state.showGuides,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+    }
+
+    function normalizeHex(hex) {
+      return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex) ? hex : "#000000";
+    }
+
+    function hexToRgb(hex) {
+      const normalized = normalizeHex(hex).replace("#", "");
+      const full = normalized.length === 3
+        ? normalized.split("").map((c) => c + c).join("")
+        : normalized;
+      const int = parseInt(full, 16);
+      return {
+        r: (int >> 16) & 255,
+        g: (int >> 8) & 255,
+        b: int & 255,
+      };
+    }
+
+    function rgba(hex, alpha) {
+      const { r, g, b } = hexToRgb(hex);
+      return `rgba(${r}, ${g}, ${b}, ${clamp(alpha, 0, 1).toFixed(2)})`;
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function nextFrame() {
+      return new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+    }
+
+    function countRenderedLines() {
+      const nodes = els.subtitleBand.querySelectorAll(".subtitle-line");
+      if (!nodes.length) {
+        return 0;
+      }
+      return nodes.length;
+    }
+
+    function getMeasureContext() {
+      const canvas = getMeasureContext._canvas || (getMeasureContext._canvas = document.createElement("canvas"));
+      const ctx = getMeasureContext._ctx || (getMeasureContext._ctx = canvas.getContext("2d"));
+      return ctx;
+    }
+
+    function measureWordWidth(word) {
+      const ctx = getMeasureContext();
+      if (!ctx) {
+        return 0;
+      }
+      const safeFamily = `${PREVIEW_FAMILY}, Impact, sans-serif`;
+      ctx.font = `${state.fontWeight} ${state.fontSizePx}px ${safeFamily}`;
+      const text = String(word || "");
+      const metrics = ctx.measureText(text);
+      const textWidth = metrics.width || 0;
+      const letterSpacing = Math.max(0, text.length - 1) * Number(state.letterSpacingPx || 0);
+      return textWidth + letterSpacing + (state.paddingXPx * 2);
+    }
+
+    function groupWordsIntoLines(words, maxWidthPx) {
+      const lines = [];
+      const maxLines = Math.max(1, Number(state.maxLines));
+      const tokens = Array.isArray(words) ? words.slice() : [];
+      if (!tokens.length) {
+        return lines;
+      }
+
+      let currentLine = [];
+      let currentWidth = 0;
+
+      const flushCurrentLine = () => {
+        if (!currentLine.length) return;
+        lines.push(currentLine);
+        currentLine = [];
+        currentWidth = 0;
+      };
+
+      tokens.forEach((word) => {
+        const wordWidth = measureWordWidth(word);
+        const gapWidth = currentLine.length ? state.gapXPx : 0;
+        const lastAllowedLine = lines.length >= maxLines - 1;
+
+        if (lastAllowedLine) {
+          currentLine.push(word);
+          currentWidth += gapWidth + wordWidth;
+          return;
+        }
+
+        if (!currentLine.length) {
+          currentLine.push(word);
+          currentWidth = wordWidth;
+          return;
+        }
+
+        if (currentWidth + gapWidth + wordWidth <= maxWidthPx) {
+          currentLine.push(word);
+          currentWidth += gapWidth + wordWidth;
+          return;
+        }
+
+        flushCurrentLine();
+        currentLine.push(word);
+        currentWidth = wordWidth;
+      });
+
+      flushCurrentLine();
+      return lines;
+    }
+
+    function measurePreviewFit() {
+      const frameBox = els.previewCard.getBoundingClientRect();
+      const bandBox = els.subtitleWrapperFrame.getBoundingClientRect();
+      const bandClientWidth = els.subtitleBand.clientWidth;
+      const bandClientHeight = els.subtitleBand.clientHeight;
+      const clipped = (
+        els.subtitleBand.scrollWidth > bandClientWidth + 1 ||
+        els.subtitleBand.scrollHeight > bandClientHeight + 1
+      );
+      const lineCount = countRenderedLines();
+      return {
+        widthPct: frameBox.width ? (bandBox.width / frameBox.width) * 100 : 0,
+        heightPct: frameBox.height ? (bandBox.height / frameBox.height) * 100 : 0,
+        clipped,
+        lineCount,
+        fits: !clipped && lineCount <= Math.max(1, Number(state.maxLines)),
+      };
+    }
+
+    function applyStateFields(next) {
+      state.fontPath = next.fontPath;
+      state.fontSizePx = next.fontSizePx;
+      state.lineHeight = next.lineHeight;
+      state.letterSpacingPx = next.letterSpacingPx;
+      state.fontWeight = next.fontWeight;
+      state.textColor = next.textColor;
+      state.activeTextColor = next.activeTextColor;
+      state.bgColor = next.bgColor;
+      state.bgOpacity = next.bgOpacity;
+      state.activeBgColor = next.activeBgColor;
+      state.activeBgOpacity = next.activeBgOpacity;
+      state.radiusPx = next.radiusPx;
+      state.highlightRadiusPx = next.highlightRadiusPx;
+      state.paddingXPx = next.paddingXPx;
+      state.paddingYPx = next.paddingYPx;
+      state.shadowBlurPx = next.shadowBlurPx;
+      state.shadowOpacity = next.shadowOpacity;
+      state.maxWidthRatio = next.maxWidthRatio;
+      state.maxLines = next.maxLines;
+      state.gapXPx = next.gapXPx;
+      state.gapYPx = next.gapYPx;
+      state.wrapperCenterXPct = next.wrapperCenterXPct;
+      state.wrapperCenterYPct = next.wrapperCenterYPct;
+      state.wrapperWidthPct = next.wrapperWidthPct;
+      state.wrapperHeightPct = next.wrapperHeightPct;
+      state.wrapperBgColor = next.wrapperBgColor;
+      state.wrapperBgOpacity = next.wrapperBgOpacity;
+      state.sampleText = next.sampleText;
+      state.autoAnimate = next.autoAnimate;
+      state.showGuides = next.showGuides;
+    }
+
+    function formatDecimal(value, digits = 2) {
+      const fixed = Number(value).toFixed(digits);
+      return fixed.replace(/\.?0+$/, "");
+    }
+
+    function formatPercent(value, digits = 1) {
+      return `${formatDecimal(value, digits)}%`;
+    }
+
+    function repoPathToPreviewUrl(repoPath) {
+      const clean = (repoPath || "").trim().replace(/\\/g, "/");
+      if (!clean) return "";
+      if (clean.startsWith("../") || clean.startsWith("./") || clean.startsWith("/")) {
+        return clean;
+      }
+      if (clean.startsWith("assets/fonts/")) {
+        return `../fonts/${clean.slice("assets/fonts/".length)}`;
+      }
+      if (clean.startsWith("assets/subtitles/")) {
+        return `./${clean.slice("assets/subtitles/".length)}`;
+      }
+      if (clean.startsWith("assets/")) {
+        return `../${clean.slice("assets/".length)}`;
+      }
+      return clean;
+    }
+
+    function buildShadow() {
+      const dark = rgba("#000000", clamp(state.shadowOpacity, 0.2, 1));
+      const softer = rgba("#000000", clamp(state.shadowOpacity * 0.76, 0.16, 0.85));
+      return [
+        `-2px -2px 0 ${dark}`,
+        `2px -2px 0 ${dark}`,
+        `-2px 2px 0 ${dark}`,
+        `2px 2px 0 ${dark}`,
+        `0 4px ${state.shadowBlurPx}px ${softer}`,
+      ].join(",\n        ");
+    }
+
+    function buildFontFormat(path) {
+      const match = (path || "").toLowerCase().match(/\.([a-z0-9]+)$/);
+      const suffix = match ? match[1] : "ttf";
+      return {
+        ttf: "truetype",
+        otf: "opentype",
+        woff: "woff",
+        woff2: "woff2",
+      }[suffix] || "truetype";
+    }
+
+    function renderCssTemplate() {
+      return `/* Editable pycaps subtitle stylesheet.
+   Placeholders are filled in by Podcast Reels Forge at render time.
+   Supported placeholders:
+   - __FONT_FILENAME__
+   - __FONT_FORMAT__
+   - __FONT_SIZE_PX__
+*/
+
+@font-face {
+    font-family: '${PREVIEW_FAMILY}';
+    src: url('__FONT_FILENAME__') format('__FONT_FORMAT__');
+}
+
+:root {
+    --subtitle-font-family: '${PREVIEW_FAMILY}', 'Impact', sans-serif;
+    --subtitle-font-size: __FONT_SIZE_PX__px;
+    --subtitle-line-height: ${formatDecimal(state.lineHeight, 2)};
+    --subtitle-letter-spacing: ${formatDecimal(state.letterSpacingPx, 1)}px;
+    --subtitle-font-weight: ${state.fontWeight};
+    --subtitle-text-color: ${state.textColor};
+    --subtitle-active-text-color: ${state.activeTextColor};
+    --subtitle-bg-color: ${rgba(state.bgColor, state.bgOpacity)};
+    --subtitle-active-bg-color: ${rgba(state.activeBgColor, state.activeBgOpacity)};
+    --subtitle-radius: ${state.radiusPx}px;
+    --subtitle-padding-y: ${state.paddingYPx}px;
+    --subtitle-padding-x: ${state.paddingXPx}px;
+    --subtitle-shadow:
+        ${buildShadow().replace(/\n/g, "\n        ")};
+    --subtitle-highlight-radius: ${state.highlightRadiusPx}px;
+}
+
+.word {
+    font-family: var(--subtitle-font-family);
+    font-size: var(--subtitle-font-size);
+    line-height: var(--subtitle-line-height);
+    letter-spacing: var(--subtitle-letter-spacing);
+    color: var(--subtitle-text-color);
+    font-weight: var(--subtitle-font-weight);
+    background-color: var(--subtitle-bg-color);
+    border-radius: var(--subtitle-radius);
+    padding: var(--subtitle-padding-y) var(--subtitle-padding-x);
+    text-shadow: var(--subtitle-shadow);
+}
+
+.word-being-narrated {
+    color: var(--subtitle-active-text-color);
+    background-color: var(--subtitle-active-bg-color);
+}
+
+.word-already-narrated {
+    color: var(--subtitle-text-color);
+}
+
+.first-word-in-line {
+    border-top-left-radius: var(--subtitle-highlight-radius);
+    border-bottom-left-radius: var(--subtitle-highlight-radius);
+}
+
+.last-word-in-line {
+    border-top-right-radius: var(--subtitle-highlight-radius);
+    border-bottom-right-radius: var(--subtitle-highlight-radius);
+}`;
+    }
+
+    function renderConfigSnippet() {
+      return `subtitles:
+  enabled: true
+  font: "${state.fontPath}"
+  css: "assets/subtitles/forge_subtitles.css"
+  font_size_px: ${state.fontSizePx}
+  max_lines: ${state.maxLines}
+  max_width_ratio: ${formatDecimal(state.maxWidthRatio, 2)}
+  vertical_align: "bottom"
+  vertical_offset: 0.0`;
+    }
+
+    function renderWords() {
+      const words = (state.sampleText || "").trim().split(/\s+/).filter(Boolean);
+      const fragment = document.createDocumentFragment();
+      if (!words.length) {
+        const line = document.createElement("div");
+        line.className = "subtitle-line";
+        const empty = document.createElement("span");
+        empty.className = "word word-being-narrated";
+        empty.textContent = "Type a subtitle sample here";
+        line.appendChild(empty);
+        fragment.appendChild(line);
+        els.subtitleBand.replaceChildren(fragment);
+        return;
+      }
+
+      const wrapperWidth = els.subtitleWrapperFrame.getBoundingClientRect().width || 0;
+      const availableWidth = Math.max(1, Math.round((wrapperWidth * state.maxWidthRatio) - 24));
+      const lines = groupWordsIntoLines(words, availableWidth);
+      const active = clamp(activeIndex, 0, words.length - 1);
+      let wordIndex = 0;
+      lines.forEach((lineWords) => {
+        const line = document.createElement("div");
+        line.className = "subtitle-line";
+        lineWords.forEach((word, lineIndex) => {
+          const span = document.createElement("span");
+          span.className = "word";
+          if (wordIndex < active) {
+            span.classList.add("word-already-narrated");
+          } else if (wordIndex === active) {
+            span.classList.add("word-being-narrated");
+          }
+          if (lineIndex === 0) {
+            span.classList.add("first-word-in-line");
+          }
+          if (lineIndex === lineWords.length - 1) {
+            span.classList.add("last-word-in-line");
+          }
+          span.textContent = word;
+          line.appendChild(span);
+          wordIndex += 1;
+        });
+        fragment.appendChild(line);
+      });
+      els.subtitleBand.replaceChildren(fragment);
+    }
+
+    async function loadPreviewFont() {
+      const family = PREVIEW_FAMILY;
+      const source = els.fontFile.files[0]
+        ? URL.createObjectURL(els.fontFile.files[0])
+        : repoPathToPreviewUrl(state.fontPath);
+
+      if (currentFontObjectUrl) {
+        URL.revokeObjectURL(currentFontObjectUrl);
+        currentFontObjectUrl = null;
+      }
+
+      if (currentFontFace) {
+        try {
+          document.fonts.delete(currentFontFace);
+        } catch (_) {
+          // Ignore best-effort cleanup.
+        }
+        currentFontFace = null;
+      }
+
+      if (els.fontFile.files[0]) {
+        currentFontObjectUrl = source;
+      }
+
+      try {
+        const face = new FontFace(family, `url("${encodeURI(source)}")`);
+        await face.load();
+        document.fonts.add(face);
+        currentFontFace = face;
+        els.fontStatus.className = "pill good";
+        els.fontStatus.innerHTML = `Font: <strong>${els.fontFile.files[0] ? els.fontFile.files[0].name : state.fontPath}</strong>`;
+        els.previewMeta.title = "";
+      } catch (error) {
+        currentFontFace = null;
+        const message = error && error.message ? error.message : "could not load";
+        els.fontStatus.className = "pill warn";
+        els.fontStatus.innerHTML = `Font: <strong>fallback</strong>`;
+        els.previewMeta.title = `Preview font load failed: ${message}`;
+      }
+    }
+
+    function updateRangeLabels() {
+      els.fontSizeValue.textContent = `${state.fontSizePx}px`;
+      els.lineHeightValue.textContent = formatDecimal(state.lineHeight, 2);
+      els.letterSpacingValue.textContent = `${formatDecimal(state.letterSpacingPx, 1)}px`;
+      els.bgOpacityValue.textContent = formatDecimal(state.bgOpacity, 2);
+      els.activeBgOpacityValue.textContent = formatDecimal(state.activeBgOpacity, 2);
+      els.radiusValue.textContent = `${state.radiusPx}px`;
+      els.highlightRadiusValue.textContent = `${state.highlightRadiusPx}px`;
+      els.paddingXValue.textContent = `${state.paddingXPx}px`;
+      els.paddingYValue.textContent = `${state.paddingYPx}px`;
+      els.shadowBlurValue.textContent = `${state.shadowBlurPx}px`;
+      els.shadowOpacityValue.textContent = formatDecimal(state.shadowOpacity, 2);
+      els.maxWidthValue.textContent = formatPercent(state.maxWidthRatio * 100, 1);
+      els.gapXValue.textContent = `${state.gapXPx}px`;
+      els.gapYValue.textContent = `${state.gapYPx}px`;
+      els.wrapperCenterXValue.textContent = `${state.wrapperCenterXPct}%`;
+      els.wrapperCenterYValue.textContent = `${state.wrapperCenterYPct}%`;
+      els.wrapperWidthValue.textContent = `${state.wrapperWidthPct}%`;
+      els.wrapperHeightValue.textContent = `${state.wrapperHeightPct}%`;
+      els.wrapperBgOpacityValue.textContent = formatDecimal(state.wrapperBgOpacity, 2);
+    }
+
+    function applyStateToControls() {
+      els.fontPath.value = state.fontPath;
+      els.fontSize.value = state.fontSizePx;
+      els.lineHeight.value = state.lineHeight;
+      els.letterSpacing.value = state.letterSpacingPx;
+      els.fontWeight.value = String(state.fontWeight);
+      els.textColor.value = state.textColor;
+      els.activeTextColor.value = state.activeTextColor;
+      els.bgColor.value = state.bgColor;
+      els.bgOpacity.value = state.bgOpacity;
+      els.activeBgColor.value = state.activeBgColor;
+      els.activeBgOpacity.value = state.activeBgOpacity;
+      els.radius.value = state.radiusPx;
+      els.highlightRadius.value = state.highlightRadiusPx;
+      els.paddingX.value = state.paddingXPx;
+      els.paddingY.value = state.paddingYPx;
+      els.shadowBlur.value = state.shadowBlurPx;
+      els.shadowOpacity.value = state.shadowOpacity;
+      els.maxWidth.value = state.maxWidthRatio;
+      els.maxLines.value = String(state.maxLines);
+      els.gapX.value = state.gapXPx;
+      els.gapY.value = state.gapYPx;
+      els.wrapperCenterX.value = state.wrapperCenterXPct;
+      els.wrapperCenterY.value = state.wrapperCenterYPct;
+      els.wrapperWidth.value = state.wrapperWidthPct;
+      els.wrapperHeight.value = state.wrapperHeightPct;
+      els.wrapperBgColor.value = state.wrapperBgColor;
+      els.wrapperBgOpacity.value = state.wrapperBgOpacity;
+      els.sampleText.value = state.sampleText;
+      els.autoAnimate.checked = state.autoAnimate;
+      els.showGuides.checked = state.showGuides;
+      updateRangeLabels();
+    }
+
+    function syncPreviewVars() {
+      const root = els.subtitleWrapperFrame;
+      root.style.setProperty("--subtitle-font-family", `'${PREVIEW_FAMILY}', 'Impact', sans-serif`);
+      root.style.setProperty("--subtitle-font-size", `${state.fontSizePx}px`);
+      root.style.setProperty("--subtitle-line-height", formatDecimal(state.lineHeight, 2));
+      root.style.setProperty("--subtitle-letter-spacing", `${formatDecimal(state.letterSpacingPx, 1)}px`);
+      root.style.setProperty("--subtitle-font-weight", String(state.fontWeight));
+      root.style.setProperty("--subtitle-text-color", state.textColor);
+      root.style.setProperty("--subtitle-active-text-color", state.activeTextColor);
+      root.style.setProperty("--subtitle-bg-color", rgba(state.bgColor, state.bgOpacity));
+      root.style.setProperty("--subtitle-active-bg-color", rgba(state.activeBgColor, state.activeBgOpacity));
+      root.style.setProperty("--subtitle-radius", `${state.radiusPx}px`);
+      root.style.setProperty("--subtitle-padding-y", `${state.paddingYPx}px`);
+      root.style.setProperty("--subtitle-padding-x", `${state.paddingXPx}px`);
+      root.style.setProperty("--subtitle-shadow", buildShadow());
+      root.style.setProperty("--subtitle-highlight-radius", `${state.highlightRadiusPx}px`);
+      root.style.setProperty("--subtitle-max-width", String(state.maxWidthRatio));
+      root.style.setProperty("--subtitle-gap-x", `${state.gapXPx}px`);
+      root.style.setProperty("--subtitle-gap-y", `${state.gapYPx}px`);
+      root.style.setProperty("--wrapper-center-x", `${state.wrapperCenterXPct}%`);
+      root.style.setProperty("--wrapper-center-y", `${state.wrapperCenterYPct}%`);
+      root.style.setProperty("--wrapper-width", `${state.wrapperWidthPct}%`);
+      root.style.setProperty("--wrapper-height", `${state.wrapperHeightPct}%`);
+      root.style.setProperty("--wrapper-bg-color", rgba(state.wrapperBgColor, state.wrapperBgOpacity));
+    }
+
+    function updateBandGeometry() {
+      const fontSize = state.fontSizePx;
+      const lineHeight = state.lineHeight;
+      const lineBudget = Math.max(1, Number(state.maxLines));
+      const bandHeightPx = Math.round(
+        (fontSize * lineHeight * lineBudget) +
+        (state.paddingYPx * 2) +
+        (state.gapYPx * Math.max(0, lineBudget - 1)) +
+        12
+      );
+      els.subtitleWrapperFrame.style.setProperty("--band-max-height", `${bandHeightPx}px`);
+      requestAnimationFrame(() => {
+        const frameBox = els.previewCard.getBoundingClientRect();
+        const bandBox = els.subtitleWrapperFrame.getBoundingClientRect();
+        const bandClientWidth = els.subtitleBand.clientWidth;
+        const bandClientHeight = els.subtitleBand.clientHeight;
+        const heightPct = frameBox.height ? (bandBox.height / frameBox.height) * 100 : 0;
+        const widthPct = frameBox.width ? (bandBox.width / frameBox.width) * 100 : 0;
+        const clipped = (
+          els.subtitleBand.scrollWidth > bandClientWidth + 1 ||
+          els.subtitleBand.scrollHeight > bandClientHeight + 1
+        );
+        const lineCount = countRenderedLines();
+        const fits = !clipped && lineCount <= Math.max(1, Number(state.maxLines));
+        const overLimit = heightPct > 25;
+        els.heightStatus.className = overLimit ? "pill warn" : "pill good";
+        els.heightStatus.innerHTML = `Wrapper: <strong>${widthPct.toFixed(1)}% × ${heightPct.toFixed(1)}%</strong>`;
+        els.clipStatus.className = fits ? "pill good" : "pill warn";
+        els.clipStatus.innerHTML = `Fit: <strong>${fits ? "ok" : "tight"}</strong> · ${lineCount}/${state.maxLines} lines`;
+      });
+    }
+
+    function updateGuideVisibility() {
+      els.stageGuide.classList.toggle("show", state.showGuides);
+    }
+
+    function buildOutput() {
+      els.cssOutput.value = renderCssTemplate();
+      els.configOutput.value = renderConfigSnippet();
+      els.previewMeta.innerHTML = `Inner <strong>${formatPercent(state.maxWidthRatio * 100, 1)}</strong> · wrapper <strong>${state.wrapperWidthPct}% × ${state.wrapperHeightPct}%</strong>`;
+    }
+
+    function updateAll() {
+      updateRangeLabels();
+      syncPreviewVars();
+      renderWords();
+      buildOutput();
+      updateGuideVisibility();
+      updateBandGeometry();
+      saveState();
+    }
+
+    function setStateFromControls() {
+      state.fontPath = els.fontPath.value.trim() || DEFAULTS.fontPath;
+      state.fontSizePx = Number(els.fontSize.value);
+      state.lineHeight = Number(els.lineHeight.value);
+      state.letterSpacingPx = Number(els.letterSpacing.value);
+      state.fontWeight = Number(els.fontWeight.value);
+      state.textColor = normalizeHex(els.textColor.value);
+      state.activeTextColor = normalizeHex(els.activeTextColor.value);
+      state.bgColor = normalizeHex(els.bgColor.value);
+      state.bgOpacity = Number(els.bgOpacity.value);
+      state.activeBgColor = normalizeHex(els.activeBgColor.value);
+      state.activeBgOpacity = Number(els.activeBgOpacity.value);
+      state.radiusPx = Number(els.radius.value);
+      state.highlightRadiusPx = Number(els.highlightRadius.value);
+      state.paddingXPx = Number(els.paddingX.value);
+      state.paddingYPx = Number(els.paddingY.value);
+      state.shadowBlurPx = Number(els.shadowBlur.value);
+      state.shadowOpacity = Number(els.shadowOpacity.value);
+      state.maxWidthRatio = Number(els.maxWidth.value);
+      state.maxLines = Number(els.maxLines.value);
+      state.gapXPx = Number(els.gapX.value);
+      state.gapYPx = Number(els.gapY.value);
+      state.wrapperCenterXPct = Number(els.wrapperCenterX.value);
+      state.wrapperCenterYPct = Number(els.wrapperCenterY.value);
+      state.wrapperWidthPct = Number(els.wrapperWidth.value);
+      state.wrapperHeightPct = Number(els.wrapperHeight.value);
+      state.wrapperBgColor = normalizeHex(els.wrapperBgColor.value);
+      state.wrapperBgOpacity = Number(els.wrapperBgOpacity.value);
+      state.sampleText = els.sampleText.value.trim() || DEFAULTS.sampleText;
+      state.autoAnimate = els.autoAnimate.checked;
+      state.showGuides = els.showGuides.checked;
+    }
+
+    function startAutoAnimate() {
+      stopAutoAnimate();
+      if (!state.autoAnimate) return;
+      autoTimer = window.setInterval(() => {
+        const words = state.sampleText.trim().split(/\s+/).filter(Boolean);
+        if (!words.length) return;
+        activeIndex = (activeIndex + 1) % words.length;
+        renderWords();
+        updateBandGeometry();
+      }, 1100);
+    }
+
+    function stopAutoAnimate() {
+      if (autoTimer !== null) {
+        window.clearInterval(autoTimer);
+        autoTimer = null;
+      }
+    }
+
+    function refreshFromControls() {
+      setStateFromControls();
+      updateAll();
+      startAutoAnimate();
+    }
+
+    async function resetToDefaults() {
+      applyStateFields(DEFAULTS);
+      activeIndex = 0;
+      els.fontFile.value = "";
+      applyStateToControls();
+      saveState();
+      await loadPreviewFont();
+      updateAll();
+      startAutoAnimate();
+    }
+
+    async function fitToWrapper() {
+      if (fitInProgress) {
+        return;
+      }
+      fitInProgress = true;
+      els.fitWrapperBtn.disabled = true;
+      const shouldAnimate = state.autoAnimate;
+      stopAutoAnimate();
+      activeIndex = 0;
+
+      try {
+        await loadPreviewFont();
+        state.maxWidthRatio = 1.0;
+        els.maxWidth.value = state.maxWidthRatio;
+        updateRangeLabels();
+
+        const minSize = Number(els.fontSize.min) || 8;
+        const maxSize = Number(els.fontSize.max) || 96;
+        let low = minSize;
+        let high = maxSize;
+        let best = minSize;
+
+        const evaluate = async (candidate) => {
+          state.fontSizePx = candidate;
+          els.fontSize.value = candidate;
+          updateRangeLabels();
+          syncPreviewVars();
+          renderWords();
+          await nextFrame();
+          return measurePreviewFit();
+        };
+
+        // Establish a stable baseline before searching.
+        await evaluate(state.fontSizePx);
+
+        while (low <= high) {
+          const candidate = Math.floor((low + high) / 2);
+          const result = await evaluate(candidate);
+          if (result.fits) {
+            best = candidate;
+            low = candidate + 1;
+          } else {
+            high = candidate - 1;
+          }
+        }
+
+        state.fontSizePx = best;
+        els.fontSize.value = best;
+        updateAll();
+        if (shouldAnimate) {
+          startAutoAnimate();
+        }
+      } finally {
+        fitInProgress = false;
+        els.fitWrapperBtn.disabled = false;
+      }
+    }
+
+    function downloadText(filename, text, mime = "text/plain;charset=utf-8") {
+      const blob = new Blob([text], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+
+    function wireControls() {
+      const inputs = [
+        els.fontSize,
+        els.lineHeight,
+        els.letterSpacing,
+        els.fontWeight,
+        els.textColor,
+        els.activeTextColor,
+        els.bgColor,
+        els.bgOpacity,
+        els.activeBgColor,
+        els.activeBgOpacity,
+        els.radius,
+        els.highlightRadius,
+        els.paddingX,
+        els.paddingY,
+        els.shadowBlur,
+        els.shadowOpacity,
+        els.maxWidth,
+        els.maxLines,
+        els.gapX,
+        els.gapY,
+        els.wrapperCenterX,
+        els.wrapperCenterY,
+        els.wrapperWidth,
+        els.wrapperHeight,
+        els.wrapperBgColor,
+        els.wrapperBgOpacity,
+        els.sampleText,
+        els.autoAnimate,
+        els.showGuides,
+      ];
+      inputs.forEach((input) => {
+        input.addEventListener("input", () => {
+          refreshFromControls();
+        });
+      });
+      els.fontPath.addEventListener("input", async () => {
+        refreshFromControls();
+        els.fontFile.value = "";
+        await loadPreviewFont();
+        updateBandGeometry();
+      });
+      els.fontFile.addEventListener("change", async () => {
+        await loadPreviewFont();
+        updateBandGeometry();
+      });
+
+      els.resetBtn.addEventListener("click", async () => {
+        localStorage.removeItem(STORAGE_KEY);
+        await resetToDefaults();
+      });
+      els.saveBtn.addEventListener("click", () => {
+        saveState();
+      });
+      els.clearBtn.addEventListener("click", () => {
+        localStorage.removeItem(STORAGE_KEY);
+      });
+
+      els.applyCssBtn.addEventListener("click", () => {
+        els.cssOutput.value = renderCssTemplate();
+        els.applyCssBtn.textContent = "Applied";
+        setTimeout(() => (els.applyCssBtn.textContent = "Apply CSS"), 1000);
+      });
+      els.downloadCssBtn.addEventListener("click", () => {
+        downloadText("forge_subtitles.css", renderCssTemplate(), "text/css;charset=utf-8");
+      });
+      els.applyConfigBtn.addEventListener("click", () => {
+        els.configOutput.value = renderConfigSnippet();
+        els.applyConfigBtn.textContent = "Applied";
+        setTimeout(() => (els.applyConfigBtn.textContent = "Apply config"), 1000);
+      });
+      els.downloadConfigBtn.addEventListener("click", () => {
+        downloadText("subtitles-config-snippet.yaml", renderConfigSnippet(), "text/yaml;charset=utf-8");
+      });
+      els.fitWrapperBtn.addEventListener("click", async () => {
+        await fitToWrapper();
+      });
+
+      window.addEventListener("resize", () => {
+        updateBandGeometry();
+      });
+    }
+
+    async function init() {
+      applyStateToControls();
+      wireControls();
+      syncPreviewVars();
+      buildOutput();
+      renderWords();
+      updateGuideVisibility();
+      await loadPreviewFont();
+      updateBandGeometry();
+      startAutoAnimate();
+    }
+
+    init().catch((error) => {
+      console.error(error);
+      els.fontStatus.innerHTML = `Font: <strong>error</strong>`;
+      els.heightStatus.className = "pill warn";
+      els.heightStatus.innerHTML = `Wrapper: <strong>init failed</strong>`;
+      els.clipStatus.className = "pill warn";
+      els.clipStatus.innerHTML = `Fit: <strong>error</strong>`;
+    });
+  </script>
+</body>
+</html>
