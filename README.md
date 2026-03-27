@@ -69,6 +69,7 @@
 python3 -m venv whisper-env
 source whisper-env/bin/activate
 pip install -r requirements.txt
+playwright install chromium
 ```
 
 ### Подготовка данных
@@ -91,7 +92,7 @@ python3 start_forge.py
 1. **Transcription**: Используется `faster-whisper`. Выход: `output/<file_stem>/<audio_name>.json`.
 2. **Diarization**: (Если включено) Создает `diarization.json`.
 3. **Analyze (Parallel)**: Анализ транскрипта всеми моделями, указанными в конфиге. Каждая модель сохраняет результаты в `output/<file_stem>/<model_name>/`.
-4. **Video Processing**: Нарезка клипов на основе `moments.json`, созданного каждой моделью. Для каждого ролика рядом с видео создаётся отдельный `reel_XX.md` с готовым описанием и 5 хештегами.
+4. **Video Processing**: Нарезка клипов на основе `moments.json`, созданного каждой моделью. Для каждого ролика Forge вшивает субтитры через `pycaps`, кладёт рядом `reel_XX.md` с готовым описанием и 5 хештегами, а также `reel_XX.srt` с локальным таймлайном сабов.
 
 ---
 
@@ -108,6 +109,7 @@ output/
       moments.json        # Список найденных моментов
       reels.md            # Описания клипов
       reels/              # Нарезанные .mp4 клипы
+        reel_01.srt       # Локальные субтитры, из которых pycaps вшивает сабы в reel_01.mp4
         reel_01.md        # Описание + 5 хештегов для reel_01.mp4
       reels_preview.mp4   # Превью всех клипов одним файлом
     deepseek/             # Результаты модели DeepSeek
@@ -143,6 +145,10 @@ output/
   - `vertical_crop`: Включить/выключить соотношение сторон 9:16.
   - `smart_crop_face`: Включить умное центрирование по лицам.
   - `use_nvenc`: Использовать аппаратное ускорение NVIDIA.
+- **`subtitles`**:
+  - `enabled`: Включить автоматическую генерацию вшитых субтитров через `pycaps`.
+  - `font`: Путь к файлу шрифта. По умолчанию: `assets/fonts/bignoodletoooblique.ttf`.
+  - `font_size_px`, `max_lines`, `vertical_align`, `vertical_offset`: Тонкая подстройка визуала сабов.
 - **`diarization`**: Включение и настройка определения спикеров (требуется HuggingFace token).
 
 ---
@@ -174,6 +180,7 @@ python3 rerender_videos.py --smart-crop-face --replace
 - **Whisper**: Если возникает ошибка Out of Memory (OOM), используйте модели `small` или `base`.
 - **Ollama**: Если модель отвечает слишком долго, увеличьте `first_token_timeout` в конфиге.
 - **FFmpeg**: При ошибках энкодера попробуйте отключить `use_nvenc` в конфиге для рендеринга на CPU.
+- **Pycaps / Playwright**: Если субтитры не рендерятся и в ошибке упоминается Chromium, выполните `playwright install chromium`.
 
 ---
 

@@ -23,6 +23,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from podcast_reels_forge.utils.burned_subtitles import (
+    DEFAULT_SUBTITLE_FONT,
+    SubtitleRenderSettings,
+    ensure_reel_burned_subtitles,
+    subtitle_settings_from_conf,
+)
 from podcast_reels_forge.utils.face_crop import (
     FaceCropSettings,
     build_sample_times,
@@ -218,6 +224,37 @@ def _make_unique_path(path: Path) -> Path:
         n += 1
 
 
+def _load_config(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+
+    import yaml
+
+    with path.open(encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return data if isinstance(data, dict) else {}
+
+
+def _resolve_transcript_json(model_dir: Path, input_video: Path, explicit: Path | None) -> Path | None:
+    if explicit is not None:
+        return explicit
+
+    base_dir = model_dir.parent
+    candidates = [
+        base_dir / input_video.with_suffix(".json").name,
+        base_dir / "audio.json",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    fallback = sorted(
+        p for p in base_dir.glob("*.json")
+        if p.is_file() and p.name not in {"diarization.json"}
+    )
+    return fallback[0] if fallback else None
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description="Re-render reels from existing output/<model>/moments.json only",
@@ -245,6 +282,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Replace output/<model>/reels (deletes existing reels). By default writes to reels_rerendered/",
     )
+    ap.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config.yaml"),
+        help="Path to config.yaml for subtitle defaults (default: config.yaml)",
+    )
     ap.add_argument("--padding", type=float, default=5.0, help="Padding seconds before/after")
 
     ap.add_argument("--width", type=int, default=1080)
@@ -263,6 +306,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     ap.add_argument("--threads", type=int, default=2, help="Parallel ffmpeg jobs")
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument(
+        "--burn-subtitles",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Burn subtitles into each rendered reel using pycaps",
+    )
+    ap.add_argument(
+        "--transcript-json",
+        type=Path,
+        default=None,
+        help="Path to the full transcript JSON used to derive reel-local subtitles",
+    )
+    ap.add_argument(
+        "--subtitle-font",
+        type=Path,
+        default=None,
+        help="Font file for burned subtitles (defaults to config or assets/fonts/bignoodletoooblique.ttf)",
+    )
     
     # Quality Filters
     ap.add_argument("--filter-min-score", type=float, default=0.0)
@@ -283,6 +344,39 @@ def main(argv: list[str] | None = None) -> None:
 
     if not args.input.exists():
         raise SystemExit(f"Input video not found: {args.input}")
+
+    conf = _load_config(args.config)
+    subtitle_settings = subtitle_settings_from_conf(conf, repo_dir=Path.cwd())
+    if args.burn_subtitles is not None:
+        subtitle_settings = SubtitleRenderSettings(
+            enabled=bool(args.burn_subtitles),
+            font_path=subtitle_settings.font_path,
+            font_size_px=subtitle_settings.font_size_px,
+            max_lines=subtitle_settings.max_lines,
+            max_width_ratio=subtitle_settings.max_width_ratio,
+            vertical_align=subtitle_settings.vertical_align,
+            vertical_offset=subtitle_settings.vertical_offset,
+        )
+    if args.subtitle_font is not None:
+        subtitle_settings = SubtitleRenderSettings(
+            enabled=subtitle_settings.enabled,
+            font_path=args.subtitle_font.resolve(),
+            font_size_px=subtitle_settings.font_size_px,
+            max_lines=subtitle_settings.max_lines,
+            max_width_ratio=subtitle_settings.max_width_ratio,
+            vertical_align=subtitle_settings.vertical_align,
+            vertical_offset=subtitle_settings.vertical_offset,
+        )
+    elif not subtitle_settings.font_path.exists():
+        subtitle_settings = SubtitleRenderSettings(
+            enabled=subtitle_settings.enabled,
+            font_path=(Path.cwd() / DEFAULT_SUBTITLE_FONT).resolve(),
+            font_size_px=subtitle_settings.font_size_px,
+            max_lines=subtitle_settings.max_lines,
+            max_width_ratio=subtitle_settings.max_width_ratio,
+            vertical_align=subtitle_settings.vertical_align,
+            vertical_offset=subtitle_settings.vertical_offset,
+        )
 
     settings = RenderSettings(
         width=int(args.width),
@@ -325,6 +419,11 @@ def main(argv: list[str] | None = None) -> None:
             for p in reels_dir.glob("reel_*.mp4"):
                 p.unlink(missing_ok=True)
         reels_dir.mkdir(parents=True, exist_ok=True)
+        transcript_json_path = _resolve_transcript_json(
+            model_dir,
+            args.input,
+            args.transcript_json,
+        )
 
         LOG.info("%s: re-render %d reels -> %s", model_dir.name, len(moments), reels_dir)
 
@@ -377,6 +476,25 @@ def main(argv: list[str] | None = None) -> None:
         for i, (ok, out_path, err) in enumerate(results):
             if ok:
                 ok_count += 1
+                if subtitle_settings.enabled:
+                    if transcript_json_path is None:
+                        raise SystemExit(
+                            f"Transcript JSON not found for {model_dir.name}; "
+                            "use --transcript-json or keep the transcript next to the model folders.",
+                        )
+                    try:
+                        ensure_reel_burned_subtitles(
+                            moments[i],
+                            out_path,
+                            transcript_json_path=transcript_json_path,
+                            padding=settings.padding_s,
+                            settings=subtitle_settings,
+                            verbose=bool(args.verbose),
+                        )
+                    except Exception as exc:
+                        raise SystemExit(
+                            f"Failed to burn subtitles for {out_path.name}: {exc}",
+                        ) from exc
                 try:
                     write_reel_markdown(moments[i], out_path)
                 except OSError as exc:

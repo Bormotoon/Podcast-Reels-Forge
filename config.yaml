@@ -108,6 +108,16 @@ exports:
   gif: false
   audio_only: false
 
+subtitles:
+  enabled: true
+  font: "assets/fonts/bignoodletoooblique.ttf"
+  # Optional fine-tuning for pycaps styling/layout.
+  font_size_px: 72
+  max_lines: 3
+  max_width_ratio: 0.82
+  vertical_align: "bottom"
+  vertical_offset: -0.08
+
 video:
   threads: 4
   vertical_crop: true      # Crop 16:9 to 9:16 automatically

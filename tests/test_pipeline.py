@@ -152,6 +152,7 @@ def test_run_pipeline_builds_and_calls_stages(
         },
         "video": {"threads": 1, "vertical_crop": True},
         "exports": {"webm": True, "gif": False, "audio_only": True},
+        "subtitles": {"enabled": True, "font": "assets/fonts/custom.ttf"},
         "diarization": {"enabled": False},
         "prompts": {"language": "auto", "variant": "a"},
     }
@@ -197,6 +198,12 @@ def test_run_pipeline_builds_and_calls_stages(
             raise AssertionError(message)
         if "--padding" not in video_args:
             message = "Video stage missing padding flag"
+            raise AssertionError(message)
+        if "--burn-subtitles" not in video_args or "--transcript-json" not in video_args:
+            message = "Video stage missing subtitle args"
+            raise AssertionError(message)
+        if str(tmp_path / "assets" / "fonts" / "custom.ttf") not in video_args:
+            message = "Video stage missing configured subtitle font path"
             raise AssertionError(message)
 
 
@@ -305,6 +312,26 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
     monkeypatch.setattr(pipeline, "get_ollama_models", lambda url: ["qwen3:latest"])
     monkeypatch.setattr(pipeline, "pull_ollama_model", lambda url, model: True)
 
+    subtitle_sync_calls: list[tuple[Path, Path]] = []
+
+    def fake_sync_reel_burned_subtitles(
+        moments: list[dict[str, object]],
+        reels_root: Path,
+        *,
+        transcript_json_path: Path,
+        padding: float,
+        settings: object,
+        verbose: bool = False,
+    ) -> list[Path]:
+        subtitle_sync_calls.append((reels_root, transcript_json_path))
+        return []
+
+    monkeypatch.setattr(
+        pipeline,
+        "sync_reel_burned_subtitles",
+        fake_sync_reel_burned_subtitles,
+    )
+
     conf = {
         "paths": {"input_dir": str(input_dir), "output_dir": str(output_root)},
         "transcription": {"language": "auto"},
@@ -320,6 +347,7 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
         },
         "video": {"threads": 1, "vertical_crop": True},
         "exports": {"webm": False, "gif": False, "audio_only": False},
+        "subtitles": {"enabled": True},
         "diarization": {"enabled": False},
         "prompts": {"language": "auto", "variant": "default"},
     }
@@ -331,3 +359,4 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
     assert stopped == [321]
     assert (reels_dir / "reel_01.md").exists()
     assert (rejected_dir / "reel_02.md").exists()
+    assert subtitle_sync_calls == [(reels_dir, transcript_path)]

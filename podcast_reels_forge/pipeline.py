@@ -41,6 +41,10 @@ from podcast_reels_forge.utils.ollama_service import (
     parse_local_ollama_host_port,
     pull_ollama_model,
 )
+from podcast_reels_forge.utils.burned_subtitles import (
+    subtitle_settings_from_conf,
+    sync_reel_burned_subtitles,
+)
 from podcast_reels_forge.utils.reel_markdown import sync_reel_markdowns
 
 log = logging.getLogger("Forge")
@@ -387,6 +391,7 @@ def run_pipeline(
 
     diar_conf = conf.get("diarization", {})
     diar_enabled = bool(diar_conf.get("enabled", False))
+    subtitle_settings = subtitle_settings_from_conf(conf, repo_dir=repo_dir)
 
     # Determine analysis models.
     a_conf = conf.get("ollama", {})
@@ -800,6 +805,10 @@ def run_pipeline(
                     video_args.append("--export-gif")
                 if exports_conf.get("audio_only", False):
                     video_args.append("--export-audio")
+                if subtitle_settings.enabled:
+                    video_args.append("--burn-subtitles")
+                    video_args += ["--transcript-json", str(transcript_path)]
+                    video_args += ["--subtitle-font", str(subtitle_settings.font_path)]
                 if quiet:
                     video_args.append("--quiet")
                 if verbose:
@@ -824,6 +833,15 @@ def run_pipeline(
                         "Failed to write reel markdowns for %s: %s",
                         _model_folder_name(model),
                         exc,
+                    )
+                if subtitle_settings.enabled and skip_cut:
+                    sync_reel_burned_subtitles(
+                        [m for m in moments_data if isinstance(m, dict)],
+                        reels_dir,
+                        transcript_json_path=transcript_path,
+                        padding=padding,
+                        settings=subtitle_settings,
+                        verbose=verbose and not quiet,
                     )
 
             try:

@@ -14,6 +14,7 @@ Podcast Reels Forge — инструмент для автоматическог
 - Результаты раскладываются по папкам `output/<model>/`.
 - Если одна модель «упала»/зависла — пайплайн продолжит работу с другими моделями.
 - Перед транскрибацией Forge проверяет, есть ли рядом с видео одноимённый `mp3`; если его нет, он автоматически извлекает аудио в `video.mp3` с битрейтом 320k и продолжает работу как обычно.
+- По умолчанию Forge вшивает субтитры через `pycaps`, используя шрифт `assets/fonts/bignoodletoooblique.ttf` (меняется в `config.yaml`).
 
 ---
 
@@ -32,6 +33,7 @@ Podcast Reels Forge — инструмент для автоматическог
 python3 -m venv whisper-env
 source whisper-env/bin/activate
 pip install -r requirements.txt
+playwright install chromium
 ```
 
 ### 3) Подготовка входных данных
@@ -57,6 +59,7 @@ python3 start_forge.py
 - `output/<model>/moments.json` — найденные моменты
 - `output/<model>/reels.md` — описание/заголовки/мета (если модель вернула)
 - `output/<model>/reels/` — нарезанные ролики (если включён шаг нарезки)
+- `output/<model>/reels/reel_XX.srt` — локальный SRT для конкретного ролика, который используется для вшитых сабов
 - `output/<model>/reels/reel_XX.md` — готовое описание до 1000 символов + 5 хештегов для каждого ролика
 
 Папки моделей фиксированы и короткие:
@@ -78,6 +81,7 @@ python3 rerender_videos.py --model gemma3
 По умолчанию:
 - читает `output/<model>/moments.json`
 - пишет клипы в `output/<model>/reels_rerendered/`
+- при включённых `subtitles.enabled: true` также вшивает сабы через `pycaps`
 - рядом с каждым клипом создаёт `reel_XX.md` с описанием и 5 хештегами
 - если файл уже существует, создаёт новый с суффиксом `_2`, `_3`, ... (ничего не затирает)
 
@@ -132,6 +136,7 @@ python -m podcast_reels_forge.scripts.video_processor \
 - `transcription.*` — качество/скорость транскрибации
 - `ollama.*` — модели, таймауты, watchdog
 - `video.*` — нарезка и базовые параметры FFmpeg
+- `subtitles.*` — вшитые субтитры через `pycaps`; ключ `subtitles.font` по умолчанию указывает на `assets/fonts/bignoodletoooblique.ttf`
 - `cache.*` — пропуск стадий, если результаты уже есть
 
 Если некоторые модели Ollama долго «думают» до первого токена, используйте `ollama.model_overrides.*` (уже настроено в дефолтном `config.yaml`).
@@ -153,6 +158,11 @@ python -m podcast_reels_forge.scripts.video_processor \
 
 - Для полного пайплайна проверьте `video.vertical_crop: true` в `config.yaml`
 - Для гарантированного 9:16 и фиксированных параметров используйте `python3 rerender_videos.py`
+
+### Сабы не вшиваются
+
+- Если в ошибке фигурирует Chromium или Playwright, выполните `playwright install chromium`
+- Проверьте, что `subtitles.font` указывает на существующий `.ttf`/`.otf` файл
 
 ---
 

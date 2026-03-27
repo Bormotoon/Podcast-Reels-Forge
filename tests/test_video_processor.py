@@ -132,3 +132,50 @@ def test_main_writes_reel_markdown(mock_run: MagicMock, tmp_path: Path) -> None:
     content = md_path.read_text(encoding="utf-8")
     assert "A ready caption for the reel" in content
     assert "#podcast" in content
+
+
+@patch("podcast_reels_forge.scripts.video_processor.ensure_reel_burned_subtitles")
+@patch("podcast_reels_forge.scripts.video_processor._run_subprocess")
+def test_main_burns_subtitles_when_requested(
+    mock_run: MagicMock,
+    mock_burn_subtitles: MagicMock,
+    tmp_path: Path,
+) -> None:
+    mock_run.return_value = MagicMock(returncode=0)
+
+    input_video = tmp_path / "input.mp4"
+    input_video.write_text("video")
+    transcript_json = tmp_path / "video.json"
+    transcript_json.write_text('{"segments": []}', encoding="utf-8")
+    subtitle_font = tmp_path / "font.ttf"
+    subtitle_font.write_text("font")
+
+    moments_path = tmp_path / "moments.json"
+    moments_path.write_text(
+        json.dumps([{"start": 10.0, "end": 20.0, "title": "Clip"}]),
+        encoding="utf-8",
+    )
+
+    outdir = tmp_path / "out"
+    main(
+        [
+            "--input",
+            str(input_video),
+            "--moments",
+            str(moments_path),
+            "--outdir",
+            str(outdir),
+            "--threads",
+            "1",
+            "--burn-subtitles",
+            "--transcript-json",
+            str(transcript_json),
+            "--subtitle-font",
+            str(subtitle_font),
+        ],
+    )
+
+    assert mock_burn_subtitles.called
+    burn_kwargs = mock_burn_subtitles.call_args.kwargs
+    assert burn_kwargs["transcript_json_path"] == transcript_json
+    assert burn_kwargs["settings"].font_path == subtitle_font.resolve()

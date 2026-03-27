@@ -16,6 +16,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
+from podcast_reels_forge.utils.burned_subtitles import (
+    DEFAULT_SUBTITLE_FONT,
+    SubtitleRenderSettings,
+    ensure_reel_burned_subtitles,
+)
 from podcast_reels_forge.utils.face_crop import (
     FaceCropSettings,
     build_sample_times,
@@ -300,6 +305,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument(
         "--export-audio", action="store_true", help="Export reels audio-only as .m4a",
     )
+    ap.add_argument(
+        "--burn-subtitles",
+        action="store_true",
+        help="Burn subtitles into each rendered reel using pycaps",
+    )
+    ap.add_argument(
+        "--transcript-json",
+        type=Path,
+        help="Path to the full transcript JSON used to derive reel-local subtitles",
+    )
+    ap.add_argument(
+        "--subtitle-font",
+        type=Path,
+        default=DEFAULT_SUBTITLE_FONT,
+        help="Font file for burned subtitles (default: assets/fonts/bignoodletoooblique.ttf)",
+    )
     
     # Quality Filters
     ap.add_argument("--filter-min-score", type=float, default=0.0, help="Reject if LLM score is below this")
@@ -334,6 +355,10 @@ def main(argv: list[str] | None = None) -> None:
     args.outdir.mkdir(parents=True, exist_ok=True)
     reels_dir = args.outdir / "reels"
     reels_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.burn_subtitles and args.transcript_json is None:
+        LOG.error("--burn-subtitles requires --transcript-json")
+        sys.exit(1)
 
     opts = FfmpegOptions(
         vertical_crop=args.vertical,
@@ -403,6 +428,27 @@ def main(argv: list[str] | None = None) -> None:
 
     final_reels = [r for r in results if r is not None]
     if final_reels:
+        if args.burn_subtitles:
+            subtitle_settings = SubtitleRenderSettings(
+                enabled=True,
+                font_path=args.subtitle_font.resolve(),
+            )
+            for i, mp4 in enumerate(results):
+                if mp4 is None:
+                    continue
+                try:
+                    ensure_reel_burned_subtitles(
+                        moments[i],
+                        mp4,
+                        transcript_json_path=args.transcript_json,
+                        padding=opts.padding,
+                        settings=subtitle_settings,
+                        verbose=bool(args.verbose and not args.quiet),
+                    )
+                except Exception as exc:
+                    LOG.error("Failed to burn subtitles for %s: %s", mp4.name, exc)
+                    sys.exit(1)
+
         sample_path = args.outdir / "reels_preview.mp4"
         if create_concat_sample(final_reels, sample_path) and not args.quiet:
             LOG.info("preview ready: %s", sample_path)
