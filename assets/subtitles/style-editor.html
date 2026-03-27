@@ -1315,7 +1315,6 @@
         }
         return lines;
       }
-      const maxLines = Math.max(1, Number(state.maxLines));
       const tokens = Array.isArray(words) ? words.slice() : [];
       if (!tokens.length) {
         return lines;
@@ -1334,13 +1333,6 @@
       tokens.forEach((word) => {
         const wordWidth = measureWordWidth(word);
         const gapWidth = currentLine.length ? state.gapXPx : 0;
-        const lastAllowedLine = lines.length >= maxLines - 1;
-
-        if (lastAllowedLine) {
-          currentLine.push(word);
-          currentWidth += gapWidth + wordWidth;
-          return;
-        }
 
         if (!currentLine.length) {
           currentLine.push(word);
