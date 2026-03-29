@@ -51,12 +51,13 @@ ollama:
   # models enough warmup time to start generating.
   model_overrides:
     qwen3:latest:
-      timeout: 900
+      timeout: 420
       chunk_seconds: 600
+      max_chars_chunk: 6000
       watchdog:
-        first_token_timeout: 180
-        stall_timeout: 120
-        max_retries: 1
+        first_token_timeout: 120
+        stall_timeout: 90
+        max_retries: 0
     deepseek-r1:8b:
       timeout: 900
       chunk_seconds: 600
@@ -65,11 +66,13 @@ ollama:
         stall_timeout: 120
         max_retries: 1
     gemma2:9b:
-      timeout: 600
+      timeout: 300
       chunk_seconds: 600
+      max_chars_chunk: 4000
       watchdog:
-        first_token_timeout: 90
-        stall_timeout: 120
+        first_token_timeout: 75
+        stall_timeout: 90
+        max_retries: 0
 
 prompts:
   language: "ru"          # ru|en

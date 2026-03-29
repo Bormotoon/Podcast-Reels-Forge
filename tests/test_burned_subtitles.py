@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import podcast_reels_forge.utils.burned_subtitles as bs
@@ -124,6 +123,47 @@ def test_prepare_pycaps_template_disables_word_wrap_when_requested(tmp_path: Pat
     assert template["layout"]["max_number_of_lines"] == 1
 
 
+def test_prepare_subtitle_segments_splits_long_cues_into_readable_chunks(
+    tmp_path: Path,
+) -> None:
+    font_path = tmp_path / "font.ttf"
+    font_path.write_text("font", encoding="utf-8")
+
+    css_template = tmp_path / "subtitles.css"
+    css_template.write_text(
+        ".word { font-size: __FONT_SIZE_PX__px; }\n",
+        encoding="utf-8",
+    )
+
+    prepared = bs._prepare_subtitle_segments(  # noqa: SLF001 - regression coverage for runtime bug
+        [
+            bs.SubtitleSegment(
+                start=0.0,
+                end=5.1,
+                text=(
+                    "разражает почему а первый потому что правда "
+                    "почти всегда ведут себя неподобающе как я уже"
+                ),
+            ),
+        ],
+        settings=bs.SubtitleRenderSettings(
+            enabled=True,
+            font_path=font_path,
+            css_path=css_template,
+            max_lines=2,
+            wrap_words=True,
+        ),
+    )
+
+    assert [segment.text for segment in prepared] == [
+        "разражает почему а первый потому",
+        "что правда почти всегда ведут",
+        "себя неподобающе как я уже",
+    ]
+    assert prepared[0].start == 0.0
+    assert prepared[-1].end == 5.1
+
+
 def test_ensure_reel_burned_subtitles_writes_srt_and_runs_pycaps(
     monkeypatch: MonkeyPatch, tmp_path: Path,
 ) -> None:
@@ -147,22 +187,28 @@ def test_ensure_reel_burned_subtitles_writes_srt_and_runs_pycaps(
         encoding="utf-8",
     )
 
-    commands: list[list[str]] = []
+    render_calls: list[tuple[str, str, str, list[str]]] = []
 
-    def fake_run(
-        cmd: list[str] | tuple[str, ...],
+    def fake_render(
         *,
-        capture_output: bool = False,
-        text: bool = False,
-        check: bool = False,
-    ) -> SimpleNamespace:
-        cmd_list = [str(part) for part in cmd]
-        commands.append(cmd_list)
-        Path(cmd_list[-1]).write_text("subtitled")
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+        template_dir: Path,
+        reel_path: Path,
+        tmp_output: Path,
+        clip_segments: list[bs.SubtitleSegment],
+        settings: bs.SubtitleRenderSettings,
+        verbose: bool = False,
+    ) -> None:
+        render_calls.append(
+            (
+                template_dir.name,
+                reel_path.name,
+                tmp_output.name,
+                [segment.text for segment in clip_segments],
+            ),
+        )
+        tmp_output.write_text("subtitled")
 
-    monkeypatch.setattr(bs.shutil, "which", lambda name: "/usr/bin/pycaps" if name == "pycaps" else None)
-    monkeypatch.setattr(bs.subprocess, "run", fake_run)
+    monkeypatch.setattr(bs, "_render_reel_with_pycaps", fake_render)
 
     srt_path = bs.ensure_reel_burned_subtitles(
         {"start": 10.0, "end": 13.0},
@@ -179,10 +225,14 @@ def test_ensure_reel_burned_subtitles_writes_srt_and_runs_pycaps(
     assert srt_path == reel_path.with_suffix(".srt")
     assert srt_path.exists()
     assert "00:00:00,500 --> 00:00:03,500" in srt_path.read_text(encoding="utf-8")
-    assert commands
-    assert commands[0][0] == "/usr/bin/pycaps"
-    assert commands[0][1] == "render"
-    assert "--transcript-format" in commands[0]
+    assert render_calls == [
+        (
+            ".pycaps_template",
+            "reel_01.mp4",
+            "reel_01.subtitled.mp4",
+            ["Key moment", "Closing words"],
+        ),
+    ]
     assert reel_path.read_text(encoding="utf-8") == "subtitled"
     template_dir = reel_path.parent / ".pycaps_template"
     assert (template_dir / "pycaps.template.json").exists()
