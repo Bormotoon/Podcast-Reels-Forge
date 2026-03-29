@@ -26,8 +26,6 @@ ollama:
   # Only these models are supported by default.
   # Each one will run analysis into its own folder under output/.
   models:
-    - "qwen3:latest"
-    - "deepseek-r1:8b"
     - "gemma3:4b"
     - "gemma2:9b"
     - "gemini-3-flash-preview:latest"
@@ -112,7 +110,7 @@ exports:
   audio_only: false
 
 subtitles:
-  enabled: true
+  enabled: false
   font: "assets/fonts/bignoodletoooblique.ttf"
   css: "assets/subtitles/forge_subtitles.css"
   font_size_px: 42
