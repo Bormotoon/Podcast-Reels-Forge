@@ -162,9 +162,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument(
         "--provider",
         default="ollama",
-        choices=("ollama", "openai", "anthropic", "gemini"),
+        choices=("ollama",),
     )
-    ap.add_argument("--model", default="gemma2:9b")
+    ap.add_argument("--model", default="gemma4:26b")
     ap.add_argument("--url", default=None)
     ap.add_argument("--temperature", type=float, default=0.3)
     ap.add_argument("--reels", type=int, default=4)

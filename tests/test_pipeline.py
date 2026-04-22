@@ -100,6 +100,93 @@ def test_run_pipeline_builds_and_calls_stages(
 
     monkeypatch.setattr(pipeline.subprocess, "run", fake_ffmpeg_run)
 
+    transcribe_calls: list[pipeline.TranscribeConfig] = []
+
+    def fake_transcribe_file(config: pipeline.TranscribeConfig) -> Path:
+        transcribe_calls.append(config)
+        out_path = config.outdir / config.input_path.with_suffix(".json").name
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps(
+                {
+                    "language": config.language,
+                    "duration": 120.0,
+                    "segments": [
+                        {"start": 0.0, "end": 10.0, "text": "hello world"},
+                    ],
+                },
+            ),
+            encoding="utf-8",
+        )
+        out_path.with_suffix(".srt").write_text(
+            "1\n00:00:00,000 --> 00:00:10,000\nhello world\n",
+            encoding="utf-8",
+        )
+        return out_path
+
+    monkeypatch.setattr(pipeline, "transcribe_file", fake_transcribe_file)
+
+    analysis_calls: list[dict[str, object]] = []
+
+    def fake_run_staged_analysis(
+        *,
+        transcript_path: Path,
+        outdir: Path,
+        provider_name: str,
+        url: str,
+        api_key: str | None,
+        roles: object,
+        ollama_conf: dict[str, object],
+        prompts_conf: dict[str, object],
+        processing_conf: dict[str, object],
+        diarization_path: Path | None = None,
+        quiet: bool = False,
+        verbose: bool = False,
+        progress: bool = False,
+    ) -> list[dict[str, object]]:
+        analysis_calls.append(
+            {
+                "transcript_path": transcript_path,
+                "outdir": outdir,
+                "provider_name": provider_name,
+                "url": url,
+                "api_key": api_key,
+                "roles": roles,
+                "ollama_conf": ollama_conf,
+                "prompts_conf": prompts_conf,
+                "processing_conf": processing_conf,
+                "diarization_path": diarization_path,
+                "quiet": quiet,
+                "verbose": verbose,
+                "progress": progress,
+            },
+        )
+        outdir.mkdir(parents=True, exist_ok=True)
+        moments = [
+            {
+                "start": 10.0,
+                "end": 20.0,
+                "title": "First",
+                "quote": "Quote 1",
+                "why": "Why 1",
+                "score": 9,
+                "hook": "Hook 1",
+                "caption": "Caption 1",
+                "hashtags": ["#podcast"],
+            },
+        ]
+        (outdir / "moments.json").write_text(
+            json.dumps(moments, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (outdir / "reels.md").write_text(
+            "# Reels Suggestions\n\n## 1. First [reel]\n",
+            encoding="utf-8",
+        )
+        return moments
+
+    monkeypatch.setattr(pipeline, "run_staged_analysis", fake_run_staged_analysis)
+
     calls: list[tuple[str, list[str], dict[str, str] | None]] = []
 
     def fake_run_module(
@@ -113,6 +200,20 @@ def test_run_pipeline_builds_and_calls_stages(
         calls.append((module, list(args), env))
 
     monkeypatch.setattr(pipeline, "run_module", fake_run_module)
+
+    sync_markdown_calls: list[tuple[list[dict[str, object]], Path]] = []
+
+    def fake_sync_reel_markdowns(
+        moments: list[dict[str, object]],
+        reels_root: Path,
+        *,
+        max_description_chars: int = 1000,
+        hashtag_count: int = 5,
+    ) -> list[Path]:
+        sync_markdown_calls.append((moments, reels_root))
+        return []
+
+    monkeypatch.setattr(pipeline, "sync_reel_markdowns", fake_sync_reel_markdowns)
 
     started: list[tuple[str, int]] = []
     stopped: list[int] = []
@@ -130,19 +231,48 @@ def test_run_pipeline_builds_and_calls_stages(
 
     monkeypatch.setattr(pipeline, "ollama_start", fake_ollama_start)
     monkeypatch.setattr(pipeline, "ollama_stop", fake_ollama_stop)
+    monkeypatch.setattr(
+        pipeline,
+        "get_ollama_models",
+        lambda url: [
+            "gemma4:e4b",
+            "gemma3:4b",
+            "gemma3:12b",
+            "gemma4:26b",
+        ],
+    )
+    monkeypatch.setattr(pipeline, "pull_ollama_model", lambda url, model: True)
 
     conf = {
         "paths": {"input_dir": str(input_dir), "output_dir": str(tmp_path / "output")},
-        "transcription": {"language": "auto"},
+        "transcription": {
+            "language": "auto",
+            "device": "cpu",
+            "model": "large-v3",
+            "compute_type": "float32",
+        },
         "ollama": {
-            "models": [
-                "qwen3:latest",
-                "deepseek-r1:8b",
-                "gemma3:4b",
-                "gemma2:9b",
-                "gemini-3-flash-preview:latest",
-            ],
+            "roles": {
+                "scout": "gemma4:e4b",
+                "cleanup": "gemma3:4b",
+                "refine": "gemma3:12b",
+                "judge": "gemma4:26b",
+                "metadata": "gemma4:26b",
+            },
             "url": "http://127.0.0.1:11434/api/generate",
+            "timeout": 240,
+            "temperature": 0.2,
+            "chunk_seconds": 900,
+            "max_chars_chunk": 12000,
+            "watchdog": {
+                "enabled": True,
+                "first_token_timeout": 60,
+                "stall_timeout": 90,
+                "log_interval": 10,
+                "max_retries": 1,
+            },
+            "fallback_models": [],
+            "role_overrides": {},
         },
         "processing": {
             "reels_count": 2,
@@ -159,32 +289,20 @@ def test_run_pipeline_builds_and_calls_stages(
             "wrap_words": False,
         },
         "diarization": {"enabled": False},
-        "prompts": {"language": "auto", "variant": "a"},
+        "prompts": {"language": "auto", "variant": "default"},
     }
 
     pipeline.run_pipeline(conf=conf, repo_dir=repo_dir, quiet=True, verbose=False)
 
-    module_names = [c[0] for c in calls]
-    expected_modules = {
-        "podcast_reels_forge.scripts.transcribe",
-        "podcast_reels_forge.scripts.analyze",
-        "podcast_reels_forge.scripts.video_processor",
-    }
-    if not expected_modules.issubset(module_names):
-        message = "Expected all stage modules to be invoked"
-        raise AssertionError(message)
+    assert len(transcribe_calls) == 1
+    assert transcribe_calls[0].input_path == input_dir / "video.mp3"
+    assert transcribe_calls[0].outdir == tmp_path / "output" / "video"
 
-    analyze_calls = [c for c in calls if "podcast_reels_forge.scripts.analyze" in c[0]]
-    if len(analyze_calls) != 5:
-        message = f"Expected 5 analyze runs (one per model), got: {len(analyze_calls)}"
-        raise AssertionError(message)
-    for _module, analyze_args, analyze_env in analyze_calls:
-        if "--provider" not in analyze_args or "--prompt-variant" not in analyze_args:
-            message = "Analyze stage missing required CLI args"
-            raise AssertionError(message)
-        if not analyze_env or analyze_env.get("FORGE_MANAGED_OLLAMA") != "1":
-            message = "Expected pipeline to pass FORGE_MANAGED_OLLAMA=1 to analyze stage"
-            raise AssertionError(message)
+    assert len(analysis_calls) == 1
+    roles = analysis_calls[0]["roles"]
+    assert getattr(roles, "judge") == "gemma4:26b"
+    assert analysis_calls[0]["transcript_path"] == tmp_path / "output" / "video" / "video.json"
+    assert analysis_calls[0]["outdir"] == tmp_path / "output" / "video" / "gemma4_26b"
 
     if started != [("127.0.0.1", 11434)]:
         message = f"Expected Ollama to be started once, got: {started}"
@@ -193,29 +311,30 @@ def test_run_pipeline_builds_and_calls_stages(
         message = f"Expected Ollama to be stopped, got: {stopped}"
         raise AssertionError(message)
 
-    video_calls = [c for c in calls if "podcast_reels_forge.scripts.video_processor" in c[0]]
-    if len(video_calls) != 5:
-        message = f"Expected 5 video runs (one per model), got: {len(video_calls)}"
+    assert [c[0] for c in calls] == ["podcast_reels_forge.scripts.video_processor"]
+    video_args = calls[0][1]
+    if "--export-webm" not in video_args or "--export-audio" not in video_args:
+        message = "Video stage missing export flags"
         raise AssertionError(message)
-    for _module, video_args, _env in video_calls:
-        if "--export-webm" not in video_args or "--export-audio" not in video_args:
-            message = "Video stage missing export flags"
-            raise AssertionError(message)
-        if "--padding" not in video_args:
-            message = "Video stage missing padding flag"
-            raise AssertionError(message)
-        if "--burn-subtitles" not in video_args or "--transcript-json" not in video_args:
-            message = "Video stage missing subtitle args"
-            raise AssertionError(message)
-        if "--no-subtitle-wrap-words" not in video_args:
-            message = "Video stage missing wrap-word toggle"
-            raise AssertionError(message)
-        if str(tmp_path / "assets" / "fonts" / "custom.ttf") not in video_args:
-            message = "Video stage missing configured subtitle font path"
-            raise AssertionError(message)
-        if str(tmp_path / "assets" / "subtitles" / "custom.css") not in video_args:
-            message = "Video stage missing configured subtitle css path"
-            raise AssertionError(message)
+    if "--padding" not in video_args:
+        message = "Video stage missing padding flag"
+        raise AssertionError(message)
+    if "--burn-subtitles" not in video_args or "--transcript-json" not in video_args:
+        message = "Video stage missing subtitle args"
+        raise AssertionError(message)
+    if "--no-subtitle-wrap-words" not in video_args:
+        message = "Video stage missing wrap-word toggle"
+        raise AssertionError(message)
+    if str(tmp_path / "assets" / "fonts" / "custom.ttf") not in video_args:
+        message = "Video stage missing configured subtitle font path"
+        raise AssertionError(message)
+    if str(tmp_path / "assets" / "subtitles" / "custom.css") not in video_args:
+        message = "Video stage missing configured subtitle css path"
+        raise AssertionError(message)
+
+    assert len(sync_markdown_calls) == 1
+    assert sync_markdown_calls[0][1] == tmp_path / "output" / "video" / "gemma4_26b" / "reels"
+    assert (tmp_path / "output" / "video" / "gemma4_26b" / "moments.json").exists()
 
 
 def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
@@ -241,7 +360,7 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
     monkeypatch.setattr(pipeline.subprocess, "run", fake_ffmpeg_run)
 
     output_root = tmp_path / "output"
-    model_dir = output_root / "video" / "qwen3"
+    model_dir = output_root / "video" / "gemma4_26b"
     reels_dir = model_dir / "reels"
     rejected_dir = reels_dir / "rejected"
     rejected_dir.mkdir(parents=True)
@@ -320,7 +439,16 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
         "ollama_stop",
         lambda proc: stopped.append(getattr(proc, "pid", 0)),
     )
-    monkeypatch.setattr(pipeline, "get_ollama_models", lambda url: ["qwen3:latest"])
+    monkeypatch.setattr(
+        pipeline,
+        "get_ollama_models",
+        lambda url: [
+            "gemma4:e4b",
+            "gemma3:4b",
+            "gemma3:12b",
+            "gemma4:26b",
+        ],
+    )
     monkeypatch.setattr(pipeline, "pull_ollama_model", lambda url, model: True)
 
     subtitle_sync_calls: list[tuple[Path, Path]] = []
@@ -347,7 +475,13 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
         "paths": {"input_dir": str(input_dir), "output_dir": str(output_root)},
         "transcription": {"language": "auto"},
         "ollama": {
-            "models": ["qwen3:latest"],
+            "roles": {
+                "scout": "gemma4:e4b",
+                "cleanup": "gemma3:4b",
+                "refine": "gemma3:12b",
+                "judge": "gemma4:26b",
+                "metadata": "gemma4:26b",
+            },
             "url": "http://127.0.0.1:11434/api/generate",
         },
         "processing": {

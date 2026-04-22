@@ -219,7 +219,27 @@ def sync_reel_burned_subtitles(
 
 def load_transcript_segments(path: Path) -> list[SubtitleSegment]:
     data = json.loads(path.read_text(encoding="utf-8"))
-    raw_segments = data.get("segments", []) if isinstance(data, dict) else []
+    if not isinstance(data, dict):
+        return []
+
+    raw_sentences = data.get("sentences", [])
+    if isinstance(raw_sentences, list) and raw_sentences:
+        sentence_segments: list[SubtitleSegment] = []
+        for raw in raw_sentences:
+            if not isinstance(raw, Mapping):
+                continue
+            text = str(raw.get("text", "")).strip()
+            if not text:
+                continue
+            start = _coerce_float(raw.get("start"), default=0.0)
+            end = _coerce_float(raw.get("end"), default=0.0)
+            if end <= start:
+                continue
+            sentence_segments.append(SubtitleSegment(start=start, end=end, text=text))
+        if sentence_segments:
+            return sentence_segments
+
+    raw_segments = data.get("segments", [])
     segments: list[SubtitleSegment] = []
     for raw in raw_segments:
         if not isinstance(raw, Mapping):

@@ -9,11 +9,10 @@ import requests
 
 # Models to test (excluding vision models and too small ones)
 MODELS = [
-    "gemma2:9b",
-    "qwen2.5:7b-instruct-q4_K_M",
-    "qwen3:latest",
-    "deepseek-r1:8b",
-    "gemma3:12b-it-qat",
+    "gemma4:e4b",
+    "gemma3:4b",
+    "gemma3:12b",
+    "gemma4:26b",
 ]
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"

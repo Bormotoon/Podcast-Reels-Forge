@@ -1,170 +1,127 @@
 # Конфигурация / Configuration
 
-## Структура config.yaml
+`config.yaml` is the single source of truth for the local-only pipeline.
 
-Файл `config.yaml` — центральное место для всех настроек пайплайна.
-
-The `config.yaml` file is the single source of truth for all pipeline settings.
-
-### paths — Пути к директориям
-
-paths — Directory paths
+## Paths / Пути
 
 ```yaml
 paths:
-  input_dir: "input"    # Папка с исходными файлами / Folder with source files
-  output_dir: "output"  # Папка для результатов / Folder for results
+  input_dir: "input"
+  output_dir: "output"
 ```
 
-### cli — Настройки командной строки
-
-cli — CLI settings
-
-```yaml
-cli:
-  quiet: false   # true = только ошибки / errors only
-  verbose: false # true = подробный вывод / verbose output
-```
-
-### transcription — Транскрипция
-
-transcription — Transcription
+## Transcription / Транскрипция
 
 ```yaml
 transcription:
-  model: "small"               # Модель Whisper / Whisper model
-  device: "cuda"               # cuda | cpu
-  language: "ru"               # ru | en | auto
-  beam_size: 5                 # Размер луча / Beam size
-  compute_type: "int8_float16" # Тип вычислений / Compute type
+  model: "large-v3"
+  device: "auto"        # auto | cuda | cpu
+  language: "auto"      # auto | ru | en
+  beam_size: 6
+  compute_type: "auto"  # auto | float32 | float16 | int8 | int8_float16 | int8_float32
 ```
 
-**Доступные модели / Available models:**
+The transcription stage now writes additive fields such as `source_audio`, `timing_version`, `language_confidence`, `segments[].words`, and `sentences`.
 
-| Модель / Model | Параметры / Params | VRAM | Качество / Quality |
-| -------- | ----------- | ------ | ---------- |
-| tiny | 39M | ~1GB | Низкое |
-| base | 74M | ~1GB | Базовое |
-| small | 244M | ~2GB | Среднее |
-| medium | 769M | ~5GB | Хорошее |
-| large-v3 | 1550M | ~10GB | Лучшее |
-
-**Типы вычислений / Compute types:**
-
-| Тип / Type | Скорость / Speed | Точность / Accuracy | GPU поддержка / GPU support |
-| ----- | ---------- | ---------- | --------------- |
-| float32 | Медленно | Высокая | Все |
-| float16 | Быстро | Высокая | SM >= 7.0 |
-| int8_float16 | Очень быстро | Хорошая | SM >= 7.0 |
-| int8 | Очень быстро | Средняя | Все |
-
-### ollama — Настройки Ollama
-
-ollama — Ollama settings
+## Ollama / Ollama
 
 ```yaml
 ollama:
   url: "http://127.0.0.1:11434/api/generate"
-  # Все модели будут прогнаны по очереди; результат — в output/<model>/
-  models:
-    - "qwen3:latest"
-    - "deepseek-r1:8b"
-    - "gemma3:4b"
-    - "gemma2:9b"
-    - "gemini-3-flash-preview:latest"
-  timeout: 240           # Таймаут запроса (сек) / Request timeout (sec)
-  temperature: 0.3       # Креативность (0.0 - 1.0) / Creativity (0.0 - 1.0)
-  chunk_seconds: 1200    # Размер чанка (сек) / Chunk size (sec)
-  max_chars_chunk: 12000 # Макс. символов / Max chars
-
-  # Watchdog: если генерация "зависла" или слишком медленная, запрос будет прерван
-  # и выполнен повторно (с возможной сменой модели).
+  roles:
+    scout: "gemma4:e4b"
+    cleanup: "gemma3:4b"
+    refine: "gemma3:12b"
+    judge: "gemma4:26b"
+    metadata: "gemma4:26b"
+  timeout: 420
+  temperature: 0.2
+  chunk_seconds: 900
+  max_chars_chunk: 12000
   watchdog:
     enabled: true
-    first_token_timeout: 45   # сек без какого-либо вывода до первого токена
-    stall_timeout: 60         # сек без вывода во время стриминга
-    log_interval: 10          # каждые N сек логируется прогресс
-    max_retries: 0            # сколько раз ретраить при зависании/таймауте
-
-  # Список моделей, которые пробуются по очереди, если основная слишком медленная.
-  # Важно: модели должны быть установлены в Ollama (ollama pull ...)
+    first_token_timeout: 60
+    stall_timeout: 90
+    log_interval: 10
+    max_retries: 1
   fallback_models: []
-
-  # Per-model overrides / Переопределения по моделям
-  # Полезно, когда модели сильно отличаются по «разогреву» и скорости.
-  # Example:
-  # model_overrides:
-  #   qwen3:latest:
-  #     timeout: 900
-  #     chunk_seconds: 600
-  #     watchdog:
-  #       first_token_timeout: 180
-  #       stall_timeout: 120
-  #       max_retries: 1
+  role_overrides:
+    scout:
+      timeout: 360
+      chunk_seconds: 1200
+      temperature: 0.35
   model_overrides: {}
 ```
 
-### prompts — Промпты
+Notes:
 
-prompts — Prompts
+- `roles` is the default way to configure the staged analysis pipeline.
+- `model_overrides` is retained only for legacy compatibility.
+- The default workflow is Ollama-only and Gemma-only.
 
-```yaml
-prompts:
-  language: "ru"        # ru | en | auto
-  variant: "default"    # default | a | b
-```
-
-### processing — Обработка
-
-processing — Processing
+## Processing / Обработка
 
 ```yaml
 processing:
+  quality_filters:
+    min_score: 7
+    min_duration: 15
+    max_duration: 180
+    face_min_ratio: 0.3
   clips:
     stories:
-      count: 2       # Количество сторис (до 15с) / Stories count (up to 15s)
+      count: 2
+      max_duration: 15
     reels:
-      count: 3       # Количество рилс (до 1м) / Reels count (up to 1m)
+      count: 3
+      max_duration: 60
     long_reels:
-      count: 1       # Длинные рилс (до 3м) / Long reels (up to 3m)
+      count: 1
+      max_duration: 180
     highlights:
-      count: 1       # Роликов с хайлайтами / Highlights videos
-      moments_count: 5 # Моментов в хайлайте / Moments in highlight
-
-  reels_count: 4          # [Legacy] Общее количество клипов / Total clips count
-  reel_min_duration: 30   # Мин. длина (сек) / Min length (sec)
-  reel_max_duration: 60   # Макс. длина (сек) / Max length (sec)
-  reel_padding: 5         # Отступ (сек) / Padding (sec)
+      count: 1
+      moments_count: 5
+  reels_count: 3
+  reel_min_duration: 30
+  reel_max_duration: 60
+  reel_padding: 5
 ```
 
-### exports — Экспорт форматов
-
-exports — Export formats
-
-```yaml
-exports:
-  webm: false       # Экспорт в WebM / Export WebM
-  gif: false        # Экспорт в GIF / Export GIF
-  audio_only: false # Экспорт только аудио / Export audio only
-```
-
-### video — Настройки видео
-
-video — Video settings
+## Video / Видео
 
 ```yaml
 video:
-  threads: 4              # Потоки FFmpeg / FFmpeg threads
-  vertical_crop: true     # Кроп 16:9 → 9:16 / Crop 16:9 → 9:16
-  video_bitrate: "5M"     # Битрейт видео / Video bitrate
-  audio_bitrate: "192k"   # Битрейт аудио / Audio bitrate
-  preset: "fast"          # Пресет / Preset
-  use_nvenc: true          # Использовать NVENC если доступен / Use NVENC when available
+  threads: 4
+  vertical_crop: true
+  smart_crop_face: true
+  video_bitrate: "6M"
+  audio_bitrate: "192k"
+  preset: "fast"
+  use_nvenc: true
+  face_samples: 9
+  face_min_size: 72
 ```
 
-### diarization — Диаризация
+Face crop now uses multiple samples and median smoothing before FFmpeg renders the final crop.
 
-diarization — Diarization
+## Subtitles / Субтитры
+
+```yaml
+subtitles:
+  enabled: true
+  font: "assets/fonts/bignoodletoooblique.ttf"
+  css: "assets/subtitles/forge_subtitles.css"
+  font_size_px: 46
+  wrap_words: true
+  max_lines: 2
+  max_width_ratio: 0.92
+  vertical_align: "bottom"
+  vertical_offset: 0.0
+```
+
+The subtitle pipeline prefers `sentences` from the transcript JSON when available, then falls back to segment slicing.
+
+## Diarization / Диаризация
 
 ```yaml
 diarization:
@@ -172,76 +129,26 @@ diarization:
   model: "pyannote/speaker-diarization"
 ```
 
-**Требования для диаризации / Diarization requirements:**
+## Examples / Примеры
 
-1. Установить `pyannote-audio`:
-
-  ```bash
-  pip install pyannote-audio
-  ```
-
-1. Получить токен на Hugging Face и установить:
-
-  ```bash
-  export PYANNOTE_TOKEN="hf_..."
-  ```
-
----
-
-## Переменные окружения / Environment variables
-
-| Переменная / Variable | Описание / Description |
-| ------------ | ---------- |
-| `PYANNOTE_TOKEN` | Токен Hugging Face для pyannote |
-| `WHISPER_VENV_ACTIVE` | Флаг активации venv (внутренний) |
-
----
-
-## Примеры конфигураций / Configuration examples
-
-### Минимальная конфигурация (Ollama)
-
-Minimal configuration (Ollama)
+Minimal local-first config:
 
 ```yaml
-paths:
-  input_dir: "input"
-  output_dir: "output"
-
 transcription:
-  model: "small"
-  device: "cuda"
+  model: "large-v3"
+  device: "auto"
   language: "auto"
 
 ollama:
-  models:
-    - "qwen3:latest"
-    - "deepseek-r1:8b"
-    - "gemma3:4b"
-    - "gemma2:9b"
-    - "gemini-3-flash-preview:latest"
+  roles:
+    scout: "gemma4:e4b"
+    cleanup: "gemma3:4b"
+    refine: "gemma3:12b"
+    judge: "gemma4:26b"
 
 processing:
-  reels_count: 4
+  reels_count: 3
   reel_padding: 5
 ```
 
-### Конфигурация для слабого GPU
-
-Configuration for weak GPU / CPU
-
-```yaml
-transcription:
-  model: "tiny"
-  device: "cpu"
-  compute_type: "float32"
-
-ollama:
-  models:
-    - "qwen3:latest"
-  timeout: 1800
-
-video:
-  threads: 2
-  preset: "ultrafast"
-```
+Compatibility note: older `models:` lists are still accepted by the loader, but the new role mapping is the preferred format.

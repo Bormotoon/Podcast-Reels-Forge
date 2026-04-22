@@ -1,61 +1,1229 @@
-"""RU: Общие вспомогательные сущности для стадии анализа.
+"""Staged analysis pipeline for Podcast Reels Forge.
 
-Основная логика по-прежнему находится в `analyze.py` (для standalone запуска и
-перезапуска в venv). Этот модуль нужен, чтобы сделать код более модульным,
-тестируемым и соответствующим плану рефакторинга.
+This module owns the multi-stage local-only analysis flow:
+scout -> cleanup -> refine -> judge -> metadata.
 
-EN: Shared helpers for the analysis stage.
-
-The heavy lifting still lives in the root script `analyze.py` (kept for
-standalone usage and venv re-exec). This module exists to make the codebase more
-modular and testable and to satisfy the refactor roadmap.
+The root script `podcast_reels_forge/scripts/analyze.py` re-exports the public
+helpers here so CLI entrypoints stay thin while tests can still import the
+historic helper functions.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+import argparse
+import json
+import logging
+import os
+import subprocess
+import sys
+from dataclasses import asdict
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+try:
+    from tqdm import tqdm
+except ImportError:  # pragma: no cover
+
+    def tqdm(iterable: object, **_: object) -> object:
+        return iterable
+
+from podcast_reels_forge.analysis.candidate_extraction import (
+    build_candidate_json,
+    normalize_candidate_list,
+)
+from podcast_reels_forge.analysis.chunking import build_analysis_chunks
+from podcast_reels_forge.analysis.contracts import MomentRecord, coerce_moment_record
+from podcast_reels_forge.analysis.metadata import finalize_moment_list
+from podcast_reels_forge.analysis.ranking import (
+    dedupe_moments,
+    rank_moments,
+)
+from podcast_reels_forge.analysis.serializers import atomic_write_json
+from podcast_reels_forge.config import (
+    OllamaRoleMapping,
+    merge_ollama_role_conf,
+    resolve_ollama_role_mapping,
+)
+from podcast_reels_forge.llm.providers import (
+    AnthropicConfig,
+    AnthropicProvider,
+    GeminiConfig,
+    GeminiProvider,
+    LLMProvider,
+    OllamaConfig,
+    OllamaProvider,
+    OpenAIConfig,
+    OpenAIProvider,
+)
+from podcast_reels_forge.utils.json_utils import extract_first_json_value
+from podcast_reels_forge.utils.logging_utils import setup_logging
+from podcast_reels_forge.utils.ollama_service import (
+    ENV_MANAGED_BY_PIPELINE,
+    ollama_start,
+    ollama_stop,
+    parse_local_ollama_host_port,
+)
+from podcast_reels_forge.utils.reel_markdown import (
+    build_description_text,
+    build_hashtags,
+)
+
+LOGGER = setup_logging()
+
+Moment = MomentRecord
+
+_STAGE_FILES = {
+    "scout": "chunk",
+    "cleanup": "cleanup",
+    "refine": "refine",
+    "judge": "judge",
+    "metadata": "metadata",
+}
+
+_LEGACY_STAGE_FALLBACKS = {
+    "scout": ("chunk", "select"),
+    "cleanup": ("select", "chunk"),
+    "refine": ("select", "chunk"),
+    "judge": ("select", "chunk"),
+    "metadata": ("select", "chunk"),
+}
 
 
-@dataclass(frozen=True)
-class AnalyzeConfig:
-    """RU: Базовый конфиг параметров анализа.
-
-    EN: Basic analysis configuration.
-    """
-
-    provider: str
-    model: str
-    temperature: float
-    reels: int
-    reel_min: int
-    reel_max: int
+def _status(msg: str, *, quiet: bool) -> None:
+    if not quiet:
+        LOGGER.info(msg)
 
 
-def basic_quality_metrics(
-    moments: list[dict[str, Any]], *, reel_min: int, reel_max: int,
-) -> dict[str, Any]:
-    """RU: Считает простые эвристические метрики качества выбранных моментов.
+def fmt_hms(sec: float) -> str:
+    """Format seconds as MM:SS or HH:MM:SS."""
 
-    EN: Compute small heuristic metrics for moment selection quality.
-    """
-    durations = []
-    scores = []
-    violations = 0
-    for m in moments:
+    h = int(sec // 3600)
+    m = int((sec % 3600) // 60)
+    s = int(sec % 60)
+    return f"{h:02d}:{m:02d}:{s:02d}" if h > 0 else f"{m:02d}:{s:02d}"
+
+
+def segments_to_compact_text(segments: list[dict[str, Any]], max_chars: int) -> str:
+    """Convert transcript segments into a compact prompt-friendly text block."""
+
+    lines: list[str] = []
+    for seg in segments:
         try:
-            d = float(m.get("end", 0)) - float(m.get("start", 0))
-            s = float(m.get("score", 0))
+            start = int(float(seg.get("start", 0)))
+            end = int(float(seg.get("end", 0)))
+        except (TypeError, ValueError):
+            start, end = 0, 0
+        text = str(seg.get("text", "")).strip()
+        if text:
+            speaker = str(seg.get("speaker", "")).strip()
+            prefix = f"({speaker}) " if speaker else ""
+            lines.append(f"[{start}-{end}] {prefix}{text}")
+
+    result = "\n".join(lines)
+    if len(result) > max_chars:
+        result = result[:max_chars]
+        last_newline = result.rfind("\n")
+        if last_newline > max_chars * 0.8:
+            result = result[:last_newline]
+    return result
+
+
+def chunk_segments_by_time(
+    segments: list[dict[str, Any]],
+    chunk_seconds: int,
+) -> list[list[dict[str, Any]]]:
+    """Backward-compatible time chunking helper used by tests and legacy code."""
+
+    chunks: list[list[dict[str, Any]]] = []
+    cur: list[dict[str, Any]] = []
+    chunk_start = float(segments[0]["start"]) if segments else 0.0
+    for s in segments:
+        start = float(s.get("start", 0.0))
+        end = float(s.get("end", 0.0))
+        if end - chunk_start <= float(chunk_seconds):
+            cur.append(s)
+        else:
+            if cur:
+                chunks.append(cur)
+            cur = [s]
+            chunk_start = start
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
+def _render_prompt(template: str, values: dict[str, str]) -> str:
+    """Render a prompt template without treating braces as format fields."""
+
+    out = template
+    for key, value in values.items():
+        out = out.replace("{" + key + "}", value)
+    return out
+
+
+def _prompt_variant_for_model(prompts_conf: Mapping[str, Any], model: str) -> str:
+    variant = str(prompts_conf.get("variant", "default"))
+    mv = prompts_conf.get("model_variants")
+    if isinstance(mv, Mapping):
+        mvv = mv.get(model)
+        if isinstance(mvv, str) and mvv.strip():
+            return mvv.strip()
+    return variant
+
+
+def _normalize_prompt_lang(prompt_lang: str | None, transcript_lang: str | None) -> str:
+    pl = (prompt_lang or "auto").strip().lower()
+    if pl != "auto":
+        return pl
+    tl = (transcript_lang or "").strip().lower()
+    if tl.startswith("ru"):
+        return "ru"
+    if tl.startswith("en"):
+        return "en"
+    return "ru"
+
+
+def _load_prompt(*, lang: str, variant: str, name: str) -> str:
+    """Load a prompt file with sensible fallbacks."""
+
+    repo_prompts = Path(__file__).resolve().parent.parent.parent / "prompts"
+    base = repo_prompts / lang
+    candidates = [
+        base / f"{name}_{variant}.txt",
+        base / f"{name}_default.txt",
+    ]
+    for legacy_name in _LEGACY_STAGE_FALLBACKS.get(name, ()):
+        candidates.extend(
+            [
+                base / f"{legacy_name}_{variant}.txt",
+                base / f"{legacy_name}_default.txt",
+            ],
+        )
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.read_text(encoding="utf-8")
+    raise FileNotFoundError(f"Prompt template not found for stage '{name}' in {base}")
+
+
+def _load_diarization(path: str | Path | None) -> list[dict[str, Any]]:
+    if not path:
+        return []
+
+    diar_path = Path(path)
+    if not diar_path.exists():
+        return []
+
+    try:
+        data = json.loads(diar_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return []
+
+    if isinstance(data, list):
+        return [d for d in data if isinstance(d, dict)]
+    return []
+
+
+def _assign_speakers(
+    segments: list[dict[str, Any]],
+    diar: list[dict[str, Any]],
+    *,
+    prefix: bool = False,
+) -> None:
+    if not diar:
+        return
+
+    def overlap(a0: float, a1: float, b0: float, b1: float) -> float:
+        return max(0.0, min(a1, b1) - max(a0, b0))
+
+    for segment in segments:
+        try:
+            s0 = float(segment.get("start", 0))
+            s1 = float(segment.get("end", 0))
         except (TypeError, ValueError):
             continue
-        durations.append(d)
-        scores.append(s)
-        if d < reel_min or d > reel_max:
-            violations += 1
 
-    return {
-        "moments": len(moments),
-        "avg_score": sum(scores) / len(scores) if scores else 0.0,
-        "avg_duration": sum(durations) / len(durations) if durations else 0.0,
-        "violations": violations,
+        best_spk = None
+        best_ov = 0.0
+        for diar_entry in diar:
+            try:
+                d0 = float(diar_entry.get("start", 0))
+                d1 = float(diar_entry.get("end", 0))
+                spk = str(diar_entry.get("speaker", ""))
+            except (TypeError, ValueError):
+                continue
+            ov = overlap(s0, s1, d0, d1)
+            if ov > best_ov and spk:
+                best_ov = ov
+                best_spk = spk
+
+        if best_spk:
+            segment["speaker"] = best_spk
+            if (
+                prefix
+                and isinstance(segment.get("text"), str)
+                and not segment["text"].lstrip().startswith("(")
+            ):
+                segment["text"] = f"({best_spk}) {segment['text']}"
+
+
+def _read_json_if_valid(path: Path) -> object | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+
+
+def _coerce_json_list(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        for key in ("moments", "candidates", "results", "items", "clips"):
+            raw = payload.get(key)
+            if isinstance(raw, list):
+                return [item for item in raw if isinstance(item, dict)]
+    return []
+
+
+def get_llm_json(
+    provider: LLMProvider,
+    prompt: str,
+    temperature: float,
+    timeout: int,
+) -> dict[str, Any] | list[Any]:
+    """Get JSON from an LLM response, logging a safe preview on failure."""
+
+    raw = provider.generate(prompt, temperature=temperature, timeout=timeout)
+    try:
+        return extract_first_json_value(raw)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        preview = raw[:500].replace("\n", "\\n") if isinstance(raw, str) else str(raw)
+        LOGGER.warning(
+            "Failed to parse JSON from LLM output; returning [] (raw preview: %s)",
+            preview,
+        )
+        return []
+
+
+def create_provider(
+    provider_name: str,
+    *,
+    model: str,
+    url: str | None = None,
+    api_key: str | None = None,
+    ollama_fallback_models: list[str] | None = None,
+    ollama_watchdog: bool = True,
+    ollama_first_token_timeout_s: int = 120,
+    ollama_stall_timeout_s: int = 120,
+    ollama_log_interval_s: int = 10,
+    ollama_max_retries: int = 2,
+) -> LLMProvider:
+    """Create an LLM provider.
+
+    Note: the cloud provider branches are legacy compatibility paths only and
+    are not used by the default workflow.
+    """
+
+    if provider_name == "ollama":
+        return OllamaProvider(
+            OllamaConfig(
+                url=url or "http://127.0.0.1:11434/api/generate",
+                model=model,
+                watchdog_enabled=bool(ollama_watchdog),
+                first_token_timeout_s=int(ollama_first_token_timeout_s),
+                stall_timeout_s=int(ollama_stall_timeout_s),
+                log_interval_s=int(ollama_log_interval_s),
+                max_retries=int(ollama_max_retries),
+                fallback_models=tuple(ollama_fallback_models or []),
+            ),
+        )
+    if provider_name == "openai":
+        key = api_key or os.environ.get("OPENAI_API_KEY")
+        if not key:
+            raise SystemExit("Missing OpenAI key. Set OPENAI_API_KEY or pass --api-key")
+        return OpenAIProvider(OpenAIConfig(api_key=key, model=model))
+    if provider_name == "anthropic":
+        key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if not key:
+            raise SystemExit(
+                "Missing Anthropic key. Set ANTHROPIC_API_KEY or pass --api-key",
+            )
+        return AnthropicProvider(AnthropicConfig(api_key=key, model=model))
+    if provider_name == "gemini":
+        key = api_key or os.environ.get("GEMINI_API_KEY")
+        if not key:
+            raise SystemExit("Missing Gemini key. Set GEMINI_API_KEY or pass --api-key")
+        return GeminiProvider(GeminiConfig(api_key=key, model=model))
+    raise SystemExit(f"Unsupported provider: {provider_name}")
+
+
+def _provider_for_role(
+    provider_name: str,
+    model: str,
+    *,
+    base_url: str | None,
+    role_conf: Mapping[str, Any] | None,
+    api_key: str | None,
+) -> LLMProvider:
+    conf = dict(role_conf or {})
+    watchdog = conf.get("watchdog", {})
+    if not isinstance(watchdog, Mapping):
+        watchdog = {}
+    return create_provider(
+        provider_name,
+        model=model,
+        url=base_url if provider_name == "ollama" else None,
+        api_key=api_key,
+        ollama_fallback_models=[
+            str(item).strip()
+            for item in conf.get("fallback_models", [])
+            if str(item).strip()
+        ],
+        ollama_watchdog=bool(watchdog.get("enabled", conf.get("watchdog_enabled", True))),
+        ollama_first_token_timeout_s=int(
+            watchdog.get("first_token_timeout", conf.get("first_token_timeout_s", 120)),
+        ),
+        ollama_stall_timeout_s=int(
+            watchdog.get("stall_timeout", conf.get("stall_timeout_s", 120)),
+        ),
+        ollama_log_interval_s=int(
+            watchdog.get("log_interval", conf.get("log_interval_s", 10)),
+        ),
+        ollama_max_retries=int(
+            watchdog.get("max_retries", conf.get("max_retries", 2)),
+        ),
+    )
+
+
+def _stage_config(
+    base_conf: Mapping[str, Any],
+    *,
+    role: str,
+    model: str,
+) -> dict[str, Any]:
+    merged = merge_ollama_role_conf(base_conf, model, role=role)
+    return merged
+
+
+def _stage_temperature(stage_conf: Mapping[str, Any], default: float) -> float:
+    try:
+        return float(stage_conf.get("temperature", default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _stage_timeout(stage_conf: Mapping[str, Any], default: int) -> int:
+    try:
+        return int(stage_conf.get("timeout", default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _stage_chunk_seconds(stage_conf: Mapping[str, Any], default: int) -> int:
+    try:
+        return int(stage_conf.get("chunk_seconds", default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _stage_max_chars(stage_conf: Mapping[str, Any], default: int) -> int:
+    try:
+        return int(stage_conf.get("max_chars_chunk", default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _build_requirements_text(processing_conf: Mapping[str, Any]) -> str:
+    clips_conf = processing_conf.get("clips", {})
+    if not isinstance(clips_conf, Mapping):
+        clips_conf = {}
+
+    parts: list[str] = []
+    if isinstance(clips_conf.get("stories"), Mapping):
+        stories = clips_conf["stories"]
+        parts.append(
+            f"Stories: {stories.get('count', 0)} clips up to {stories.get('max_duration', 15)}s",
+        )
+    if isinstance(clips_conf.get("reels"), Mapping):
+        reels = clips_conf["reels"]
+        parts.append(
+            f"Reels: {reels.get('count', 0)} clips up to {reels.get('max_duration', 60)}s",
+        )
+    if isinstance(clips_conf.get("long_reels"), Mapping):
+        long_reels = clips_conf["long_reels"]
+        parts.append(
+            "Long reels: "
+            f"{long_reels.get('count', 0)} clips up to {long_reels.get('max_duration', 180)}s",
+        )
+    if isinstance(clips_conf.get("highlights"), Mapping):
+        highlights = clips_conf["highlights"]
+        parts.append(
+            f"Highlights: {highlights.get('moments_count', 0)} moments",
+        )
+
+    if not parts:
+        reel_min = processing_conf.get("reel_min_duration", 30)
+        reel_max = processing_conf.get("reel_max_duration", 60)
+        parts.append(f"Reels: 4 clips of {reel_min}-{reel_max}s")
+    return "\n".join(parts)
+
+
+def _requested_quotas(processing_conf: Mapping[str, Any]) -> dict[str, int]:
+    clips_conf = processing_conf.get("clips", {})
+    if not isinstance(clips_conf, Mapping):
+        clips_conf = {}
+
+    quotas = {
+        "story": int(clips_conf.get("stories", {}).get("count", 0))
+        if isinstance(clips_conf.get("stories"), Mapping)
+        else 0,
+        "reel": int(clips_conf.get("reels", {}).get("count", 0))
+        if isinstance(clips_conf.get("reels"), Mapping)
+        else int(processing_conf.get("reels_count", 4)),
+        "long_reel": int(clips_conf.get("long_reels", {}).get("count", 0))
+        if isinstance(clips_conf.get("long_reels"), Mapping)
+        else 0,
+        "highlight": int(clips_conf.get("highlights", {}).get("moments_count", 0))
+        if isinstance(clips_conf.get("highlights"), Mapping)
+        else 0,
     }
+    if quotas["reel"] <= 0:
+        quotas["reel"] = int(processing_conf.get("reels_count", 4))
+    return quotas
+
+
+def render_reels_summary_markdown(moments: list[Moment]) -> str:
+    """Render a compact markdown summary for final moments."""
+
+    lines = ["# Reels Suggestions", ""]
+    for i, m in enumerate(moments, 1):
+        moment_data = m.to_dict() if isinstance(m, MomentRecord) else asdict(m)
+        description = build_description_text(moment_data)
+        hashtags = build_hashtags(moment_data, description_text=description)
+
+        title = str(moment_data.get("title", "")).strip()
+        lines.append(f"## {i}. {title} [{moment_data.get('clip_type', 'reel')}]")
+        lines.append(f"Time: {fmt_hms(float(moment_data.get('start', 0)))}-{fmt_hms(float(moment_data.get('end', 0)))}")
+        why = str(moment_data.get("why", "")).strip()
+        if why:
+            lines.append(f"Why: {why}")
+        hook = str(moment_data.get("hook", "")).strip()
+        if hook:
+            lines.append(f"Hook: {hook}")
+        lines.append("")
+        if description:
+            lines.append(description)
+            lines.append("")
+        if hashtags:
+            lines.append(" ".join(hashtags))
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _attach_chunk_metadata(
+    record: MomentRecord,
+    *,
+    chunk_id: str,
+    speaker_set: Sequence[str],
+) -> MomentRecord:
+    payload = {
+        **record.to_dict(),
+        "source_chunk_ids": list(dict.fromkeys([*record.source_chunk_ids, chunk_id])),
+    }
+    if speaker_set and not payload.get("speaker"):
+        payload["speaker"] = speaker_set[0]
+        payload["speaker_confidence"] = 0.5 if len(speaker_set) == 1 else 0.35
+    coerced = coerce_moment_record(payload)
+    return coerced or record
+
+
+def _parse_candidate_response(
+    value: dict[str, Any] | list[Any],
+    *,
+    stage: str,
+) -> list[MomentRecord]:
+    candidates = normalize_candidate_list(value, stage=stage)
+    return candidates
+
+
+def _prompt_payload(
+    *,
+    requirements: str,
+    chunk: Mapping[str, Any] | None = None,
+    candidates: Sequence[MomentRecord] | None = None,
+    transcript: str | None = None,
+) -> dict[str, str]:
+    payload: dict[str, str] = {"requirements": requirements}
+    if chunk is not None:
+        payload["chunk_json"] = json.dumps(chunk, ensure_ascii=False)
+        payload["transcript"] = str(chunk.get("text", ""))
+    if transcript is not None:
+        payload["transcript"] = transcript
+    if candidates is not None:
+        payload["candidates_json"] = json.dumps(
+            build_candidate_json(candidates),
+            ensure_ascii=False,
+        )
+    return payload
+
+
+def _make_stage_provider(
+    provider_name: str,
+    *,
+    model: str,
+    base_url: str | None,
+    stage_conf: Mapping[str, Any],
+    api_key: str | None,
+) -> LLMProvider:
+    return _provider_for_role(
+        provider_name,
+        model,
+        base_url=base_url,
+        role_conf=stage_conf,
+        api_key=api_key,
+    )
+
+
+def _default_stage_temperature(role: str) -> float:
+    if role == "scout":
+        return 0.35
+    if role == "cleanup":
+        return 0.15
+    if role == "refine":
+        return 0.2
+    if role == "judge":
+        return 0.05
+    return 0.15
+
+
+def _stage_name_to_prompt_name(stage: str) -> str:
+    return _STAGE_FILES.get(stage, stage)
+
+
+def scout_candidates(
+    provider: LLMProvider,
+    chunks: Sequence[Any],
+    *,
+    requirements: str,
+    prompt: str,
+    temperature: float,
+    timeout: int,
+    progress: bool = False,
+) -> list[MomentRecord]:
+    candidates: list[MomentRecord] = []
+    iterator = enumerate(chunks, 1)
+    if progress:
+        iterator = tqdm(iterator, total=len(chunks), desc="scout")
+
+    for _i, chunk in iterator:
+        prompt_text = _render_prompt(
+            prompt,
+            _prompt_payload(
+                requirements=requirements,
+                chunk=chunk.to_prompt_dict() if hasattr(chunk, "to_prompt_dict") else None,
+            ),
+        )
+        resp = get_llm_json(provider, prompt_text, temperature, timeout)
+        chunk_candidates = _parse_candidate_response(resp, stage="scout")
+        for candidate in chunk_candidates:
+            candidates.append(
+                _attach_chunk_metadata(
+                    candidate,
+                    chunk_id=getattr(chunk, "chunk_id", "chunk"),
+                    speaker_set=getattr(chunk, "speaker_set", ()),
+                ),
+            )
+    return candidates
+
+
+def cleanup_candidates(
+    provider: LLMProvider,
+    candidates: Sequence[MomentRecord],
+    *,
+    requirements: str,
+    prompt: str,
+    temperature: float,
+    timeout: int,
+) -> list[MomentRecord]:
+    cleaned_input = dedupe_moments(candidates)
+    if not cleaned_input:
+        return []
+
+    prompt_text = _render_prompt(
+        prompt,
+        _prompt_payload(
+            requirements=requirements,
+            candidates=cleaned_input,
+        ),
+    )
+    resp = get_llm_json(provider, prompt_text, temperature, timeout)
+    cleaned = _parse_candidate_response(resp, stage="cleanup")
+    if cleaned:
+        return dedupe_moments(cleaned)
+    return cleaned_input
+
+
+def refine_candidates(
+    provider: LLMProvider,
+    candidates: Sequence[MomentRecord],
+    *,
+    requirements: str,
+    prompt: str,
+    temperature: float,
+    timeout: int,
+    max_items: int,
+) -> list[MomentRecord]:
+    if not candidates:
+        return []
+
+    sorted_candidates = sorted(
+        candidates,
+        key=lambda record: (-float(record.score), record.start, record.end),
+    )[:max(1, int(max_items))]
+    prompt_text = _render_prompt(
+        prompt,
+        _prompt_payload(
+            requirements=requirements,
+            candidates=sorted_candidates,
+        ),
+    )
+    resp = get_llm_json(provider, prompt_text, temperature, timeout)
+    refined = _parse_candidate_response(resp, stage="refine")
+    if refined:
+        return refined
+    return list(sorted_candidates)
+
+
+def judge_candidates(
+    provider: LLMProvider,
+    candidates: Sequence[MomentRecord],
+    *,
+    requirements: str,
+    prompt: str,
+    temperature: float,
+    timeout: int,
+    quotas: Mapping[str, int],
+) -> list[MomentRecord]:
+    if not candidates:
+        return []
+
+    prompt_text = _render_prompt(
+        prompt,
+        _prompt_payload(
+            requirements=requirements,
+            candidates=candidates,
+        ),
+    )
+    resp = get_llm_json(provider, prompt_text, temperature, timeout)
+    judged = _parse_candidate_response(resp, stage="judge")
+    if judged:
+        selected = rank_moments(judged, clip_type_quotas=quotas)
+    else:
+        selected = rank_moments(candidates, clip_type_quotas=quotas)
+    return selected
+
+
+def finalize_metadata(
+    provider: LLMProvider,
+    candidates: Sequence[MomentRecord],
+    *,
+    requirements: str,
+    prompt: str,
+    temperature: float,
+    timeout: int,
+) -> list[MomentRecord]:
+    if not candidates:
+        return []
+
+    prompt_text = _render_prompt(
+        prompt,
+        _prompt_payload(
+            requirements=requirements,
+            candidates=candidates,
+        ),
+    )
+    resp = get_llm_json(provider, prompt_text, temperature, timeout)
+    finalized = _parse_candidate_response(resp, stage="metadata")
+    if finalized:
+        out = finalize_moment_list(finalized)
+    else:
+        out = finalize_moment_list(candidates)
+    return out
+
+
+def _ensure_prompt_text(stage: str, lang: str, variant: str) -> str:
+    return _load_prompt(lang=lang, variant=variant, name=_stage_name_to_prompt_name(stage))
+
+
+def run_staged_analysis(
+    *,
+    transcript_path: Path,
+    outdir: Path,
+    provider_name: str,
+    url: str,
+    api_key: str | None,
+    roles: OllamaRoleMapping,
+    ollama_conf: Mapping[str, Any],
+    prompts_conf: Mapping[str, Any],
+    processing_conf: Mapping[str, Any],
+    diarization_path: Path | None = None,
+    quiet: bool = False,
+    verbose: bool = False,
+    progress: bool = False,
+) -> list[MomentRecord]:
+    """Run the full multi-stage analysis pipeline and write artifacts."""
+
+    if not transcript_path.exists():
+        raise SystemExit(f"Transcript not found: {transcript_path}")
+
+    try:
+        data = json.loads(transcript_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Failed to read transcript: {exc}") from exc
+
+    segments = data.get("segments", [])
+    if not isinstance(segments, list):
+        raise SystemExit("Transcript JSON is missing a segments list")
+
+    duration = data.get("duration", 0.0)
+    if not duration and segments:
+        try:
+            duration = float(segments[-1]["end"])
+        except (KeyError, TypeError, ValueError):
+            duration = 0.0
+
+    diar = _load_diarization(diarization_path)
+    if diar:
+        _assign_speakers(segments, diar, prefix=False)
+
+    prompt_lang = _normalize_prompt_lang(
+        str(prompts_conf.get("language", "auto")),
+        str(data.get("language") or ""),
+    )
+    variant = str(prompts_conf.get("variant", "default")).strip().lower() or "default"
+    requirements = _build_requirements_text(processing_conf)
+    quotas = _requested_quotas(processing_conf)
+    target_total = sum(max(0, int(v)) for v in quotas.values())
+    if target_total <= 0:
+        target_total = int(processing_conf.get("reels_count", 4))
+
+    base_timeout = int(ollama_conf.get("timeout", 900))
+    base_temperature = float(ollama_conf.get("temperature", 0.25))
+    scout_conf = _stage_config(ollama_conf, role="scout", model=roles.scout)
+    cleanup_conf = _stage_config(ollama_conf, role="cleanup", model=roles.cleanup)
+    refine_conf = _stage_config(ollama_conf, role="refine", model=roles.refine)
+    judge_conf = _stage_config(ollama_conf, role="judge", model=roles.judge)
+    metadata_conf = _stage_config(ollama_conf, role="metadata", model=roles.metadata)
+
+    scout_provider = _make_stage_provider(
+        provider_name,
+        model=roles.scout,
+        base_url=str(ollama_conf.get("url", url)),
+        stage_conf=scout_conf,
+        api_key=api_key,
+    )
+    cleanup_provider = _make_stage_provider(
+        provider_name,
+        model=roles.cleanup,
+        base_url=str(ollama_conf.get("url", url)),
+        stage_conf=cleanup_conf,
+        api_key=api_key,
+    )
+    refine_provider = _make_stage_provider(
+        provider_name,
+        model=roles.refine,
+        base_url=str(ollama_conf.get("url", url)),
+        stage_conf=refine_conf,
+        api_key=api_key,
+    )
+    judge_provider = _make_stage_provider(
+        provider_name,
+        model=roles.judge,
+        base_url=str(ollama_conf.get("url", url)),
+        stage_conf=judge_conf,
+        api_key=api_key,
+    )
+    metadata_provider = _make_stage_provider(
+        provider_name,
+        model=roles.metadata,
+        base_url=str(ollama_conf.get("url", url)),
+        stage_conf=metadata_conf,
+        api_key=api_key,
+    )
+
+    scout_prompt = _ensure_prompt_text("scout", prompt_lang, variant)
+    cleanup_prompt = _ensure_prompt_text("cleanup", prompt_lang, variant)
+    refine_prompt = _ensure_prompt_text("refine", prompt_lang, variant)
+    judge_prompt = _ensure_prompt_text("judge", prompt_lang, variant)
+    metadata_prompt = _ensure_prompt_text("metadata", prompt_lang, variant)
+
+    scout_chunk_seconds = _stage_chunk_seconds(scout_conf, int(ollama_conf.get("chunk_seconds", 900)))
+    scout_max_chars = _stage_max_chars(scout_conf, int(ollama_conf.get("max_chars_chunk", 12000)))
+    chunks = build_analysis_chunks(
+        segments,
+        chunk_seconds=scout_chunk_seconds,
+        max_chars=scout_max_chars,
+        overlap_seconds=max(15, scout_chunk_seconds // 8),
+    )
+    manifest = {
+        "transcript": str(transcript_path.resolve()),
+        "duration": float(duration),
+        "roles": roles.as_dict(),
+        "quotas": quotas,
+        "prompt_lang": prompt_lang,
+        "prompt_variant": variant,
+        "chunk_count": len(chunks),
+        "timing_version": data.get("timing_version", 1),
+        "source_audio": data.get("source_audio") or data.get("audio"),
+        "language": data.get("language"),
+        "language_confidence": data.get("language_confidence"),
+        "speaker_aware": bool(diar),
+    }
+    atomic_write_json(outdir / "analysis_manifest.json", manifest)
+
+    _status(
+        f"[analyze] scout={roles.scout} cleanup={roles.cleanup} "
+        f"refine={roles.refine} judge={roles.judge}",
+        quiet=quiet,
+    )
+    _status(f"[analyze] chunks={len(chunks)}", quiet=quiet)
+
+    scout_temp = _stage_temperature(scout_conf, _default_stage_temperature("scout"))
+    cleanup_temp = _stage_temperature(cleanup_conf, _default_stage_temperature("cleanup"))
+    refine_temp = _stage_temperature(refine_conf, _default_stage_temperature("refine"))
+    judge_temp = _stage_temperature(judge_conf, _default_stage_temperature("judge"))
+    metadata_temp = _stage_temperature(metadata_conf, _default_stage_temperature("metadata"))
+
+    scout_timeout = _stage_timeout(scout_conf, base_timeout)
+    cleanup_timeout = _stage_timeout(cleanup_conf, base_timeout)
+    refine_timeout = _stage_timeout(refine_conf, base_timeout)
+    judge_timeout = _stage_timeout(judge_conf, base_timeout)
+    metadata_timeout = _stage_timeout(metadata_conf, base_timeout)
+
+    scouted_candidates = scout_candidates(
+        scout_provider,
+        chunks,
+        requirements=requirements,
+        prompt=scout_prompt,
+        temperature=scout_temp,
+        timeout=scout_timeout,
+        progress=bool(progress and verbose and not quiet),
+    )
+    atomic_write_json(outdir / "scout_candidates.json", build_candidate_json(scouted_candidates))
+
+    cleaned_candidates = cleanup_candidates(
+        cleanup_provider,
+        scouted_candidates,
+        requirements=requirements,
+        prompt=cleanup_prompt,
+        temperature=cleanup_temp,
+        timeout=cleanup_timeout,
+    )
+    atomic_write_json(outdir / "cleaned_candidates.json", build_candidate_json(cleaned_candidates))
+
+    refined_candidates = refine_candidates(
+        refine_provider,
+        cleaned_candidates,
+        requirements=requirements,
+        prompt=refine_prompt,
+        temperature=refine_temp,
+        timeout=refine_timeout,
+        max_items=max(12, target_total * 3),
+    )
+    atomic_write_json(outdir / "refined_candidates.json", build_candidate_json(refined_candidates))
+
+    judged_candidates = judge_candidates(
+        judge_provider,
+        refined_candidates,
+        requirements=requirements,
+        prompt=judge_prompt,
+        temperature=judge_temp,
+        timeout=judge_timeout,
+        quotas=quotas,
+    )
+    judge_report = {
+        "selected_count": len(judged_candidates),
+        "quotas": quotas,
+        "selected": build_candidate_json(judged_candidates),
+    }
+    atomic_write_json(outdir / "judge_report.json", judge_report)
+
+    final_moments = finalize_metadata(
+        metadata_provider,
+        judged_candidates,
+        requirements=requirements,
+        prompt=metadata_prompt,
+        temperature=metadata_temp,
+        timeout=metadata_timeout,
+    )
+
+    if not final_moments:
+        final_moments = finalize_moment_list(judged_candidates)
+
+    final_moments = rank_moments(final_moments, clip_type_quotas=quotas) or final_moments
+    final_payload = [moment.to_dict() for moment in final_moments]
+    atomic_write_json(outdir / "moments.json", final_payload)
+    (outdir / "reels.md").write_text(
+        render_reels_summary_markdown(final_moments),
+        encoding="utf-8",
+    )
+
+    if not quiet:
+        LOGGER.info("[analyze] moments=%d", len(final_moments))
+        LOGGER.info("[analyze] saved=%s", outdir / "moments.json")
+
+    return final_moments
+
+
+def find_moments(
+    provider: LLMProvider,
+    segments: list[dict[str, Any]],
+    duration: float,
+    r_min: int,
+    r_max: int,
+    count: int,
+    chunk_sec: int,
+    max_ch: int,
+    timeout: int,
+    progress: bool = False,
+    *,
+    ch_prompt: str,
+    select_prompt: str,
+    stories_count: int = 0,
+    reels_count: int = 0,
+    long_reels_count: int = 0,
+    highlights_moments: int = 0,
+) -> list[Moment]:
+    """Backward-compatible single-stage helper used by older tests."""
+
+    chunks = chunk_segments_by_time(segments, max(1, int(chunk_sec)))
+    candidates: list[MomentRecord] = []
+    it = enumerate(chunks, 1)
+    if progress:
+        it = tqdm(it, total=len(chunks), desc="analyze")
+
+    reqs = []
+    if stories_count > 0:
+        reqs.append(f"Stories (up to 15s): {stories_count}")
+    if reels_count > 0:
+        reqs.append(f"Reels (up to 60s): {reels_count}")
+    if long_reels_count > 0:
+        reqs.append(f"Long Reels (up to 180s): {long_reels_count}")
+    if highlights_moments > 0:
+        reqs.append(f"Hot moments for highlights: {highlights_moments}")
+    reqs_str = "\n".join(reqs) if reqs else f"Viral moments ({r_min}-{r_max}s): {count}"
+
+    for idx, ch in it:
+        ch_txt = segments_to_compact_text(ch, max_ch)
+        prompt = _render_prompt(
+            ch_prompt,
+            {
+                "r_min": str(r_min),
+                "r_max": str(r_max),
+                "transcript": ch_txt,
+                "requirements": reqs_str,
+                "chunk_json": json.dumps({"chunk_id": idx, "text": ch_txt}, ensure_ascii=False),
+            },
+        )
+        resp = get_llm_json(provider, prompt, 0.3, timeout)
+        chunk_moments = _parse_candidate_response(resp, stage="scout")
+        for moment in chunk_moments:
+            candidates.append(moment)
+
+    if not candidates:
+        return []
+
+    # Use the old select prompt only as a compatibility anchor for prompt tests.
+    _ = select_prompt
+    quotas = {"reel": count}
+    ranked = rank_moments(candidates, clip_type_quotas=quotas)
+    final = finalize_moment_list(ranked)
+    return final[: max(0, int(count))]
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI args for the analysis stage."""
+
+    ap = argparse.ArgumentParser(
+        description="Analyze transcript with local staged Ollama models to find viral moments.",
+    )
+    ap.add_argument("--transcript", type=Path, required=True, help="Path to transcript JSON file")
+    ap.add_argument("--outdir", type=Path, default=Path("out"), help="Output directory")
+    ap.add_argument(
+        "--provider",
+        choices=("ollama", "openai", "anthropic", "gemini"),
+        default="ollama",
+        help="LLM provider to use (cloud providers are legacy compatibility only)",
+    )
+    ap.add_argument("--api-key", help="Optional override for legacy cloud providers")
+    ap.add_argument(
+        "--url",
+        default="http://127.0.0.1:11434/api/generate",
+        help="Ollama API URL",
+    )
+    ap.add_argument("--model", help="Legacy single-model mode (maps to all roles)")
+    ap.add_argument("--scout-model", help="Scout role model")
+    ap.add_argument("--cleanup-model", help="Cleanup role model")
+    ap.add_argument("--refine-model", help="Refine role model")
+    ap.add_argument("--judge-model", help="Judge role model")
+    ap.add_argument("--metadata-model", help="Metadata role model")
+    ap.add_argument("--temperature", type=float, default=0.25, help="Base temperature")
+    ap.add_argument("--reels", type=int, default=4, help="Number of reels to generate")
+    ap.add_argument("--stories-count", type=int, default=0, help="Number of stories (up to 15s)")
+    ap.add_argument("--reels-count", type=int, default=0, help="Number of reels (up to 60s)")
+    ap.add_argument("--long-reels-count", type=int, default=0, help="Number of long reels (up to 180s)")
+    ap.add_argument("--highlights-moments", type=int, default=0, help="Number of hot moments for highlights")
+    ap.add_argument("--reel-min", type=int, default=30, help="Minimum reel duration (seconds)")
+    ap.add_argument("--reel-max", type=int, default=60, help="Maximum reel duration (seconds)")
+    ap.add_argument("--chunk-seconds", type=int, default=900, help="Chunk size for scouting")
+    ap.add_argument("--max_chars_chunk", type=int, default=12000, help="Max chars per chunk")
+    ap.add_argument("--timeout", type=int, default=900, help="LLM request timeout")
+    ap.add_argument("--prompt-lang", default="auto", help="Prompt language: ru|en|auto")
+    ap.add_argument("--prompt-variant", default="default", help="Prompt variant: default|a|b")
+    ap.add_argument("--diarization", type=Path, help="Optional diarization.json for speaker tags")
+    ap.add_argument("--quiet", action="store_true", help="Suppress non-error output")
+    ap.add_argument("--verbose", action="store_true", help="Verbose output")
+    ap.add_argument("--ollama-watchdog", action=argparse.BooleanOptionalAction, default=True, help="Enable/disable Ollama stall watchdog")
+    ap.add_argument("--ollama-first-token-timeout", type=int, default=120, help="No output timeout before first token")
+    ap.add_argument("--ollama-stall-timeout", type=int, default=120, help="No output timeout while streaming")
+    ap.add_argument("--ollama-log-interval", type=int, default=10, help="Progress heartbeat interval")
+    ap.add_argument("--ollama-max-retries", type=int, default=2, help="Retries on stall/timeout")
+    ap.add_argument(
+        "--ollama-fallback-model",
+        action="append",
+        default=[],
+        help="Fallback model to try on stall/timeout (can be repeated)",
+    )
+    return ap.parse_args(argv)
+
+
+def _resolve_role_mapping(args: argparse.Namespace, conf_model: str | None = None) -> OllamaRoleMapping:
+    if args.model:
+        legacy_model = str(args.model).strip()
+        role_map = {
+            "scout": args.scout_model or legacy_model,
+            "cleanup": args.cleanup_model or legacy_model,
+            "refine": args.refine_model or legacy_model,
+            "judge": args.judge_model or legacy_model,
+            "metadata": args.metadata_model or args.judge_model or legacy_model,
+        }
+        return resolve_ollama_role_mapping({"ollama": {"roles": role_map}})
+    role_map = {
+        "scout": args.scout_model or conf_model or "gemma4:e4b",
+        "cleanup": args.cleanup_model or conf_model or "gemma3:4b",
+        "refine": args.refine_model or conf_model or "gemma3:12b",
+        "judge": args.judge_model or conf_model or "gemma4:26b",
+        "metadata": args.metadata_model or args.judge_model or conf_model or "gemma4:26b",
+    }
+    return resolve_ollama_role_mapping({"ollama": {"roles": role_map}})
+
+
+def main(argv: list[str] | None = None) -> None:
+    """CLI entrypoint for the analysis stage."""
+
+    args = parse_args(argv)
+
+    global LOGGER
+    LOGGER = setup_logging(verbose=bool(args.verbose), quiet=bool(args.quiet))
+
+    if not args.transcript.exists():
+        raise SystemExit(f"Transcript not found: {args.transcript}")
+
+    try:
+        data = json.loads(args.transcript.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"Failed to read transcript: {exc}") from exc
+
+    outdir = args.outdir
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    prompts_conf = {
+        "language": args.prompt_lang,
+        "variant": args.prompt_variant,
+    }
+    processing_conf = {
+        "reels_count": args.reels,
+        "reel_min_duration": args.reel_min,
+        "reel_max_duration": args.reel_max,
+        "clips": {
+            "stories": {"count": args.stories_count, "max_duration": 15},
+            "reels": {"count": args.reels_count, "max_duration": 60},
+            "long_reels": {"count": args.long_reels_count, "max_duration": 180},
+            "highlights": {"moments_count": args.highlights_moments},
+        },
+    }
+    ollama_conf = {
+        "url": args.url,
+        "timeout": args.timeout,
+        "temperature": args.temperature,
+        "chunk_seconds": args.chunk_seconds,
+        "max_chars_chunk": args.max_chars_chunk,
+        "watchdog": {
+            "enabled": bool(args.ollama_watchdog),
+            "first_token_timeout": args.ollama_first_token_timeout,
+            "stall_timeout": args.ollama_stall_timeout,
+            "log_interval": args.ollama_log_interval,
+            "max_retries": args.ollama_max_retries,
+        },
+        "fallback_models": list(args.ollama_fallback_model or []),
+    }
+
+    transcript_lang = data.get("language")
+    prompt_lang = _normalize_prompt_lang(args.prompt_lang, transcript_lang if isinstance(transcript_lang, str) else None)
+    variant = str(args.prompt_variant).strip().lower() or "default"
+
+    roles = _resolve_role_mapping(args, conf_model=args.model)
+
+    proc: subprocess.Popen | None = None
+    try:
+        managed_by_pipeline = os.environ.get(ENV_MANAGED_BY_PIPELINE) == "1"
+        local = parse_local_ollama_host_port(args.url) if args.url else None
+        if args.provider == "ollama" and local and not managed_by_pipeline:
+            host, port = local
+            proc = ollama_start(host=host, port=port)
+
+        final_moments = run_staged_analysis(
+            transcript_path=args.transcript,
+            outdir=outdir,
+            provider_name=args.provider,
+            url=args.url,
+            api_key=args.api_key,
+            roles=roles,
+            ollama_conf=ollama_conf,
+            prompts_conf={
+                **prompts_conf,
+                "language": prompt_lang,
+                "variant": variant,
+            },
+            processing_conf=processing_conf,
+            diarization_path=args.diarization,
+            quiet=bool(args.quiet),
+            verbose=bool(args.verbose),
+            progress=bool(args.verbose and not args.quiet),
+        )
+
+        _status(f"[analyze] moments={len(final_moments)}", quiet=bool(args.quiet))
+    finally:
+        if proc:
+            ollama_stop(proc)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        if LOGGER:
+            LOGGER.warning("Interrupted by user.")
+        sys.exit(130)
+    except Exception as exc:
+        if LOGGER:
+            LOGGER.error("Analysis failed: %s", exc)
+        else:
+            print(f"Analysis failed: {exc}", file=sys.stderr)
+        if os.environ.get("DEBUG_FORGE") == "1":
+            import traceback
+
+            traceback.print_exc()
+        sys.exit(1)

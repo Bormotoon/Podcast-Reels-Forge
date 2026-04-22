@@ -1,4 +1,10 @@
 # Podcast Reels Forge Configuration
+#
+# Default workflow:
+# - Python 3.10+
+# - Local Ollama only for the main analysis path
+# - Gemma-only role lineup
+# - FFmpeg + pycaps for rendering
 
 paths:
   input_dir: "input"
@@ -8,83 +14,71 @@ cli:
   quiet: false
   verbose: false
 
-# Cache / stage skipping
-# When enabled, stages are skipped if their expected output files already exist.
 cache:
   enabled: true
   validate_json: true
 
 transcription:
-  model: "medium"        # tiny, base, small, medium, large-v3
-  device: "cuda"         # cuda | cpu | auto
-  language: "ru"         # "ru", "en", or "auto"
-  beam_size: 5
-  compute_type: "float32"  # float32|float16|int8|int8_float16|int8_float32|auto
+  # Quality-first default for stronger local GPUs.
+  model: "large-v3"
+  device: "auto"          # auto | cuda | cpu
+  language: "auto"        # auto | ru | en
+  beam_size: 6
+  compute_type: "auto"    # auto | float32 | float16 | int8 | int8_float16 | int8_float32
 
 ollama:
   url: "http://127.0.0.1:11434/api/generate"
-  # Only these models are supported by default.
-  # Each one will run analysis into its own folder under output/.
-  models:
-    - "gemma3:4b"
-    - "gemma2:9b"
-    - "gemini-3-flash-preview:latest"
-  # Hard timeout per LLM call (per chunk). Keep this bounded to avoid multi-hour runs.
-  timeout: 240
-  temperature: 0.3
-  # Larger chunks = fewer LLM calls overall (usually faster end-to-end).
-  chunk_seconds: 1200
+  roles:
+    scout: "gemma4:e4b"
+    cleanup: "gemma3:4b"
+    refine: "gemma3:12b"
+    judge: "gemma4:26b"
+    metadata: "gemma4:26b"
+  timeout: 420
+  temperature: 0.2
+  chunk_seconds: 900
   max_chars_chunk: 12000
-  # Watchdog: detects stalls/very slow generation and retries.
   watchdog:
     enabled: true
-    first_token_timeout: 45   # seconds without any output
-    stall_timeout: 60         # seconds without output during streaming
-    log_interval: 10          # progress heartbeat interval (sec)
-    max_retries: 0
-  # Optional: try these models in order if the current model stalls.
+    first_token_timeout: 60
+    stall_timeout: 90
+    log_interval: 10
+    max_retries: 1
   fallback_models: []
 
-  # Per-model overrides to keep gemma3/gemini3 fast, while allowing heavier/slower
-  # models enough warmup time to start generating.
-  model_overrides:
-    qwen3:latest:
+  # Role-specific overrides. Keep the default flow local, predictable, and fast.
+  role_overrides:
+    scout:
+      timeout: 360
+      chunk_seconds: 1200
+      temperature: 0.35
+    cleanup:
+      timeout: 240
+      temperature: 0.12
+    refine:
+      timeout: 360
+      temperature: 0.15
+    judge:
       timeout: 420
-      chunk_seconds: 600
-      max_chars_chunk: 6000
-      watchdog:
-        first_token_timeout: 120
-        stall_timeout: 90
-        max_retries: 0
-    deepseek-r1:8b:
-      timeout: 900
-      chunk_seconds: 600
-      watchdog:
-        first_token_timeout: 180
-        stall_timeout: 120
-        max_retries: 1
-    gemma2:9b:
-      timeout: 300
-      chunk_seconds: 600
-      max_chars_chunk: 4000
-      watchdog:
-        first_token_timeout: 75
-        stall_timeout: 90
-        max_retries: 0
+      temperature: 0.05
+    metadata:
+      timeout: 240
+      temperature: 0.10
+
+  # Legacy compatibility only. Prefer role_overrides above.
+  model_overrides: {}
 
 prompts:
-  language: "ru"          # ru|en
-  variant: "default"      # A/B testing: default|a|b
+  language: "auto"        # auto | ru | en
+  variant: "default"      # default | a | b
 
 processing:
-  # Quality Filters: reject bad clips into `rejected/` folder
   quality_filters:
-    min_score: 7          # Out of 10, discard if LLM gave a lower score
-    min_duration: 15      # Discard if clip is shorter than 15s
-    max_duration: 180     # Discard if clip is longer than 180s
-    face_min_ratio: 0.3   # Discard if face is detected in less than 30% of sampled frames
+    min_score: 7
+    min_duration: 15
+    max_duration: 180
+    face_min_ratio: 0.3
 
-  # Counts and duration limits for different clip types
   clips:
     stories:
       count: 2
@@ -96,13 +90,13 @@ processing:
       count: 1
       max_duration: 180
     highlights:
-      count: 1           # Number of highlight videos to create (usually 1)
-      moments_count: 5    # Number of hot moments inside the highlights video
+      count: 1
+      moments_count: 5
 
-  reels_count: 4          # [Legacy/Default] Total number of clips if 'clips' is not used
-  reel_min_duration: 30    # Minimum reel length (seconds)
-  reel_max_duration: 60    # Maximum reel length (seconds)
-  reel_padding: 5         # Extra seconds around the moment (5s before + 5s after)
+  reels_count: 3
+  reel_min_duration: 30
+  reel_max_duration: 60
+  reel_padding: 5
 
 exports:
   webm: false
@@ -110,28 +104,27 @@ exports:
   audio_only: false
 
 subtitles:
-  enabled: false
+  enabled: true
   font: "assets/fonts/bignoodletoooblique.ttf"
   css: "assets/subtitles/forge_subtitles.css"
-  font_size_px: 42
+  font_size_px: 46
   wrap_words: true
   max_lines: 2
-  max_width_ratio: 1
+  max_width_ratio: 0.92
   vertical_align: "bottom"
   vertical_offset: 0.0
+
 video:
   threads: 4
-  vertical_crop: true      # Crop 16:9 to 9:16 automatically
-  smart_crop_face: true    # NEW: Detect faces and center them
-  video_bitrate: "5M"
+  vertical_crop: true
+  smart_crop_face: true
+  video_bitrate: "6M"
   audio_bitrate: "192k"
   preset: "fast"
   use_nvenc: true
-  face_samples: 7          # Accuracy vs speed (more samples = slower)
-  face_min_size: 60        # Min pixels for a face to be considered valid
+  face_samples: 9
+  face_min_size: 72
 
 diarization:
   enabled: false
-  # Requires optional deps and a token for pyannote model downloads.
-  # Set PYANNOTE_TOKEN env var when enabled.
   model: "pyannote/speaker-diarization"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -36,8 +37,11 @@ class TranscribeConfig:
     language: str
     beam_size: int
     compute_type: str | None
-    quiet: bool
-    verbose: bool
+    word_timestamps: bool = True
+    vad_filter: bool = True
+    condition_on_previous_text: bool = True
+    quiet: bool = False
+    verbose: bool = False
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -66,9 +70,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--device",
-        choices=("cuda", "cpu"),
-        default="cuda",
-        help="Run inference on CUDA when available.",
+        choices=("cuda", "cpu", "auto"),
+        default="auto",
+        help="Run inference on CUDA when available, otherwise CPU.",
     )
     parser.add_argument(
         "--language",
@@ -83,7 +87,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--compute-type",
-        choices=("float32", "float16", "int8", "int8_float16", "int8_float32"),
+        choices=("auto", "float32", "float16", "int8", "int8_float16", "int8_float32"),
         help=(
             "Override compute_type passed to faster-whisper. "
             "Default: int8_float16 on older GPUs, float16 on newer CUDA GPUs, float32 on CPU."
@@ -99,7 +103,12 @@ def resolve_device(requested: str) -> str:
 
     EN: Resolve requested device to an actually available device.
     """
-    if requested == "cuda":
+    req = str(requested).strip().lower()
+    if req == "auto":
+        if torch is not None and torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+    if req == "cuda":
         if torch is None:
             LOGGER.warning("CUDA support requested but torch is not installed; using CPU")
         elif torch.cuda.is_available():
@@ -118,13 +127,15 @@ def _default_compute_type(resolved_device: str) -> str:
     except (RuntimeError, AttributeError):
         return "float32"
     if major < CUDA_MAJOR_FLOAT16_THRESHOLD:
-        return "float32"
+        return "int8_float16"
     return "float16"
 
 
 def _select_compute_type(resolved_device: str, requested: str | None) -> str:
     """Return explicit compute type or fall back to default."""
     if requested:
+        if str(requested).strip().lower() == "auto":
+            return _default_compute_type(resolved_device)
         return requested
     return _default_compute_type(resolved_device)
 
@@ -132,6 +143,35 @@ def _select_compute_type(resolved_device: str, requested: str | None) -> str:
 def _load_model(model_name: str, resolved_device: str, compute_type: str) -> WhisperModel:
     """Load the Whisper model with chosen device and compute type."""
     return WhisperModel(model_name, device=resolved_device, compute_type=compute_type)
+
+
+def _transcribe_with_optional_kwargs(
+    model: WhisperModel,
+    input_path: Path,
+    *,
+    language: str | None,
+    beam_size: int,
+    word_timestamps: bool,
+    vad_filter: bool,
+    condition_on_previous_text: bool,
+) -> tuple[Any, Any]:
+    """Call faster-whisper with optional quality flags and graceful fallback."""
+
+    kwargs: dict[str, Any] = {
+        "language": language,
+        "beam_size": beam_size,
+        "word_timestamps": word_timestamps,
+        "vad_filter": vad_filter,
+        "condition_on_previous_text": condition_on_previous_text,
+    }
+    try:
+        return model.transcribe(str(input_path), **kwargs)
+    except TypeError:
+        return model.transcribe(
+            str(input_path),
+            language=language,
+            beam_size=beam_size,
+        )
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
@@ -174,6 +214,68 @@ def _dump_srt_output(srt_path: Path, segments: list[dict[str, Any]]) -> None:
 
     with srt_path.open("w", encoding="utf-8") as f:
         f.write("\n".join(lines).rstrip() + "\n")
+
+
+def _word_to_dict(word: Any) -> dict[str, Any]:
+    probability = getattr(word, "probability", None)
+    if isinstance(probability, (int, float)):
+        probability_value: float | None = round(float(probability), 3)
+    else:
+        probability_value = None
+    return {
+        "start": round(float(getattr(word, "start", 0.0)), 3),
+        "end": round(float(getattr(word, "end", 0.0)), 3),
+        "word": str(getattr(word, "word", getattr(word, "text", ""))).strip(),
+        "probability": probability_value,
+    }
+
+
+def _segment_confidence(segment: Any) -> float | None:
+    avg_logprob = getattr(segment, "avg_logprob", None)
+    if not isinstance(avg_logprob, (int, float)):
+        return None
+    try:
+        # Convert rough average log-probability into a bounded confidence score.
+        score = 1.0 + float(avg_logprob)
+    except (TypeError, ValueError):
+        return None
+    return round(max(0.0, min(1.0, score)), 3)
+
+
+def _build_sentence_groups(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build sentence-like groups from the transcript segments."""
+
+    sentences: list[dict[str, Any]] = []
+    current: list[dict[str, Any]] = []
+
+    def flush() -> None:
+        if not current:
+            return
+        text = " ".join(str(item.get("text", "")).strip() for item in current).strip()
+        if not text:
+            current.clear()
+            return
+        sentences.append(
+            {
+                "start": round(float(current[0].get("start", 0.0)), 3),
+                "end": round(float(current[-1].get("end", 0.0)), 3),
+                "text": text,
+                "speaker": current[0].get("speaker") or "",
+                "segment_count": len(current),
+            },
+        )
+        current.clear()
+
+    for segment in segments:
+        text = str(segment.get("text", "")).strip()
+        if not text:
+            continue
+        current.append(segment)
+        if re.search(r"[.!?…！？]$", text) or len(" ".join(item["text"] for item in current)) >= 140:
+            flush()
+
+    flush()
+    return sentences
 
 
 def transcribe_file(config: TranscribeConfig) -> Path:
@@ -250,10 +352,14 @@ def transcribe_file(config: TranscribeConfig) -> Path:
             LOGGER.info("[transcribe] input=%s", config.input_path)
 
         try:
-            segments, info = model.transcribe(
-                str(config.input_path),
+            segments, info = _transcribe_with_optional_kwargs(
+                model,
+                config.input_path,
                 language=lang,
                 beam_size=config.beam_size,
+                word_timestamps=bool(config.word_timestamps),
+                vad_filter=bool(config.vad_filter),
+                condition_on_previous_text=bool(config.condition_on_previous_text),
             )
         except RuntimeError as exc:
             # RU: Если OOM произошёл во время инференса — деградируем и повторяем 1 раз.
@@ -267,29 +373,71 @@ def transcribe_file(config: TranscribeConfig) -> Path:
                 resolved_device = "cpu"
                 compute_type = "float32"
                 model = _load_model(config.model_name, resolved_device, compute_type)
-                segments, info = model.transcribe(
-                    str(config.input_path),
+                segments, info = _transcribe_with_optional_kwargs(
+                    model,
+                    config.input_path,
                     language=lang,
                     beam_size=config.beam_size,
+                    word_timestamps=bool(config.word_timestamps),
+                    vad_filter=bool(config.vad_filter),
+                    condition_on_previous_text=bool(config.condition_on_previous_text),
                 )
             else:
                 raise
 
+        segments_list = list(segments)
+        segment_dicts: list[dict[str, Any]] = []
+        for seg in segments_list:
+            raw_words = getattr(seg, "words", None)
+            words = []
+            if isinstance(raw_words, (list, tuple)):
+                words = [
+                    _word_to_dict(word)
+                    for word in raw_words
+                    if str(getattr(word, "word", getattr(word, "text", ""))).strip()
+                ]
+            speaker_raw = getattr(seg, "speaker", None)
+            speaker = speaker_raw if isinstance(speaker_raw, str) and speaker_raw.strip() else None
+            avg_logprob = getattr(seg, "avg_logprob", None)
+            segment_dicts.append(
+                {
+                    "start": round(float(seg.start), 3),
+                    "end": round(float(seg.end), 3),
+                    "text": str(seg.text).strip(),
+                    "confidence": _segment_confidence(seg),
+                    "avg_logprob": (
+                        round(float(avg_logprob), 3)
+                        if isinstance(avg_logprob, (int, float))
+                        else None
+                    ),
+                    "speaker": speaker,
+                    "words": words,
+                },
+            )
+
+        sentences = _build_sentence_groups(segment_dicts)
+        language_confidence = getattr(info, "language_probability", None)
+        try:
+            language_confidence = (
+                round(float(language_confidence), 3)
+                if language_confidence is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            language_confidence = None
+
         output = {
             "audio": str(config.input_path.resolve()),
+            "source_audio": str(config.input_path.resolve()),
             "model": config.model_name,
             "device": resolved_device,
             "compute_type": compute_type,
-            "language": info.language,
-            "duration": info.duration,
-            "segments": [
-                {
-                    "start": round(seg.start, 3),
-                    "end": round(seg.end, 3),
-                    "text": seg.text.strip(),
-                }
-                for seg in segments
-            ],
+            "language": getattr(info, "language", config.language),
+            "language_confidence": language_confidence,
+            "duration": getattr(info, "duration", None),
+            "timing_version": 2,
+            "segments": segment_dicts,
+            "sentences": sentences,
         }
 
         if config.outdir:

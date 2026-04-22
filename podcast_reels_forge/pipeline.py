@@ -34,12 +34,20 @@ except ImportError:  # pragma: no cover
         return iterable
 
 from podcast_reels_forge.utils.ollama_service import (
-    ENV_MANAGED_BY_PIPELINE,
     get_ollama_models,
     ollama_start,
     ollama_stop,
     parse_local_ollama_host_port,
     pull_ollama_model,
+)
+from podcast_reels_forge.config import (
+    normalize_model_folder_name,
+    resolve_ollama_role_mapping,
+)
+from podcast_reels_forge.stages.analyze_stage import run_staged_analysis
+from podcast_reels_forge.stages.transcribe_stage import (
+    TranscribeConfig,
+    transcribe_file,
 )
 from podcast_reels_forge.utils.burned_subtitles import (
     subtitle_settings_from_conf,
@@ -51,40 +59,9 @@ log = logging.getLogger("Forge")
 
 
 def _model_folder_name(model: str) -> str:
-    """Map a model id to a stable folder name.
+    """Backward-compatible wrapper around the shared folder-name helper."""
 
-    We keep folder names short and human-friendly.
-    """
-    m = (model or "").strip().lower()
-    if m.startswith("qwen3"):
-        return "qwen3"
-    if m.startswith("deepseek"):
-        return "deepseek"
-    if m.startswith("gemma3"):
-        return "gemma3"
-    if m.startswith("gemma2"):
-        return "gemma2"
-    if m.startswith("gemini-3"):
-        return "gemini3"
-    # Fallback: filesystem-safe-ish
-    out = []
-    for ch in m:
-        if ch.isalnum() or ch in ("-", "_"):
-            out.append(ch)
-        elif ch in (":", "/", ".", " "):
-            out.append("_")
-    name = "".join(out).strip("_")
-    return name or "model"
-
-
-def _get_allowed_models() -> set[str]:
-    return {
-        "qwen3:latest",
-        "deepseek-r1:8b",
-        "gemma3:4b",
-        "gemma2:9b",
-        "gemini-3-flash-preview:latest",
-    }
+    return normalize_model_folder_name(model)
 
 
 @dataclass(frozen=True)
@@ -392,26 +369,16 @@ def run_pipeline(
     diar_conf = conf.get("diarization", {})
     diar_enabled = bool(diar_conf.get("enabled", False))
     subtitle_settings = subtitle_settings_from_conf(conf, repo_dir=repo_dir)
-
-    # Determine analysis models.
     a_conf = conf.get("ollama", {})
-    models_raw = a_conf.get("models")
-    if isinstance(models_raw, list) and models_raw:
-        models = [str(m).strip() for m in models_raw if str(m).strip()]
-    else:
-        models = [str(a_conf.get("model", "qwen3:latest")).strip()]
+    prompts_conf = conf.get("prompts", {})
+    p_conf = conf.get("processing", {})
+    v_conf = conf.get("video", {})
+    exports_conf = conf.get("exports", {})
 
-    allowed = _get_allowed_models()
-    unknown = [m for m in models if m not in allowed]
-    if unknown:
-        raise SystemExit(
-            "Unsupported models in config. Allowed: "
-            + ", ".join(sorted(allowed))
-            + "; got: "
-            + ", ".join(unknown),
-        )
+    roles = resolve_ollama_role_mapping(conf)
+    final_model_folder = _model_folder_name(roles.judge)
 
-    stages_per_file = 1 + (1 if diar_enabled else 0) + 2 * len(models)
+    stages_per_file = 1 + (1 if diar_enabled else 0) + 2
     total_stages = len(queue) * stages_per_file
     stage_iter = iter(
         tqdm(
@@ -432,6 +399,7 @@ def run_pipeline(
             output_dir=base_output_dir / stem,
         )
         os.makedirs(io.output_dir, exist_ok=True)
+        analysis_model_folder = io.output_dir / final_model_folder
 
         status(f"\n[forge] processing: {stem}", quiet=quiet)
         status(f"[forge] video: {video_path.name}", quiet=quiet)
@@ -454,47 +422,31 @@ def run_pipeline(
             status("[transcribe] skip (exists)", quiet=quiet)
         else:
             status("[transcribe] start", quiet=quiet)
-            transcribe_args = [
-                "--input",
-                str(target_audio),
-                "--outdir",
-                str(io.output_dir),
-                "--model",
-                str(t_conf.get("model", "small")),
-                "--device",
-                str(t_conf.get("device", "cuda")),
-                "--language",
-                str(t_conf.get("language", "ru")),
-                "--beam-size",
-                str(t_conf.get("beam_size", 5)),
-            ]
+            device_raw = str(t_conf.get("device", "cuda")).strip().lower()
+            if device_raw == "auto":
+                device_raw = "cuda" if _has_cuda() else "cpu"
+            if autotune and device_raw == "auto":
+                device_raw = "cuda" if _has_cuda() else "cpu"
 
             compute_type_raw = t_conf.get("compute_type")
             compute_type = None
             if isinstance(compute_type_raw, str) and compute_type_raw.strip():
                 compute_type = compute_type_raw.strip()
+                if autotune and compute_type.lower() == "auto":
+                    compute_type = None
 
-            device_raw = str(t_conf.get("device", "cuda")).strip().lower()
-            if autotune and device_raw == "auto":
-                transcribe_args[transcribe_args.index("--device") + 1] = (
-                    "cuda" if _has_cuda() else "cpu"
-                )
-
-            if autotune and compute_type and compute_type.lower() == "auto":
-                compute_type = None
-            if compute_type and compute_type.lower() != "auto":
-                transcribe_args += ["--compute-type", compute_type]
-
-            if quiet:
-                transcribe_args.append("--quiet")
-            if verbose:
-                transcribe_args.append("--verbose")
-            run_module(
-                "podcast_reels_forge.scripts.transcribe",
-                transcribe_args,
+            transcribe_config = TranscribeConfig(
+                input_path=target_audio,
+                outdir=io.output_dir,
+                model_name=str(t_conf.get("model", "large-v3")),
+                device=device_raw,
+                language=str(t_conf.get("language", "ru")),
+                beam_size=int(t_conf.get("beam_size", 5)),
+                compute_type=compute_type,
                 quiet=quiet,
                 verbose=verbose,
             )
+            transcript_path = transcribe_file(transcribe_config)
             status("[transcribe] done", quiet=quiet)
 
         try:
@@ -534,16 +486,11 @@ def run_pipeline(
             except StopIteration:
                 pass
 
-        # 3) Analyze (all models)
-        prompts_conf = conf.get("prompts", {})
-        p_conf = conf.get("processing", {})
-        clips_conf = p_conf.get("clips", {})
+        # 3) Analyze (staged, single final output folder)
         url = str(a_conf.get("url", "http://127.0.0.1:11434/api/generate")).strip()
-        env: dict[str, str] = {}
         ollama_proc: subprocess.Popen | None = None
         local_ollama = parse_local_ollama_host_port(str(url))
         if local_ollama:
-            env[ENV_MANAGED_BY_PIPELINE] = "1"
             host, port = local_ollama
             ollama_proc = ollama_start(host=host, port=port)
 
@@ -551,12 +498,7 @@ def run_pipeline(
         if "ollama" in str(url).lower():
             try:
                 available = get_ollama_models(url)
-                # Normalize available names (ollama often appends :latest)
-                for model in models:
-                    # Skip cloud/non-ollama models that might be in the list by mistake
-                    if "gemini" in model.lower() or "claude" in model.lower() or "gpt-" in model.lower():
-                        continue
-                    
+                for model in roles.unique_models():
                     if model not in available and f"{model}:latest" not in available:
                         status(f"[ollama] model '{model}' not found, pulling...", quiet=quiet)
                         pull_ollama_model(url, model)
@@ -564,292 +506,182 @@ def run_pipeline(
                 log.warning("Could not verify/pull Ollama models: %s", e)
 
         try:
-            for i, model in enumerate(models, 1):
-                model_a_conf = _merge_ollama_conf(a_conf, model)
-                model_dir = io.output_dir / _model_folder_name(model)
-                model_dir.mkdir(parents=True, exist_ok=True)
-                moments_path = model_dir / "moments.json"
-                reels_md_path = model_dir / "reels.md"
+            analysis_model_folder.mkdir(parents=True, exist_ok=True)
+            moments_path = analysis_model_folder / "moments.json"
+            reels_md_path = analysis_model_folder / "reels.md"
 
-                if skip_existing and _outputs_ready(
-                    [moments_path, reels_md_path],
-                    validate_json=validate_json,
-                ):
-                    status(
-                        f"[analyze] skip ({_model_folder_name(model)})",
-                        quiet=quiet,
-                    )
-                else:
-                    status(
-                        f"[analyze] start ({_model_folder_name(model)})",
-                        quiet=quiet,
-                    )
-
-                    analyze_args = [
-                        "--transcript",
-                        str(transcript_path),
-                        "--outdir",
-                        str(model_dir),
-                        "--provider",
-                        "ollama",
-                        "--model",
-                        str(model),
-                        "--temperature",
-                        str(model_a_conf.get("temperature", 0.3)),
-                        "--reels",
-                        str(p_conf.get("reels_count", 4)),
-                        "--stories-count",
-                        str(clips_conf.get("stories", {}).get("count", 0)),
-                        "--reels-count",
-                        str(clips_conf.get("reels", {}).get("count", 0)),
-                        "--long-reels-count",
-                        str(clips_conf.get("long_reels", {}).get("count", 0)),
-                        "--highlights-moments",
-                        str(clips_conf.get("highlights", {}).get("moments_count", 0)),
-                        "--reel-min",
-                        str(p_conf.get("reel_min_duration", 30)),
-                        "--reel-max",
-                        str(p_conf.get("reel_max_duration", 60)),
-                        "--chunk-seconds",
-                        str(model_a_conf.get("chunk_seconds", 600)),
-                        "--max_chars_chunk",
-                        str(model_a_conf.get("max_chars_chunk", 12000)),
-                        "--timeout",
-                        str(model_a_conf.get("timeout", 900)),
-                        "--prompt-lang",
-                        str(prompts_conf.get("language", "auto")),
-                        "--prompt-variant",
-                        _prompt_variant_for_model(prompts_conf, model),
-                        "--url",
-                        str(url),
-                    ]
-
-                    # Optional Ollama watchdog / fallback controls
-                    wd = model_a_conf.get("watchdog", {})
-                    if isinstance(wd, dict):
-                        if "enabled" in wd:
-                            if bool(wd.get("enabled")):
-                                analyze_args.append("--ollama-watchdog")
-                            else:
-                                analyze_args.append("--no-ollama-watchdog")
-                        if wd.get("first_token_timeout") is not None:
-                            analyze_args += [
-                                "--ollama-first-token-timeout",
-                                str(wd.get("first_token_timeout")),
-                            ]
-                        if wd.get("stall_timeout") is not None:
-                            analyze_args += [
-                                "--ollama-stall-timeout",
-                                str(wd.get("stall_timeout")),
-                            ]
-                        if wd.get("log_interval") is not None:
-                            analyze_args += [
-                                "--ollama-log-interval",
-                                str(wd.get("log_interval")),
-                            ]
-                        if wd.get("max_retries") is not None:
-                            analyze_args += [
-                                "--ollama-max-retries",
-                                str(wd.get("max_retries")),
-                            ]
-
-                    fb = model_a_conf.get("fallback_models", [])
-                    if isinstance(fb, list):
-                        for m in fb:
-                            ms = str(m).strip()
-                            if ms:
-                                analyze_args += ["--ollama-fallback-model", ms]
-
-                    if diar_enabled and diar_path.exists():
-                        analyze_args += ["--diarization", str(diar_path)]
-                    if quiet:
-                        analyze_args.append("--quiet")
-                    if verbose:
-                        analyze_args.append("--verbose")
-
-                    if autotune:
-                        # Autotune for slow local models: fewer calls + smaller prompts.
-                        try:
-                            reels = int(p_conf.get("reels_count", 4))
-                        except (TypeError, ValueError):
-                            reels = 4
-                        try:
-                            timeout_s = int(model_a_conf.get("timeout", 900))
-                        except (TypeError, ValueError):
-                            timeout_s = 900
-                        try:
-                            chunk_s = int(model_a_conf.get("chunk_seconds", 600))
-                        except (TypeError, ValueError):
-                            chunk_s = 600
-                        try:
-                            max_chars = int(model_a_conf.get("max_chars_chunk", 12000))
-                        except (TypeError, ValueError):
-                            max_chars = 12000
-
-                        chunk_s = max(chunk_s, 1800)
-                        max_chars = min(max_chars, 6000)
-                        reels = min(reels, 2)
-                        timeout_s = min(timeout_s, 300)
-
-                        _set_cli_arg(analyze_args, "--chunk-seconds", str(chunk_s))
-                        _set_cli_arg(analyze_args, "--max_chars_chunk", str(max_chars))
-                        _set_cli_arg(analyze_args, "--reels", str(reels))
-                        _set_cli_arg(analyze_args, "--timeout", str(timeout_s))
-
-                    try:
-                        run_module(
-                            "podcast_reels_forge.scripts.analyze",
-                            analyze_args,
-                            quiet=quiet,
-                            verbose=verbose,
-                            env=env or None,
-                        )
-                        status(f"[analyze] done ({_model_folder_name(model)})", quiet=quiet)
-                        _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
-                    except SystemExit as exc:
-                        log.error(
-                            "Analyze failed; continuing. model=%s code=%s",
-                            model,
-                            exc,
-                        )
-                        _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
-                    except Exception as exc:
-                        log.exception(
-                            "Analyze raised exception; continuing. model=%s error=%s",
-                            model,
-                            exc,
-                        )
-                        _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
-                try:
-                    next(stage_iter)
-                except StopIteration:
-                    pass
-        finally:
-            if ollama_proc:
-                ollama_stop(ollama_proc)
-
-        # 4) Cut + exports (per model)
-        v_conf = conf.get("video", {})
-        exports_conf = conf.get("exports", {})
-
-        padding = int(p_conf.get("reel_padding", 5))
-        for i, model in enumerate(models, 1):
-            model_dir = io.output_dir / _model_folder_name(model)
-            moments_path = model_dir / "moments.json"
-            reels_dir = model_dir / "reels"
-            existing_reels = list(reels_dir.glob("reel_*.mp4")) if reels_dir.exists() else []
-
-            moments_data = _read_json_if_valid(moments_path)
-            if moments_data is None:
+            if skip_existing and _outputs_ready(
+                [moments_path, reels_md_path],
+                validate_json=validate_json,
+            ):
                 status(
-                    f"[cut] skip ({_model_folder_name(model)}): no moments",
-                    quiet=quiet,
-                )
-                try:
-                    next(stage_iter)
-                except StopIteration:
-                    pass
-                continue
-
-            skip_cut = skip_existing and bool(existing_reels)
-            if skip_cut:
-                status(
-                    f"[cut] skip ({_model_folder_name(model)}): exists",
+                    f"[analyze] skip ({final_model_folder})",
                     quiet=quiet,
                 )
             else:
                 status(
-                    f"[cut] start ({_model_folder_name(model)})",
+                    f"[analyze] start ({final_model_folder})",
                     quiet=quiet,
                 )
-                video_args = [
-                    "--input",
-                    str(video_path),
-                    "--moments",
-                    str(moments_path),
-                    "--outdir",
-                    str(model_dir),
-                    "--threads",
-                    str(v_conf.get("threads", 4)),
-                    "--v-bitrate",
-                    str(v_conf.get("video_bitrate", "5M")),
-                    "--a-bitrate",
-                    str(v_conf.get("audio_bitrate", "192k")),
-                    "--preset",
-                    str(v_conf.get("preset", "fast")),
-                    "--padding",
-                    str(padding),
-                ]
-                if "use_nvenc" in v_conf and not bool(v_conf.get("use_nvenc")):
-                    video_args.append("--no-nvenc")
-                if v_conf.get("vertical_crop", True):
-                    video_args.append("--vertical")
-                if v_conf.get("smart_crop_face", True):
-                    video_args.append("--smart-crop-face")
-                    video_args += ["--face-samples", str(v_conf.get("face_samples", 7))]
-                    video_args += ["--face-min-size", str(v_conf.get("face_min_size", 60))]
-
-                q_conf = conf.get("processing", {}).get("quality_filters", {})
-                if "min_score" in q_conf:
-                    video_args += ["--filter-min-score", str(q_conf["min_score"])]
-                if "min_duration" in q_conf:
-                    video_args += ["--filter-min-duration", str(q_conf["min_duration"])]
-                if "max_duration" in q_conf:
-                    video_args += ["--filter-max-duration", str(q_conf["max_duration"])]
-                if "face_min_ratio" in q_conf:
-                    video_args += ["--filter-face-ratio", str(q_conf["face_min_ratio"])]
-
-                if exports_conf.get("webm", False):
-                    video_args.append("--export-webm")
-                if exports_conf.get("gif", False):
-                    video_args.append("--export-gif")
-                if exports_conf.get("audio_only", False):
-                    video_args.append("--export-audio")
-                if subtitle_settings.enabled:
-                    video_args.append("--burn-subtitles")
-                    video_args += ["--transcript-json", str(transcript_path)]
-                    video_args += ["--subtitle-font", str(subtitle_settings.font_path)]
-                    video_args += ["--subtitle-css", str(subtitle_settings.css_path)]
-                    if not subtitle_settings.wrap_words:
-                        video_args.append("--no-subtitle-wrap-words")
-                if quiet:
-                    video_args.append("--quiet")
-                if verbose:
-                    video_args.append("--verbose")
-
-                run_module(
-                    "podcast_reels_forge.scripts.video_processor",
-                    video_args,
-                    quiet=quiet,
-                    verbose=verbose,
-                )
-                status(f"[cut] done ({_model_folder_name(model)})", quiet=quiet)
-
-            if isinstance(moments_data, list):
                 try:
-                    sync_reel_markdowns(
-                        [m for m in moments_data if isinstance(m, dict)],
-                        reels_dir,
+                    final_moments = run_staged_analysis(
+                        transcript_path=transcript_path,
+                        outdir=analysis_model_folder,
+                        provider_name="ollama",
+                        url=url,
+                        api_key=None,
+                        roles=roles,
+                        ollama_conf=a_conf,
+                        prompts_conf=prompts_conf,
+                        processing_conf=p_conf,
+                        diarization_path=diar_path if diar_enabled and diar_path.exists() else None,
+                        quiet=quiet,
+                        verbose=verbose,
+                        progress=progress,
                     )
-                except OSError as exc:
-                    log.warning(
-                        "Failed to write reel markdowns for %s: %s",
-                        _model_folder_name(model),
+                    status(
+                        f"[analyze] done ({final_model_folder}, moments={len(final_moments)})",
+                        quiet=quiet,
+                    )
+                except SystemExit as exc:
+                    log.error(
+                        "Analyze failed; continuing. folder=%s code=%s",
+                        final_model_folder,
                         exc,
                     )
-                if subtitle_settings.enabled and skip_cut:
-                    sync_reel_burned_subtitles(
-                        [m for m in moments_data if isinstance(m, dict)],
-                        reels_dir,
-                        transcript_json_path=transcript_path,
-                        padding=padding,
-                        settings=subtitle_settings,
-                        verbose=verbose and not quiet,
+                    _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
+                except Exception as exc:
+                    log.exception(
+                        "Analyze raised exception; continuing. folder=%s error=%s",
+                        final_model_folder,
+                        exc,
                     )
-
+                    _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
+                else:
+                    _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
             try:
                 next(stage_iter)
             except StopIteration:
                 pass
+        finally:
+            if ollama_proc:
+                ollama_stop(ollama_proc)
+
+        # 4) Cut + exports (single final output)
+        padding = int(p_conf.get("reel_padding", 5))
+        reels_dir = analysis_model_folder / "reels"
+        moments_data = _read_json_if_valid(moments_path)
+        if moments_data is None:
+            status(
+                f"[cut] skip ({final_model_folder}): no moments",
+                quiet=quiet,
+            )
+            try:
+                next(stage_iter)
+            except StopIteration:
+                pass
+            continue
+
+        existing_reels = list(reels_dir.glob("reel_*.mp4")) if reels_dir.exists() else []
+        skip_cut = skip_existing and bool(existing_reels)
+        if skip_cut:
+            status(
+                f"[cut] skip ({final_model_folder}): exists",
+                quiet=quiet,
+            )
+        else:
+            status(
+                f"[cut] start ({final_model_folder})",
+                quiet=quiet,
+            )
+            video_args = [
+                "--input",
+                str(video_path),
+                "--moments",
+                str(moments_path),
+                "--outdir",
+                str(analysis_model_folder),
+                "--threads",
+                str(v_conf.get("threads", 4)),
+                "--v-bitrate",
+                str(v_conf.get("video_bitrate", "5M")),
+                "--a-bitrate",
+                str(v_conf.get("audio_bitrate", "192k")),
+                "--preset",
+                str(v_conf.get("preset", "fast")),
+                "--padding",
+                str(padding),
+            ]
+            if "use_nvenc" in v_conf and not bool(v_conf.get("use_nvenc")):
+                video_args.append("--no-nvenc")
+            if v_conf.get("vertical_crop", True):
+                video_args.append("--vertical")
+            if v_conf.get("smart_crop_face", True):
+                video_args.append("--smart-crop-face")
+                video_args += ["--face-samples", str(v_conf.get("face_samples", 7))]
+                video_args += ["--face-min-size", str(v_conf.get("face_min_size", 60))]
+
+            q_conf = conf.get("processing", {}).get("quality_filters", {})
+            if "min_score" in q_conf:
+                video_args += ["--filter-min-score", str(q_conf["min_score"])]
+            if "min_duration" in q_conf:
+                video_args += ["--filter-min-duration", str(q_conf["min_duration"])]
+            if "max_duration" in q_conf:
+                video_args += ["--filter-max-duration", str(q_conf["max_duration"])]
+            if "face_min_ratio" in q_conf:
+                video_args += ["--filter-face-ratio", str(q_conf["face_min_ratio"])]
+
+            if exports_conf.get("webm", False):
+                video_args.append("--export-webm")
+            if exports_conf.get("gif", False):
+                video_args.append("--export-gif")
+            if exports_conf.get("audio_only", False):
+                video_args.append("--export-audio")
+            if subtitle_settings.enabled:
+                video_args.append("--burn-subtitles")
+                video_args += ["--transcript-json", str(transcript_path)]
+                video_args += ["--subtitle-font", str(subtitle_settings.font_path)]
+                video_args += ["--subtitle-css", str(subtitle_settings.css_path)]
+                if not subtitle_settings.wrap_words:
+                    video_args.append("--no-subtitle-wrap-words")
+            if quiet:
+                video_args.append("--quiet")
+            if verbose:
+                video_args.append("--verbose")
+
+            run_module(
+                "podcast_reels_forge.scripts.video_processor",
+                video_args,
+                quiet=quiet,
+                verbose=verbose,
+            )
+            status(f"[cut] done ({final_model_folder})", quiet=quiet)
+
+        if isinstance(moments_data, list):
+            try:
+                sync_reel_markdowns(
+                    [m for m in moments_data if isinstance(m, dict)],
+                    reels_dir,
+                )
+            except OSError as exc:
+                log.warning(
+                    "Failed to write reel markdowns for %s: %s",
+                    final_model_folder,
+                    exc,
+                )
+            if subtitle_settings.enabled and skip_cut:
+                sync_reel_burned_subtitles(
+                    [m for m in moments_data if isinstance(m, dict)],
+                    reels_dir,
+                    transcript_json_path=transcript_path,
+                    padding=padding,
+                    settings=subtitle_settings,
+                    verbose=verbose and not quiet,
+                )
+
+        try:
+            next(stage_iter)
+        except StopIteration:
+            pass
 
     status("[forge] done", quiet=quiet)

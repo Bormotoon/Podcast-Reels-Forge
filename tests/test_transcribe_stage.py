@@ -39,8 +39,8 @@ def test_select_compute_type_default_new_gpu(mock_torch: MagicMock) -> None:
 @patch("podcast_reels_forge.stages.transcribe_stage.torch")
 def test_select_compute_type_default_old_gpu(mock_torch: MagicMock) -> None:
     mock_torch.cuda.get_device_capability.return_value = (6, 1)
-    # 6 < 7 so float32
-    assert _select_compute_type("cuda", None) == "float32"
+    # Older CUDA now prefers the safer mixed-precision path.
+    assert _select_compute_type("cuda", None) == "int8_float16"
 
 
 @patch("podcast_reels_forge.stages.transcribe_stage.WhisperModel")
