@@ -1,295 +1,210 @@
 #!/usr/bin/env python3
-"""Test multiple Ollama models with simple direct prompt."""
+"""Gemma-only Ollama benchmark for transcript moment extraction."""
+
+from __future__ import annotations
 
 import argparse
 import json
+import re
 import time
 from pathlib import Path
+from typing import Any
 
 import requests
 
 MODELS = [
-    "qwen3:latest",
-    "deepseek-r1:8b",
+    "gemma4:e4b",
     "gemma3:4b",
-    "gemma2:9b",
-    "gemini-3-flash-preview:latest",
+    "gemma3:12b",
+    "gemma4:26b",
 ]
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-OLLAMA_CHAT_URL = "http://127.0.0.1:11434/api/chat"
 TARGET_MOMENTS = 5
-MAX_PASSES = 4
-
-# Models that tend to drift into commentary; force JSON output when possible.
-JSON_MODELS = {
-    "gemma3:4b",
-}
+MAX_PASSES = 3
+MAX_PROMPT_CHARS = 18000
+DEFAULT_TRANSCRIPT = Path(__file__).resolve().parents[2] / "output" / "audio.json"
+DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[2] / "anal"
 
 
-def load_transcript(path: str) -> list[dict]:
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    return data.get("segments", [])
+def load_transcript(path: Path) -> list[dict[str, Any]]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    segments = data.get("segments", [])
+    if not isinstance(segments, list):
+        return []
+    return [segment for segment in segments if isinstance(segment, dict)]
 
 
-def segments_to_lines(segments: list[dict]) -> list[str]:
-    lines: list[str] = []
+def valid_segment_rows(segments: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
+    rows: list[tuple[str, dict[str, Any]]] = []
     for seg in segments:
-        start = int(seg.get("start", 0))
-        end = int(seg.get("end", 0))
-        text = (seg.get("text") or "").strip()
+        try:
+            start = int(float(seg.get("start", 0)))
+            end = int(float(seg.get("end", 0)))
+        except (TypeError, ValueError):
+            continue
+        text = str(seg.get("text", "")).strip()
         if text:
-            lines.append(f"[{start}-{end}] {text}")
-    return lines
+            rows.append((f"[{start}-{end}] {text}", seg))
+    return rows
 
 
-def prepare_transcript_for_model(model: str, segments: list[dict]) -> tuple[str, set[int], set[int]]:
-    """Return transcript text and allowed start/end timestamps for the portion included.
+def prepare_transcript(segments: list[dict[str, Any]]) -> tuple[str, set[int], set[int]]:
+    rows = valid_segment_rows(segments)
+    if not rows:
+        return "", set(), set()
 
-    Some models (notably qwen3/deepseek) can produce empty output on very long prompts.
-    We keep them on a smaller window while still enabling 30–90s spans.
-    """
-    if model.startswith("gemini-"):
-        max_chars = 45000
-    elif model.startswith("qwen3"):
-        max_chars = 8000
-    elif model.startswith("qwen3") or model.startswith("deepseek-"):
-        max_chars = 14000
-    else:
-        max_chars = 30000
+    lines = [line for line, _segment in rows]
+    total_len = sum(len(line) + 1 for line in lines)
+    if total_len <= MAX_PROMPT_CHARS:
+        allowed_starts = {int(float(seg.get("start", 0))) for _line, seg in rows}
+        allowed_ends = {int(float(seg.get("end", 0))) for _line, seg in rows}
+        return "\n".join(lines), allowed_starts, allowed_ends
 
-    lines = segments_to_lines(segments)
+    n = len(lines)
+    window = max(1, n // 4)
+    ranges = [
+        (0, min(n, window)),
+        (max(0, n // 2 - window // 2), min(n, n // 2 + window // 2)),
+        (max(0, n - window), n),
+    ]
 
-    def clamp(n: int, lo: int, hi: int) -> int:
-        return max(lo, min(hi, n))
+    picked_indices: list[int] = []
+    for start, end in ranges:
+        picked_indices.extend(range(start, end))
 
-    # Determine which segment timestamps are actually in the prompt window.
-    # For some models, sample the transcript across the timeline to avoid
-    # returning 5 moments from the same ~30 seconds.
-    if model.startswith("qwen3") or model.startswith("deepseek-"):
-        n = len(segments)
-        slice_size = 40 if model.startswith("qwen3") else 60
-        mid = n // 2
-        ranges = [
-            (0, clamp(slice_size, 0, n)),
-            (clamp(mid - slice_size // 2, 0, n), clamp(mid + slice_size // 2, 0, n)),
-            (clamp(n - slice_size, 0, n), n),
-        ]
+    seen: set[int] = set()
+    sampled_lines: list[str] = []
+    used_segments: list[dict[str, Any]] = []
+    total = 0
+    for idx in picked_indices:
+        if idx in seen:
+            continue
+        seen.add(idx)
+        line = lines[idx]
+        projected = total + len(line) + 1
+        if projected > MAX_PROMPT_CHARS:
+            break
+        sampled_lines.append(line)
+        used_segments.append(rows[idx][1])
+        total = projected
 
-        picked_idx: list[int] = []
-        for a, b in ranges:
-            picked_idx.extend(range(a, b))
-
-        # De-dupe while preserving order
-        seen: set[int] = set()
-        deduped = []
-        for i in picked_idx:
-            if i not in seen:
-                seen.add(i)
-                deduped.append(i)
-        picked_idx = deduped
-
-        out_lines = []
-        used_segments: list[dict] = []
-        total = 0
-        for i in picked_idx:
-            line = lines[i]
-            total += len(line) + 1
-            if total > max_chars:
-                break
-            out_lines.append(line)
-            used_segments.append(segments[i])
-    else:
-        out_lines = []
-        total = 0
-        for line, seg in zip(lines, segments, strict=False):
-            total += len(line) + 1
-            if total > max_chars:
-                break
-            out_lines.append(line)
-        used_segments = segments[: len(out_lines)]
-
-    allowed_starts = {int(s.get("start", 0)) for s in used_segments}
-    allowed_ends = {int(s.get("end", 0)) for s in used_segments}
-    return "\n".join(out_lines), allowed_starts, allowed_ends
+    allowed_starts = {int(float(s.get("start", 0))) for s in used_segments}
+    allowed_ends = {int(float(s.get("end", 0))) for s in used_segments}
+    return "\n".join(sampled_lines), allowed_starts, allowed_ends
 
 
-def get_prompt(model: str, transcript: str, *, already_selected: list[dict] | None = None, pass_index: int = 1) -> str:
+def build_prompt(
+    transcript: str,
+    *,
+    already_selected: list[dict[str, Any]] | None = None,
+    pass_index: int = 1,
+) -> str:
     selected_ranges = ""
     if already_selected:
         ranges = []
-        for m in already_selected:
+        for item in already_selected:
             try:
-                ranges.append(f"[{int(m.get('start', -1))}-{int(m.get('end', -1))}]")
+                ranges.append(f"[{int(item.get('start', -1))}-{int(item.get('end', -1))}]")
             except (TypeError, ValueError):
                 continue
         if ranges:
-            selected_ranges = "\nУЖЕ ВЫБРАНО (НЕ ПОВТОРЯТЬ И НЕ ПЕРЕСЕКАТЬСЯ): " + ", ".join(ranges) + "\n"
+            selected_ranges = "\nУЖЕ ВЫБРАНО (НЕ ПОВТОРЯТЬ И НЕ ПЕРЕСЕКАТЬСЯ): " + ", ".join(ranges)
 
-    if model.startswith("gemini-"):
-        return f"""Ты — редактор коротких вертикальных роликов.
-Задача: по транскрипту подкаста выбрать 5 самых вирусных моментов для TikTok/Reels.
-
-Формат транскрипта: [начало-конец] текст (секунды)
-
-ТРАНСКРИПТ:
-{transcript}
-
-ТРЕБОВАНИЯ К ВЫВОДУ:
-- Верни ТОЛЬКО JSON массив (без markdown/код-блоков/пояснений).
-- Каждая строка должна быть валидным JSON (без переносов строк внутри строковых значений).
-- Ровно 5 объектов.
-- start/end должны совпадать с таймкодами из транскрипта.
-- Длительность каждого момента: 30–90 секунд.
-{selected_ranges}
-
-Если ранее ты выдавал слишком короткие моменты (<30с), исправь это: выбирай диапазоны, покрывающие несколько реплик/фрагментов.
-
-СХЕМА:
-[
-  {{"start": 145, "end": 211, "title": "Короткий хук", "quote": "Сильная цитата", "score": 9, "why": "Почему это репостят"}}
-]
-"""
-
-    if model.startswith("qwen3"):
-        return f"""Выбери ровно {TARGET_MOMENTS} вирусных моментов из транскрипта.
-
-ТРАНСКРИПТ:
-{transcript}
-
-ОТВЕТ: верни ТОЛЬКО JSON-массив из {TARGET_MOMENTS} объектов (без текста/markdown).
-Поля каждого объекта: start,end,title,quote,score,why.
-Правила: start = левое число из [start-end], end = правое число из более позднего сегмента; end-start = 30..90.
-{selected_ranges}
-JSON:"""
-
-    # Generic prompt for local models
     extra = ""
     if pass_index > 1:
         extra = (
-            "\nВАЖНО: в прошлой попытке были слишком короткие клипы. "
-            "Выбирай более длинные непрерывные диапазоны 30–90 секунд (не 3–10 секунд).\n"
+            "\nЕсли в прошлой попытке моменты были слишком короткими, "
+            "выбирай более длинные непрерывные диапазоны 30-90 секунд."
         )
 
-    return f"""Проанализируй транскрипт подкаста и найди {TARGET_MOMENTS} самых вирусных моментов для TikTok/Reels.
+    return f"""Ты - редактор коротких вертикальных роликов.
+По транскрипту подкаста выбери 5 самых сильных моментов для Reels/TikTok.
 
-Формат транскрипта: [начало-конец] текст (время в секундах)
+Формат транскрипта: [начало-конец] текст
 
 ТРАНСКРИПТ:
 {transcript}
 
-ЗАДАНИЕ: Выбери 5 моментов с наибольшим вирусным потенциалом.
-
-Верни результат в формате JSON массива:
-[
-  {{"start": 145, "end": 200, "title": "Название момента", "quote": "Яркая цитата", "score": 9, "why": "Почему это вирусно"}}
-]
-
-Правила:
-1. start должен быть РАВЕН числу начала одного из сегментов (левое число в [start-end])
-2. end должен быть РАВЕН числу конца другого (более позднего) сегмента (правое число в [start-end])
-    ВАЖНО: start и end НЕ обязаны быть из одной строки; можно (и нужно) объединять несколько сегментов.
-    Пример: если есть [571-584] и [647-661], то валидный момент: start=571 end=661 (длительность 90с).
-3a. Выбирай моменты из разных частей подкаста (ранний/середина/конец), не все подряд из одного места.
-3. Момент длится 30-90 секунд (end-start в секундах)
-4. score от 1 до 10
-5. Не повторяй и не пересекайся с уже выбранными диапазонами
-{extra}
+ТРЕБОВАНИЯ:
+- Верни только JSON-массив, без markdown, пояснений и code block.
+- Ровно 5 объектов.
+- Каждый объект должен содержать поля: start, end, title, quote, score, why.
+- start и end должны совпадать с таймкодами из транскрипта.
+- Длительность каждого момента: 30-90 секунд.
+- Не повторяй уже выбранные диапазоны.
 {selected_ranges}
+{extra}
 
 JSON:"""
 
 
-def extract_json_array(text: str) -> list:
-    """Extract JSON array from response."""
-    import re
-    
-    # Remove think tags if present
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-    text = re.sub(r"<\|.*?\|>", "", text)
-    
-    # First: try strict JSON parse (helps when Ollama json-mode returns an object)
-    stripped = text.strip()
-    if stripped:
+def extract_json_array(text: str) -> list[Any]:
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    cleaned = re.sub(r"```(?:json)?", "", cleaned)
+    cleaned = cleaned.replace("```", "").strip()
+
+    if cleaned:
         try:
-            obj = json.loads(stripped)
+            obj = json.loads(cleaned)
             if isinstance(obj, list):
                 return obj
             if isinstance(obj, dict):
                 for key in ("moments", "clips", "choices", "items", "objects", "results", "segments"):
-                    val = obj.get(key)
-                    if isinstance(val, list):
-                        return val
+                    value = obj.get(key)
+                    if isinstance(value, list):
+                        return value
         except Exception:
             pass
 
-    # Fallback: find first JSON array by bracket matching
-    start = text.find("[")
+    start = cleaned.find("[")
     if start == -1:
         return []
-    
+
     depth = 0
-    end = start
-    for i, c in enumerate(text[start:], start):
-        if c == "[":
+    end = -1
+    for idx, ch in enumerate(cleaned[start:], start):
+        if ch == "[":
             depth += 1
-        elif c == "]":
+        elif ch == "]":
             depth -= 1
             if depth == 0:
-                end = i + 1
+                end = idx + 1
                 break
-    
+
     if end > start:
         try:
-            return json.loads(text[start:end])
+            parsed = json.loads(cleaned[start:end])
+            if isinstance(parsed, list):
+                return parsed
         except json.JSONDecodeError:
             pass
     return []
 
 
-def is_duration_valid(m: dict, allowed_starts: set[int], allowed_ends: set[int]) -> bool:
-    try:
-        start = int(m.get("start", -1))
-        end = int(m.get("end", -1))
-    except (TypeError, ValueError):
-        return False
-    if start not in allowed_starts:
-        return False
-    if end not in allowed_ends:
-        return False
-    duration = end - start
-    return 30 <= duration <= 90
-
-
 def snap_to_allowed(value: int, allowed: set[int], *, max_delta: int = 10) -> int | None:
-    """Snap a timestamp to the closest allowed value within max_delta seconds."""
     best: int | None = None
     best_dist = max_delta + 1
-    for a in allowed:
-        dist = abs(a - value)
+    for candidate in allowed:
+        dist = abs(candidate - value)
         if dist <= max_delta and dist < best_dist:
-            best = a
+            best = candidate
             best_dist = dist
             if best_dist == 0:
                 break
     return best
 
 
-def normalize_timestamps(m: dict, allowed_starts: set[int], allowed_ends: set[int]) -> dict:
-    """Snap start/end to nearby segment boundaries when the model is slightly off."""
+def normalize_moment(moment: dict[str, Any], allowed_starts: set[int], allowed_ends: set[int]) -> dict[str, Any]:
     try:
-        start = int(m.get("start", -1))
-        end = int(m.get("end", -1))
+        start = int(moment.get("start", -1))
+        end = int(moment.get("end", -1))
     except (TypeError, ValueError):
-        return m
+        return moment
 
-    snapped_start = snap_to_allowed(start, allowed_starts, max_delta=10)
-    snapped_end = snap_to_allowed(end, allowed_ends, max_delta=10)
-    if snapped_start is None and snapped_end is None:
-        return m
-
-    out = dict(m)
+    out = dict(moment)
+    snapped_start = snap_to_allowed(start, allowed_starts)
+    snapped_end = snap_to_allowed(end, allowed_ends)
     if snapped_start is not None:
         out["start"] = snapped_start
     if snapped_end is not None:
@@ -297,7 +212,29 @@ def normalize_timestamps(m: dict, allowed_starts: set[int], allowed_ends: set[in
     return out
 
 
-def ranges_overlap(a: dict, b: dict) -> bool:
+def normalize_duration(moment: dict[str, Any], allowed_ends: set[int]) -> dict[str, Any]:
+    try:
+        start = int(moment.get("start", -1))
+        end = int(moment.get("end", -1))
+    except (TypeError, ValueError):
+        return moment
+
+    duration = end - start
+    if 30 <= duration <= 90:
+        return moment
+
+    lo = start + 30
+    hi = start + 90
+    candidates = [candidate for candidate in allowed_ends if lo <= candidate <= hi]
+    if not candidates:
+        return moment
+
+    out = dict(moment)
+    out["end"] = min(candidates)
+    return out
+
+
+def ranges_overlap(a: dict[str, Any], b: dict[str, Any]) -> bool:
     try:
         a0, a1 = int(a.get("start", -1)), int(a.get("end", -1))
         b0, b1 = int(b.get("start", -1)), int(b.get("end", -1))
@@ -306,253 +243,239 @@ def ranges_overlap(a: dict, b: dict) -> bool:
     return not (a1 <= b0 or b1 <= a0)
 
 
-def normalize_duration(m: dict, allowed_ends: set[int]) -> dict:
-    """Snap end to the nearest allowed end so duration falls into 30–90s.
-
-    Helps models that keep choosing a single short segment.
-    """
+def is_duration_valid(moment: dict[str, Any], allowed_starts: set[int], allowed_ends: set[int]) -> bool:
     try:
-        start = int(m.get("start", -1))
-        end = int(m.get("end", -1))
+        start = int(moment.get("start", -1))
+        end = int(moment.get("end", -1))
     except (TypeError, ValueError):
-        return m
-
-    duration = end - start
-    if 30 <= duration <= 90:
-        return m
-
-    lo = start + 30
-    hi = start + 90
-    candidates = [e for e in allowed_ends if lo <= e <= hi]
-    if not candidates:
-        return m
-
-    out = dict(m)
-    out["end"] = min(candidates)
-    return out
+        return False
+    if start not in allowed_starts:
+        return False
+    if end not in allowed_ends:
+        return False
+    return 30 <= (end - start) <= 90
 
 
 def dedupe_moments(
-    existing: list[dict],
-    incoming: list[dict],
+    existing: list[dict[str, Any]],
+    incoming: list[dict[str, Any]],
     allowed_starts: set[int],
     allowed_ends: set[int],
-    *,
-    allow_overlap: bool,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     out = list(existing)
-    for m in incoming:
-        if not isinstance(m, dict):
+    for moment in incoming:
+        if not isinstance(moment, dict):
             continue
-        if not ("start" in m and "end" in m):
+        if "start" not in moment or "end" not in moment:
             continue
-        m = normalize_timestamps(m, allowed_starts, allowed_ends)
-        m = normalize_duration(m, allowed_ends)
-        if not is_duration_valid(m, allowed_starts, allowed_ends):
+        normalized = normalize_moment(moment, allowed_starts, allowed_ends)
+        normalized = normalize_duration(normalized, allowed_ends)
+        if not is_duration_valid(normalized, allowed_starts, allowed_ends):
             continue
-        # Always avoid exact duplicates
+
         try:
-            s = int(m.get("start", -1))
-            e = int(m.get("end", -1))
-            if any(int(prev.get("start", -1)) == s and int(prev.get("end", -1)) == e for prev in out):
+            start = int(normalized.get("start", -1))
+            end = int(normalized.get("end", -1))
+            if any(int(prev.get("start", -1)) == start and int(prev.get("end", -1)) == end for prev in out):
                 continue
         except Exception:
             pass
-        if not allow_overlap:
-            if any(ranges_overlap(m, prev) for prev in out):
-                continue
-        out.append(m)
+
+        if any(ranges_overlap(normalized, prev) for prev in out):
+            continue
+
+        out.append(normalized)
         if len(out) >= TARGET_MOMENTS:
             break
     return out
 
 
-def run_model_iterative(model: str, transcript: str, allowed_starts: set[int], allowed_ends: set[int]) -> tuple[list[dict], float, str]:
+def run_model_iterative(
+    model: str,
+    transcript: str,
+    allowed_starts: set[int],
+    allowed_ends: set[int],
+) -> tuple[list[dict[str, Any]], float, str]:
     print(f"  {model}...", end=" ", flush=True)
-    start_time = time.time()
-    all_raw_parts: list[str] = []
-    selected: list[dict] = []
+    started_at = time.time()
+    raw_parts: list[str] = []
+    selected: list[dict[str, Any]] = []
 
     for pass_index in range(1, MAX_PASSES + 1):
-        prompt = get_prompt(model, transcript, already_selected=selected, pass_index=pass_index)
+        prompt = build_prompt(transcript, already_selected=selected, pass_index=pass_index)
         try:
-            if model.startswith("qwen3"):
-                system = "Верни только JSON. Без текста."
-                resp = requests.post(
-                    OLLAMA_CHAT_URL,
-                    json={
-                        "model": model,
-                        "stream": False,
-                        "messages": [
-                            {"role": "system", "content": system},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "options": {"temperature": 0.0, "num_predict": 1400},
-                    },
-                    timeout=900,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                if data.get("error"):
-                    all_raw_parts.append(f"\n\n--- PASS {pass_index} ERROR_FIELD ---\n\n{data.get('error')}")
-                    break
-                msg = data.get("message") or {}
-                raw = msg.get("content") or ""
-                if (not raw) and isinstance(msg.get("thinking"), str):
-                    raw = msg.get("thinking", "")
-            else:
-                payload = {
+            response = requests.post(
+                OLLAMA_URL,
+                json={
                     "model": model,
                     "prompt": prompt,
                     "stream": False,
                     "options": {
-                        "temperature": 0.2 if model.startswith("gemini-") else 0.3,
-                        "num_predict": 4096 if model.startswith("gemini-") else 2048,
+                        "temperature": 0.2,
+                        "num_predict": 2048,
                     },
-                }
-                if model in JSON_MODELS:
-                    payload["format"] = "json"
-
-                resp = requests.post(
-                    OLLAMA_URL,
-                    json=payload,
-                    timeout=300 if model.startswith("gemini-") else 900,
-                )
-
-                resp.raise_for_status()
-                data = resp.json()
-                if data.get("error"):
-                    all_raw_parts.append(f"\n\n--- PASS {pass_index} ERROR_FIELD ---\n\n{data.get('error')}")
-                    break
-
-                raw = data.get("response", "")
-                if (not raw) and isinstance(data.get("thinking"), str):
-                    raw = data.get("thinking", "")
-
-            # end qwen3 vs generate split
-
-            all_raw_parts.append(f"\n\n--- PASS {pass_index} ---\n\n{raw}")
-
-            moments = extract_json_array(raw)
-            candidates = [m for m in moments if isinstance(m, dict) and "start" in m and "end" in m]
-            allow_overlap = model.startswith("qwen3") or model.startswith("deepseek-")
-            selected = dedupe_moments(selected, candidates, allowed_starts, allowed_ends, allow_overlap=allow_overlap)
-
-            if len(selected) >= TARGET_MOMENTS:
+                    "format": "json",
+                },
+                timeout=900,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("error"):
+                raw_parts.append(f"\n\n--- PASS {pass_index} ERROR_FIELD ---\n\n{payload.get('error')}")
                 break
 
-        except Exception as e:
-            all_raw_parts.append(f"\n\n--- PASS {pass_index} ERROR ---\n\n{e}")
+            raw = payload.get("response", "")
+            if not raw and isinstance(payload.get("thinking"), str):
+                raw = payload["thinking"]
+
+            raw_parts.append(f"\n\n--- PASS {pass_index} ---\n\n{raw}")
+
+            moments = extract_json_array(raw)
+            candidates = [moment for moment in moments if isinstance(moment, dict)]
+            selected = dedupe_moments(selected, candidates, allowed_starts, allowed_ends)
+            if len(selected) >= TARGET_MOMENTS:
+                break
+        except Exception as exc:
+            raw_parts.append(f"\n\n--- PASS {pass_index} ERROR ---\n\n{exc}")
             break
 
-    elapsed = time.time() - start_time
+    elapsed = time.time() - started_at
     print(f"✓ {len(selected)}/{TARGET_MOMENTS} valid, {elapsed:.0f}s")
-    return selected, elapsed, "".join(all_raw_parts).lstrip()
+    return selected, elapsed, "".join(raw_parts).lstrip()
 
 
-def avg_score(moments: list[dict]) -> float:
-    def norm(v: float) -> float:
-        # Many prompts expect score 1..10, but some models output 0..100.
-        # Normalize for comparison/reporting only.
-        if v <= 0:
-            return 0.0
-        if 0 < v <= 1:
-            v = v * 10
-        elif v > 10:
-            v = v / 10
-        return float(max(0.0, min(10.0, v)))
-
-    scores = [norm(float(m.get("score", 0))) for m in moments if isinstance(m.get("score"), (int, float))]
+def avg_score(moments: list[dict[str, Any]]) -> float:
+    scores = []
+    for moment in moments:
+        score = moment.get("score")
+        if not isinstance(score, (int, float)):
+            continue
+        value = float(score)
+        if value <= 0:
+            continue
+        if value <= 1:
+            value *= 10
+        elif value > 10:
+            value /= 10
+        scores.append(max(0.0, min(10.0, value)))
     return (sum(scores) / len(scores)) if scores else 0.0
 
 
 def generate_report(output_dir: Path, models: list[str]) -> None:
-    report_lines = ["# Model Comparison v2\n"]
-    report_lines.append(f"Date: {time.strftime('%Y-%m-%d %H:%M')}\n")
+    report_lines = ["# Model Comparison v2", ""]
+    report_lines.append(f"Date: {time.strftime('%Y-%m-%d %H:%M')}")
+    report_lines.append("")
     report_lines.append("| Model | Time | Moments | Avg Score |")
     report_lines.append("|-------|------|---------|-----------|")
 
-    best_model: str | None = None
-    best_tuple: tuple[int, float, float] | None = None
-
-    loaded: dict[str, dict] = {}
+    loaded: dict[str, dict[str, Any]] = {}
     for model in models:
         safe_name = model.replace(":", "_").replace("/", "_")
-        p = output_dir / f"{safe_name}_v2.json"
-        if not p.exists():
+        path = output_dir / f"{safe_name}_v2.json"
+        if not path.exists():
             continue
-        data = json.loads(p.read_text(encoding="utf-8"))
-        loaded[model] = data
+        loaded[model] = json.loads(path.read_text(encoding="utf-8"))
 
+    best_model: str | None = None
+    best_tuple: tuple[int, float, float] | None = None
     for model in models:
         data = loaded.get(model)
         if not data:
             continue
         moments = data.get("moments", [])
-        elapsed = data.get("time", 0)
-        avg = avg_score(moments)
-        report_lines.append(f"| {model} | {elapsed:.0f}s | {len(moments)} | {avg:.1f} |")
+        moment_list = moments if isinstance(moments, list) else []
+        elapsed = float(data.get("time", 0))
+        avg = avg_score(moment_list)
+        report_lines.append(f"| {model} | {elapsed:.0f}s | {len(moment_list)} | {avg:.1f} |")
 
-        current = (len(moments), avg, -float(elapsed))
+        current = (len(moment_list), avg, -elapsed)
         if best_tuple is None or current > best_tuple:
             best_tuple = current
             best_model = model
 
     if best_model and best_model in loaded:
-        report_lines.append(f"\n## Winner: {best_model}\n")
-        report_lines.append("### Best moments:\n")
-        for i, m in enumerate(loaded[best_model].get("moments", [])[:TARGET_MOMENTS], 1):
-            report_lines.append(f"{i}. **{m.get('title', '?')}** [{m.get('start')}-{m.get('end')}s]")
-            score = m.get("score")
-            if isinstance(score, (int, float)):
-                report_lines.append(f"   - Score: {avg_score([{'score': score}]):.1f}/10")
-            else:
-                report_lines.append(f"   - Score: {score}")
-            report_lines.append(f"   - Quote: {str(m.get('quote', '?'))[:80]}")
-            report_lines.append(f"   - Why: {str(m.get('why', '?'))[:80]}")
-            report_lines.append("")
+        report_lines.extend(["", f"## Winner: {best_model}", "", "### Best moments:", ""])
+        moments = loaded[best_model].get("moments", [])
+        if isinstance(moments, list):
+            for index, moment in enumerate(moments[:TARGET_MOMENTS], 1):
+                if not isinstance(moment, dict):
+                    continue
+                report_lines.append(
+                    f"{index}. **{moment.get('title', '?')}** [{moment.get('start')}-{moment.get('end')}s]",
+                )
+                score = moment.get("score")
+                if isinstance(score, (int, float)):
+                    report_lines.append(f"   - Score: {avg_score([{'score': score}]):.1f}/10")
+                else:
+                    report_lines.append(f"   - Score: {score}")
+                report_lines.append(f"   - Quote: {str(moment.get('quote', '?'))[:80]}")
+                report_lines.append(f"   - Why: {str(moment.get('why', '?'))[:80]}")
+                report_lines.append("")
 
+    output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "model_comparison_v2.md").write_text("\n".join(report_lines), encoding="utf-8")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Benchmark multiple Ollama models.")
+    parser = argparse.ArgumentParser(description="Benchmark Gemma Ollama models.")
     parser.add_argument(
         "--models",
         nargs="*",
         default=None,
-        help="Optional list of models to run (others will be kept from existing v2 JSON outputs).",
+        help="Optional model list. Defaults to the Gemma role lineup.",
+    )
+    parser.add_argument(
+        "--transcript",
+        type=Path,
+        default=DEFAULT_TRANSCRIPT,
+        help="Path to a transcript JSON file with a segments list.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help="Directory for benchmark outputs and the comparison report.",
     )
     args = parser.parse_args()
 
-    transcript_path = Path("/home/borm/VibeCoding/Podcast Reels Forge/output/audio.json")
-    output_dir = Path("/home/borm/VibeCoding/Podcast Reels Forge/anal")
-    
-    print("=" * 50)
-    print("Simple Model Test")
-    print("=" * 50)
-    
-    segments = load_transcript(str(transcript_path))
-    sample_transcript, _, _ = prepare_transcript_for_model(MODELS[0], segments)
-    sample_prompt = get_prompt(MODELS[0], sample_transcript)
-    print(f"Transcript: {len(segments)} segments, sample prompt: {len(sample_prompt)} chars\n")
-    
-    models_to_run = args.models if args.models else MODELS
-    results: dict[str, dict] = {}
+    transcript_path = args.transcript
+    if not transcript_path.exists():
+        raise SystemExit(f"Transcript not found: {transcript_path}")
 
+    print("=" * 50)
+    print("Gemma Model Test")
+    print("=" * 50)
+
+    segments = load_transcript(transcript_path)
+    transcript, allowed_starts, allowed_ends = prepare_transcript(segments)
+    if not transcript:
+        raise SystemExit("Transcript is empty")
+
+    models_to_run = args.models if args.models else MODELS
+    output_dir = args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    results: dict[str, dict[str, Any]] = {}
     for model in models_to_run:
-        transcript, allowed_starts, allowed_ends = prepare_transcript_for_model(model, segments)
-        moments, elapsed, raw = run_model_iterative(model, transcript, allowed_starts, allowed_ends)
+        model_transcript = transcript
+        moments, elapsed, raw = run_model_iterative(model, model_transcript, allowed_starts, allowed_ends)
         results[model] = {"moments": moments, "time": elapsed, "raw": raw}
 
         safe_name = model.replace(":", "_").replace("/", "_")
         (output_dir / f"{safe_name}_v2.json").write_text(
-            json.dumps({"model": model, "time": elapsed, "moments": moments}, ensure_ascii=False, indent=2),
+            json.dumps(
+                {
+                    "model": model,
+                    "time": elapsed,
+                    "moments": moments,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
         (output_dir / f"{safe_name}_v2_raw.txt").write_text(raw, encoding="utf-8")
 
-    # Print quick summary for the models we just ran
     print("\n" + "=" * 50)
     print("RESULTS (this run):")
     print("-" * 50)
@@ -562,8 +485,7 @@ def main() -> None:
         avg = avg_score(moments)
         print(f"{model}: time {elapsed:.0f}s, moments {len(moments)}, avg {avg:.1f}")
 
-    # Always regenerate report from existing v2 JSON files
-    generate_report(output_dir, MODELS)
+    generate_report(output_dir, models_to_run)
     print(f"\nReport: {output_dir / 'model_comparison_v2.md'}")
 
 
@@ -573,13 +495,14 @@ if __name__ == "__main__":
     except SystemExit:
         raise
     except KeyboardInterrupt:
-        import sys
-        sys.exit(130)
+        raise SystemExit(130)
     except Exception as exc:
-        import sys
-        print(f"Testing failed: {exc}", file=sys.stderr)
         import os
+        import sys
+
+        print(f"Testing failed: {exc}", file=sys.stderr)
         if os.environ.get("DEBUG_FORGE") == "1":
             import traceback
+
             traceback.print_exc()
-        sys.exit(1)
+        raise SystemExit(1)
