@@ -23,17 +23,28 @@ transcription:
 
 The transcription stage now writes additive fields such as `source_audio`, `timing_version`, `language_confidence`, `segments[].words`, and `sentences`.
 
-## Ollama / Ollama
+## llama.cpp / llama.cpp
 
 ```yaml
-ollama:
-  url: "http://127.0.0.1:11434/api/generate"
+llama_cpp:
+  url: "http://127.0.0.1:8080/v1/chat/completions"
+  service:
+    auto_start: true
+    model_path: "models/gemma4/gemma4-q4_k_m.gguf"
+    startup_timeout: 60
+    n_gpu_layers: 99
+    ctx_size: 8192
+    batch_size: 1024
+    ubatch_size: 512
+    threads: 8
+    main_gpu: 0
+    extra_args: []
   roles:
-    scout: "gemma4:e4b"
-    cleanup: "gemma3:4b"
-    refine: "gemma3:12b"
-    judge: "gemma4:26b"
-    metadata: "gemma4:26b"
+    scout: "gemma4"
+    cleanup: "gemma4"
+    refine: "gemma4"
+    judge: "gemma4"
+    metadata: "gemma4"
   timeout: 420
   temperature: 0.2
   chunk_seconds: 900
@@ -57,7 +68,7 @@ Notes:
 
 - `roles` is the default way to configure the staged analysis pipeline.
 - `model_overrides` is retained only for legacy compatibility.
-- The default workflow is Ollama-only and Gemma-only.
+- The default workflow is llama.cpp-only and Gemma 4-only.
 
 ## Processing / Обработка
 
@@ -139,12 +150,12 @@ transcription:
   device: "auto"
   language: "auto"
 
-ollama:
+llama_cpp:
   roles:
-    scout: "gemma4:e4b"
-    cleanup: "gemma3:4b"
-    refine: "gemma3:12b"
-    judge: "gemma4:26b"
+    scout: "gemma4"
+    cleanup: "gemma4"
+    refine: "gemma4"
+    judge: "gemma4"
 
 processing:
   reels_count: 3

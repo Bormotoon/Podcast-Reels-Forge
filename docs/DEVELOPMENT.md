@@ -38,7 +38,7 @@ podcast_reels_forge/
 │   └── video_stage.py       # Конфиги видео / Video configs
 ├── llm/                 # LLM провайдеры / LLM providers
 │   ├── __init__.py
-│   └── providers.py     # Ollama
+│   └── providers.py     # llama.cpp/OpenAI-compatible providers
 └── utils/               # Утилиты / Utilities
     ├── __init__.py
     ├── json_utils.py    # Извлечение JSON из текста / Extract JSON from text
@@ -130,8 +130,8 @@ class LLMProvider(Protocol):
     def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
         ...
 
-class OllamaProvider:
-    def __init__(self, cfg: OllamaConfig): ...
+class LlamaCppProvider:
+    def __init__(self, cfg: LlamaCppConfig): ...
     def generate(self, prompt: str, *, temperature: float, timeout: int) -> str: ...
 ```
 
@@ -139,8 +139,8 @@ class OllamaProvider:
 
 Adding a new model
 
-1. Установите модель в Ollama: `ollama pull <model>`
-2. Добавьте её в список `ollama.models` в config.yaml
+1. Подготовьте GGUF-модель для llama.cpp (`model_path` в `llama_cpp.service`)
+2. Добавьте модель в `llama_cpp.roles` в `config.yaml`
 
 ### JSON Utils (utils/json_utils.py)
 

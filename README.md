@@ -43,10 +43,10 @@
 ## Ключевые особенности
 
 - **Batch-обработка**: Просто положите несколько видео в `input/`, и Forge обработает их по очереди.
-- **Ролевой Ollama-пайплайн**: Локальный staged flow через **Ollama** с Gemma-only lineup: `gemma4:e4b`, `gemma3:4b`, `gemma3:12b`, `gemma4:26b`.
+- **Ролевой llama.cpp-пайплайн**: Локальный staged flow через **llama.cpp** с Gemma 4 lineup: `gemma4`.
 - **Smart Face Crop**: Автоматическое обнаружение лиц для центрирования кадра при вертикальной нарезке.
 - **Аппаратное ускорение**: Использование **CUDA** для Whisper и **NVENC** для быстрого рендеринга видео.
-- **Ollama Watchdog**: Контроль отзывчивости модели и автоматический перезапуск зависших генераций.
+- **llama.cpp Watchdog**: Контроль отзывчивости модели и автоматический повтор при зависании генерации.
 - **Гибкие типы клипов**: Настройка количества и длительности для Stories, Reels и Highlights отдельно.
 
 ---
@@ -57,7 +57,7 @@
 
 - **Python 3.10+**
 - **FFmpeg** (должен быть в PATH)
-- **Ollama** (для работы с локальными LLM)
+- **llama.cpp (`llama-server`)** (для работы с локальными LLM)
 - **NVIDIA GPU** (крайне рекомендуется для производительности)
 
 ### Установка
@@ -91,7 +91,7 @@ python3 start_forge.py
 
 1. **Transcription**: Используется `faster-whisper`. Выход: `output/<file_stem>/audio.json` + `audio.srt`.
 2. **Diarization**: (Если включено) Создает `diarization.json` со speaker turns.
-3. **Analyze (Staged)**: Один финальный проход на Gemma-роли. По умолчанию артефакты пишутся в `output/<file_stem>/gemma4_26b/`.
+3. **Analyze (Staged)**: Один финальный проход на Gemma-роли. По умолчанию артефакты пишутся в `output/<file_stem>/gemma4/`.
 4. **Video Processing**: Нарезка клипов на основе финального `moments.json`. Forge вшивает сабы через `pycaps`, кладёт рядом `reel_XX.md` и `reel_XX.srt`, а также строит `reels_preview.mp4`.
 
 ---
@@ -105,7 +105,7 @@ output/
   my_podcast/
     video.json            # Транскрипт
     diarization.json      # (Опционально) Информация о спикерах
-    gemma4_26b/           # Финальная папка judge-model
+    gemma4/               # Финальная папка judge-model
       analysis_manifest.json
       scout_candidates.json
       cleaned_candidates.json
@@ -139,7 +139,7 @@ output/
 ### Основные секции
 
 - **`transcription`**: Выбор модели Whisper, устройства (`auto`/`cuda`/`cpu`) и языка.
-- **`ollama`**:
+- **`llama_cpp`**:
   - `roles`: Роль-мэппинг `scout / cleanup / refine / judge / metadata`.
   - `role_overrides`: Настройки таймаутов и chunk-size для конкретных ролей.
   - `model_overrides`: Легаси-совместимость, не основной путь.
@@ -184,7 +184,7 @@ python3 rerender_videos.py --smart-crop-face --replace
 ## Производительность и стабильность
 
 - **Whisper**: Если возникает ошибка Out of Memory (OOM), используйте модели `small` или `base`.
-- **Ollama**: Если модель отвечает слишком долго, увеличьте `first_token_timeout` в конфиге.
+- **llama.cpp**: Если модель отвечает слишком долго, увеличьте `llama_cpp.watchdog.first_token_timeout` в конфиге.
 - **FFmpeg**: При ошибках энкодера попробуйте отключить `use_nvenc` в конфиге для рендеринга на CPU.
 - **Pycaps / Playwright**: Если субтитры не рендерятся и в ошибке упоминается Chromium, выполните `playwright install chromium`.
 

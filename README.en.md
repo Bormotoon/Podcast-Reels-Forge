@@ -43,10 +43,10 @@ Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 ## Key features
 
 - **Batch Processing**: Drop multiple videos into `input/`, and the forge will process them all sequentially.
-- **Role-based Ollama pipeline**: Local staged flow through **Ollama** with a Gemma-only lineup: `gemma4:e4b`, `gemma3:4b`, `gemma3:12b`, `gemma4:26b`.
+- **Role-based llama.cpp pipeline**: Local staged flow through **llama.cpp** with a Gemma 4 lineup: `gemma4`.
 - **Smart Face Crop**: Automatically detects faces and centers the frame during vertical cropping.
 - **Hardware Acceleration**: Uses **CUDA** for Whisper and **NVENC** for high-speed video rendering.
-- **Ollama Watchdog**: Monitors model responsiveness and automatically retries/restarts stalled generations.
+- **llama.cpp Watchdog**: Monitors model responsiveness and automatically retries stalled generations.
 - **Flexible Clip Types**: Configure specific counts and durations for Stories, Reels, and Highlights separately.
 
 ---
@@ -57,7 +57,7 @@ Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 
 - **Python 3.10+**
 - **FFmpeg** (must be in PATH)
-- **Ollama** (for local LLM support)
+- **llama.cpp (`llama-server`)** (for local LLM support)
 - **NVIDIA GPU** (highly recommended for performance)
 
 ### Installation
@@ -91,7 +91,7 @@ The orchestrator [start_forge.py](start_forge.py) runs [podcast_reels_forge/pipe
 
 1. **Transcription**: Uses `faster-whisper`. Output: `output/<file_stem>/audio.json` + `audio.srt`.
 2. **Diarization**: (If enabled) Creates `diarization.json` with speaker turns.
-3. **Analyze (Staged)**: One final pass over Gemma roles. By default, artifacts are written into `output/<file_stem>/gemma4_26b/`.
+3. **Analyze (Staged)**: One final pass over Gemma roles. By default, artifacts are written into `output/<file_stem>/gemma4/`.
 4. **Video Processing**: Cuts clips from the final `moments.json`. Forge burns subtitles into each reel with `pycaps`, adds a ready-to-post `reel_XX.md`, keeps a local `reel_XX.srt`, and builds `reels_preview.mp4`.
 
 
@@ -106,7 +106,7 @@ output/
   my_podcast/
     video.json            # Transcript
     diarization.json      # (Optional) Speaker info
-    gemma4_26b/           # Final judge-model folder
+    gemma4/               # Final judge-model folder
       analysis_manifest.json
       scout_candidates.json
       cleaned_candidates.json
@@ -140,7 +140,7 @@ Main flags for `start_forge.py`:
 ### Key Sections
 
 - **`transcription`**: Choose Whisper model, device (`auto`/`cuda`/`cpu`), and language.
-- **`ollama`**:
+- **`llama_cpp`**:
   - `roles`: Role mapping for `scout / cleanup / refine / judge / metadata`.
   - `role_overrides`: Per-role timeout and chunk-size tweaks.
   - `model_overrides`: Legacy compatibility only, not the primary path.
@@ -185,7 +185,7 @@ python3 rerender_videos.py --smart-crop-face --replace
 ## Performance and stability
 
 - **Whisper**: If you hit Out of Memory (OOM) errors, use `small` or `base` models.
-- **Ollama**: If a model takes too long to respond, increase `first_token_timeout` in config.
+- **llama.cpp**: If a model takes too long to respond, increase `llama_cpp.watchdog.first_token_timeout` in config.
 - **FFmpeg**: If encoder errors occur, try disabling `use_nvenc` in config to use CPU encoding instead.
 - **Pycaps / Playwright**: If subtitle rendering fails with a Chromium-related error, run `playwright install chromium`.
 
