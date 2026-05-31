@@ -40,6 +40,8 @@ class TranscribeConfig:
     word_timestamps: bool = True
     vad_filter: bool = True
     condition_on_previous_text: bool = True
+    best_of: int = 5
+    patience: float = 1.2
     quiet: bool = False
     verbose: bool = False
 
@@ -65,8 +67,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default="medium",
-        help="Faster-whisper model name or path (default: medium).",
+        default="large-v3",
+        help="Faster-whisper model name or path (default: large-v3).",
     )
     parser.add_argument(
         "--device",
@@ -82,8 +84,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--beam-size",
         type=int,
-        default=5,
-        help="Beam size for decoding (default: 5).",
+        default=6,
+        help="Beam size for decoding (default: 6).",
     )
     parser.add_argument(
         "--compute-type",
@@ -154,6 +156,8 @@ def _transcribe_with_optional_kwargs(
     word_timestamps: bool,
     vad_filter: bool,
     condition_on_previous_text: bool,
+    best_of: int,
+    patience: float,
 ) -> tuple[Any, Any]:
     """Call faster-whisper with optional quality flags and graceful fallback."""
 
@@ -163,6 +167,9 @@ def _transcribe_with_optional_kwargs(
         "word_timestamps": word_timestamps,
         "vad_filter": vad_filter,
         "condition_on_previous_text": condition_on_previous_text,
+        "best_of": max(1, int(best_of)),
+        "patience": max(1.0, float(patience)),
+        "temperature": [0.0, 0.2, 0.4],
     }
     try:
         return model.transcribe(str(input_path), **kwargs)
@@ -360,6 +367,8 @@ def transcribe_file(config: TranscribeConfig) -> Path:
                 word_timestamps=bool(config.word_timestamps),
                 vad_filter=bool(config.vad_filter),
                 condition_on_previous_text=bool(config.condition_on_previous_text),
+                best_of=int(config.best_of),
+                patience=float(config.patience),
             )
         except RuntimeError as exc:
             # RU: Если OOM произошёл во время инференса — деградируем и повторяем 1 раз.
@@ -381,6 +390,8 @@ def transcribe_file(config: TranscribeConfig) -> Path:
                     word_timestamps=bool(config.word_timestamps),
                     vad_filter=bool(config.vad_filter),
                     condition_on_previous_text=bool(config.condition_on_previous_text),
+                    best_of=int(config.best_of),
+                    patience=float(config.patience),
                 )
             else:
                 raise
