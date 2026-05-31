@@ -231,6 +231,60 @@ def _has_cuda() -> bool:
         return False
 
 
+def _cpu_count() -> int:
+    detected = os.cpu_count() or 4
+    return max(1, int(detected))
+
+
+def _gpu_vram_gb() -> float | None:
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return None
+        props = torch.cuda.get_device_properties(0)
+        return float(props.total_memory) / (1024.0**3)
+    except Exception:
+        return None
+
+
+def _autotune_llama_cpp_conf(base_conf: dict[str, Any]) -> dict[str, Any]:
+    tuned = dict(base_conf)
+    service = tuned.get("service")
+    service_dict: dict[str, Any] = dict(service) if isinstance(service, dict) else {}
+    cpu = _cpu_count()
+    vram = _gpu_vram_gb()
+
+    service_dict["threads"] = int(service_dict.get("threads", max(6, min(16, cpu - 2))))
+    if "ctx_size" not in service_dict:
+        service_dict["ctx_size"] = 8192
+    if "n_gpu_layers" not in service_dict:
+        service_dict["n_gpu_layers"] = 99
+    if "batch_size" not in service_dict:
+        service_dict["batch_size"] = 1536 if (vram is not None and vram >= 14.0) else 1024
+    if "ubatch_size" not in service_dict:
+        service_dict["ubatch_size"] = 768 if (vram is not None and vram >= 14.0) else 512
+    if "parallel" not in service_dict:
+        service_dict["parallel"] = 2 if (vram is not None and vram >= 14.0) else 1
+
+    tuned["service"] = service_dict
+
+    scout_parallelism = int(tuned.get("scout_parallelism", 1))
+    if scout_parallelism <= 0:
+        scout_parallelism = 1
+    if "scout_parallelism" not in tuned:
+        tuned["scout_parallelism"] = min(int(service_dict.get("parallel", 1)), 3)
+    return tuned
+
+
+def _autotune_video_threads(v_conf: dict[str, Any]) -> int:
+    cpu = _cpu_count()
+    nvenc_enabled = bool(v_conf.get("use_nvenc", True))
+    if nvenc_enabled:
+        return max(1, min(3, cpu // 4 if cpu >= 4 else 1))
+    return max(1, min(8, cpu // 2))
+
+
 def _set_cli_arg(args: list[str], flag: str, value: str) -> bool:
     for i, v in enumerate(args):
         if v == flag and i + 1 < len(args):
@@ -372,6 +426,24 @@ def run_pipeline(
     p_conf = conf.get("processing", {})
     v_conf = conf.get("video", {})
     exports_conf = conf.get("exports", {})
+
+    if not isinstance(a_conf, dict):
+        a_conf = {}
+    if not isinstance(v_conf, dict):
+        v_conf = {}
+
+    if autotune:
+        a_conf = _autotune_llama_cpp_conf(a_conf)
+        tuned_threads = _autotune_video_threads(v_conf)
+        v_conf = {**v_conf, "threads": tuned_threads}
+        if not quiet:
+            service = a_conf.get("service", {}) if isinstance(a_conf, dict) else {}
+            status(
+                "[autotune] "
+                f"llama threads={service.get('threads')} parallel={service.get('parallel')} "
+                f"ctx={service.get('ctx_size')} video_jobs={v_conf.get('threads')}",
+                quiet=quiet,
+            )
 
     roles = resolve_llama_cpp_role_mapping(conf)
     final_model_folder = _model_folder_name(roles.judge)

@@ -134,11 +134,11 @@ def test_main_writes_reel_markdown(mock_run: MagicMock, tmp_path: Path) -> None:
     assert "#podcast" in content
 
 
-@patch("podcast_reels_forge.scripts.video_processor.ensure_reel_burned_subtitles")
+@patch("podcast_reels_forge.scripts.video_processor.sync_reel_burned_subtitles")
 @patch("podcast_reels_forge.scripts.video_processor._run_subprocess")
 def test_main_burns_subtitles_when_requested(
     mock_run: MagicMock,
-    mock_burn_subtitles: MagicMock,
+    mock_sync_subtitles: MagicMock,
     tmp_path: Path,
 ) -> None:
     mock_run.return_value = MagicMock(returncode=0)
@@ -180,9 +180,12 @@ def test_main_burns_subtitles_when_requested(
         ],
     )
 
-    assert mock_burn_subtitles.called
-    burn_kwargs = mock_burn_subtitles.call_args.kwargs
-    assert burn_kwargs["transcript_json_path"] == transcript_json
-    assert burn_kwargs["settings"].font_path == subtitle_font.resolve()
-    assert burn_kwargs["settings"].css_path == subtitle_css.resolve()
-    assert burn_kwargs["settings"].wrap_words is False
+    assert mock_sync_subtitles.called
+    sync_args = mock_sync_subtitles.call_args.args
+    sync_kwargs = mock_sync_subtitles.call_args.kwargs
+    assert sync_args[0][0]["title"] == "Clip"
+    assert sync_args[1] == outdir / "reels"
+    assert sync_kwargs["transcript_json_path"] == transcript_json
+    assert sync_kwargs["settings"].font_path == subtitle_font.resolve()
+    assert sync_kwargs["settings"].css_path == subtitle_css.resolve()
+    assert sync_kwargs["settings"].wrap_words is False

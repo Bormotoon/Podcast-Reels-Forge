@@ -21,6 +21,7 @@ from podcast_reels_forge.utils.burned_subtitles import (
     DEFAULT_SUBTITLE_FONT,
     SubtitleRenderSettings,
     ensure_reel_burned_subtitles,
+    sync_reel_burned_subtitles,
 )
 from podcast_reels_forge.utils.face_crop import (
     FaceCropSettings,
@@ -461,21 +462,18 @@ def main(argv: list[str] | None = None) -> None:
     final_reels = [r for r in results if r is not None]
     if final_reels:
         if subtitle_settings is not None:
-            for i, mp4 in enumerate(results):
-                if mp4 is None:
-                    continue
-                try:
-                    ensure_reel_burned_subtitles(
-                        moments[i],
-                        mp4,
-                        transcript_json_path=args.transcript_json,
-                        padding=opts.padding,
-                        settings=subtitle_settings,
-                        verbose=bool(args.verbose and not args.quiet),
-                    )
-                except Exception as exc:
-                    LOG.error("Failed to burn subtitles for %s: %s", mp4.name, exc)
-                    sys.exit(1)
+            try:
+                sync_reel_burned_subtitles(
+                    moments,
+                    reels_dir,
+                    transcript_json_path=args.transcript_json,
+                    padding=opts.padding,
+                    settings=subtitle_settings,
+                    verbose=bool(args.verbose and not args.quiet),
+                )
+            except Exception as exc:
+                LOG.error("Failed to burn subtitles: %s", exc)
+                sys.exit(1)
 
         sample_path = args.outdir / "reels_preview.mp4"
         if create_concat_sample(final_reels, sample_path) and not args.quiet:

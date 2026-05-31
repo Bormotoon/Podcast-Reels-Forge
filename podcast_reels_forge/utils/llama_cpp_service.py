@@ -7,6 +7,7 @@ from both the pipeline orchestrator and stage scripts.
 from __future__ import annotations
 
 import logging
+import os
 import socket
 import subprocess
 import time
@@ -64,6 +65,7 @@ def _build_llama_server_cmd(
     batch_size: int,
     ubatch_size: int,
     main_gpu: int,
+    parallel: int,
     extra_args: list[str] | None,
 ) -> list[str]:
     cmd = [
@@ -88,6 +90,8 @@ def _build_llama_server_cmd(
         str(main_gpu),
         "--flash-attn",
     ]
+    if parallel > 1:
+        cmd += ["--parallel", str(parallel)]
     if extra_args:
         cmd.extend(extra_args)
     return cmd
@@ -122,16 +126,19 @@ def llama_cpp_start(
         LOGGER.warning("llama.cpp model file not found: %s", model_path)
         return None
 
+    cpu_default_threads = max(4, (os.cpu_count() or 8) - 2)
+
     cmd = _build_llama_server_cmd(
         model_path=model_path,
         host=host,
         port=port,
-        threads=int(conf.get("threads", 8)),
+        threads=int(conf.get("threads", cpu_default_threads)),
         ctx_size=int(conf.get("ctx_size", 8192)),
         n_gpu_layers=int(conf.get("n_gpu_layers", 99)),
         batch_size=int(conf.get("batch_size", 1024)),
         ubatch_size=int(conf.get("ubatch_size", 512)),
         main_gpu=int(conf.get("main_gpu", 0)),
+        parallel=max(1, int(conf.get("parallel", 1))),
         extra_args=[str(x) for x in conf.get("extra_args", []) if str(x).strip()],
     )
 

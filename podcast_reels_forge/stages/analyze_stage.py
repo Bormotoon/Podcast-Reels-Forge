@@ -14,6 +14,7 @@ import argparse
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import sys
 from dataclasses import asdict
@@ -39,6 +40,7 @@ from podcast_reels_forge.analysis.ranking import (
     rank_moments,
 )
 from podcast_reels_forge.analysis.serializers import atomic_write_json
+
 from podcast_reels_forge.config import (
     LlamaCppRoleMapping,
     merge_llama_cpp_role_conf,
@@ -59,14 +61,17 @@ from podcast_reels_forge.utils.json_utils import extract_first_json_value
 from podcast_reels_forge.utils.logging_utils import setup_logging
 from podcast_reels_forge.utils.llama_cpp_service import (
     ENV_MANAGED_BY_PIPELINE,
+
     llama_cpp_start,
     llama_cpp_stop,
+
     parse_local_llama_cpp_host_port,
 )
 from podcast_reels_forge.utils.reel_markdown import (
     build_description_text,
     build_hashtags,
 )
+
 
 LOGGER = setup_logging()
 
@@ -114,6 +119,7 @@ def segments_to_compact_text(segments: list[dict[str, Any]], max_chars: int) -> 
         except (TypeError, ValueError):
             start, end = 0, 0
         text = str(seg.get("text", "")).strip()
+
         if text:
             speaker = str(seg.get("speaker", "")).strip()
             prefix = f"({speaker}) " if speaker else ""
@@ -419,6 +425,13 @@ def _stage_timeout(stage_conf: Mapping[str, Any], default: int) -> int:
         return default
 
 
+def _stage_parallelism(stage_conf: Mapping[str, Any], default: int) -> int:
+    try:
+        return max(1, int(stage_conf.get("parallelism", default)))
+    except (TypeError, ValueError):
+        return max(1, int(default))
+
+
 def _stage_chunk_seconds(stage_conf: Mapping[str, Any], default: int) -> int:
     try:
         return int(stage_conf.get("chunk_seconds", default))
@@ -609,13 +622,14 @@ def scout_candidates(
     temperature: float,
     timeout: int,
     progress: bool = False,
+    parallelism: int = 1,
 ) -> list[MomentRecord]:
     candidates: list[MomentRecord] = []
-    iterator = enumerate(chunks, 1)
-    if progress:
-        iterator = tqdm(iterator, total=len(chunks), desc="scout")
+    chunk_list = list(chunks)
+    if not chunk_list:
+        return candidates
 
-    for _i, chunk in iterator:
+    def _run_chunk(chunk: Any) -> list[MomentRecord]:
         prompt_text = _render_prompt(
             prompt,
             _prompt_payload(
@@ -625,14 +639,33 @@ def scout_candidates(
         )
         resp = get_llm_json(provider, prompt_text, temperature, timeout)
         chunk_candidates = _parse_candidate_response(resp, stage="scout")
+        out: list[MomentRecord] = []
         for candidate in chunk_candidates:
-            candidates.append(
+            out.append(
                 _attach_chunk_metadata(
                     candidate,
                     chunk_id=getattr(chunk, "chunk_id", "chunk"),
                     speaker_set=getattr(chunk, "speaker_set", ()),
                 ),
             )
+        return out
+
+    workers = min(len(chunk_list), max(1, int(parallelism)))
+    if workers <= 1:
+        iterator: Any = iter(chunk_list)
+        if progress:
+            iterator = tqdm(iterator, total=len(chunk_list), desc="scout")
+        for chunk in iterator:
+            candidates.extend(_run_chunk(chunk))
+        return candidates
+
+    mapped: Any
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        mapped = pool.map(_run_chunk, chunk_list)
+        if progress:
+            mapped = tqdm(mapped, total=len(chunk_list), desc=f"scout x{workers}")
+        for chunk_out in mapped:
+            candidates.extend(chunk_out)
     return candidates
 
 
@@ -899,6 +932,12 @@ def run_staged_analysis(
     refine_timeout = _stage_timeout(refine_conf, base_timeout)
     judge_timeout = _stage_timeout(judge_conf, base_timeout)
     metadata_timeout = _stage_timeout(metadata_conf, base_timeout)
+    scout_parallelism = _stage_parallelism(
+        scout_conf,
+        int(llama_cpp_conf.get("scout_parallelism", 1)),
+    )
+    if provider_name != "llama_cpp":
+        scout_parallelism = 1
 
     scouted_candidates = scout_candidates(
         scout_provider,
@@ -908,6 +947,7 @@ def run_staged_analysis(
         temperature=scout_temp,
         timeout=scout_timeout,
         progress=bool(progress and verbose and not quiet),
+        parallelism=scout_parallelism,
     )
     atomic_write_json(outdir / "scout_candidates.json", build_candidate_json(scouted_candidates))
 

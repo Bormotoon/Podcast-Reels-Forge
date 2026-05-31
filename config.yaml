@@ -39,7 +39,9 @@ llama_cpp:
     ubatch_size: 512
     threads: 8
     main_gpu: 0
+    parallel: 2
     extra_args: []
+  scout_parallelism: 2
   roles:
     scout: "gemma4"
     cleanup: "gemma4"

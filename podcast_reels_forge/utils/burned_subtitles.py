@@ -144,41 +144,19 @@ def ensure_reel_burned_subtitles(
         raise ValueError(f"Invalid reel boundaries for {reel_path.name}: start={start} end={end}")
 
     transcript_segments = load_transcript_segments(transcript_json_path)
-    clip_segments = slice_segments_for_clip(
-        transcript_segments,
-        clip_start=max(0.0, start - float(padding)),
-        clip_end=end + float(padding),
-    )
-    clip_segments = _prepare_subtitle_segments(clip_segments, settings=settings)
-    if not clip_segments:
-        LOG.warning(
-            "No transcript segments overlap %s; leaving video without burned subtitles",
-            reel_path.name,
-        )
-        return None
-
-    srt_path = reel_path.with_suffix(".srt")
-    write_srt_file(srt_path, clip_segments)
-
     template_dir = prepare_pycaps_template(
         reel_path.parent / _PYCAPS_TEMPLATE_DIRNAME,
         settings=settings,
     )
-
-    tmp_output = reel_path.with_name(f"{reel_path.stem}.subtitled{reel_path.suffix}")
-    if tmp_output.exists():
-        tmp_output.unlink(missing_ok=True)
-
-    _render_reel_with_pycaps(
-        template_dir=template_dir,
+    return _render_reel_with_subtitles_assets(
+        moment=moment,
         reel_path=reel_path,
-        tmp_output=tmp_output,
-        clip_segments=clip_segments,
+        transcript_segments=transcript_segments,
+        padding=padding,
         settings=settings,
+        template_dir=template_dir,
         verbose=verbose,
     )
-    tmp_output.replace(reel_path)
-    return srt_path
 
 
 def sync_reel_burned_subtitles(
@@ -197,6 +175,15 @@ def sync_reel_burned_subtitles(
     reel_files = sorted(
         p for p in reels_root.rglob("reel_*.mp4") if p.is_file()
     )
+    if not reel_files:
+        return written
+
+    transcript_segments = load_transcript_segments(transcript_json_path)
+    template_dir = prepare_pycaps_template(
+        reels_root / _PYCAPS_TEMPLATE_DIRNAME,
+        settings=settings,
+    )
+
     for reel_path in reel_files:
         index = reel_index_from_path(reel_path)
         if index is None:
@@ -204,17 +191,65 @@ def sync_reel_burned_subtitles(
         moment_index = index - 1
         if moment_index < 0 or moment_index >= len(moments):
             continue
-        srt_path = ensure_reel_burned_subtitles(
-            moments[moment_index],
-            reel_path,
-            transcript_json_path=transcript_json_path,
+        srt_path = _render_reel_with_subtitles_assets(
+            moment=moments[moment_index],
+            reel_path=reel_path,
+            transcript_segments=transcript_segments,
             padding=padding,
             settings=settings,
+            template_dir=template_dir,
             verbose=verbose,
         )
         if srt_path is not None:
             written.append(srt_path)
     return written
+
+
+def _render_reel_with_subtitles_assets(
+    *,
+    moment: Mapping[str, Any],
+    reel_path: Path,
+    transcript_segments: Sequence[SubtitleSegment],
+    padding: float,
+    settings: SubtitleRenderSettings,
+    template_dir: Path,
+    verbose: bool,
+) -> Path | None:
+    start = _coerce_float(moment.get("start"), default=0.0)
+    end = _coerce_float(moment.get("end"), default=0.0)
+    if end <= start:
+        raise ValueError(f"Invalid reel boundaries for {reel_path.name}: start={start} end={end}")
+
+    clip_segments = slice_segments_for_clip(
+        transcript_segments,
+        clip_start=max(0.0, start - float(padding)),
+        clip_end=end + float(padding),
+    )
+    clip_segments = _prepare_subtitle_segments(clip_segments, settings=settings)
+    if not clip_segments:
+        LOG.warning(
+            "No transcript segments overlap %s; leaving video without burned subtitles",
+            reel_path.name,
+        )
+        return None
+
+    srt_path = reel_path.with_suffix(".srt")
+    write_srt_file(srt_path, clip_segments)
+
+    tmp_output = reel_path.with_name(f"{reel_path.stem}.subtitled{reel_path.suffix}")
+    if tmp_output.exists():
+        tmp_output.unlink(missing_ok=True)
+
+    _render_reel_with_pycaps(
+        template_dir=template_dir,
+        reel_path=reel_path,
+        tmp_output=tmp_output,
+        clip_segments=clip_segments,
+        settings=settings,
+        verbose=verbose,
+    )
+    tmp_output.replace(reel_path)
+    return srt_path
 
 
 def load_transcript_segments(path: Path) -> list[SubtitleSegment]:
