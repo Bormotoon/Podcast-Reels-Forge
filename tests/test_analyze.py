@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import podcast_reels_forge.scripts.analyze as analyze
-from podcast_reels_forge.utils import ollama_service
+from podcast_reels_forge.utils import llama_cpp_service
 
 
 def test_fmt_hms() -> None:
@@ -129,19 +129,19 @@ def test_render_reels_summary_markdown_is_copy_friendly() -> None:
     assert "\n#dnd #настолки #герои4 #мнение #игры\n" in md
 
 
-def test_parse_local_ollama_host_port() -> None:
-    assert ollama_service.parse_local_ollama_host_port(
-        "http://127.0.0.1:11434/api/generate",
-    ) == ("127.0.0.1", 11434)
-    assert ollama_service.parse_local_ollama_host_port(
-        "http://localhost:11434/api/generate",
-    ) == ("localhost", 11434)
-    assert ollama_service.parse_local_ollama_host_port(
-        "http://10.0.0.1:11434/api/generate",
+def test_parse_local_llama_cpp_host_port() -> None:
+    assert llama_cpp_service.parse_local_llama_cpp_host_port(
+        "http://127.0.0.1:8080/v1/chat/completions",
+    ) == ("127.0.0.1", 8080)
+    assert llama_cpp_service.parse_local_llama_cpp_host_port(
+        "http://localhost:8080/v1/chat/completions",
+    ) == ("localhost", 8080)
+    assert llama_cpp_service.parse_local_llama_cpp_host_port(
+        "http://10.0.0.1:8080/v1/chat/completions",
     ) is None
 
 
-def test_ollama_start_skips_if_port_open(monkeypatch) -> None:
+def test_llama_cpp_start_skips_if_port_open(monkeypatch) -> None:
     called: dict[str, int] = {"popen": 0}
 
     def fake_is_open(_host: str, _port: int) -> bool:
@@ -151,9 +151,13 @@ def test_ollama_start_skips_if_port_open(monkeypatch) -> None:
         called["popen"] += 1
         return object()
 
-    monkeypatch.setattr(ollama_service, "is_tcp_open", fake_is_open)
-    monkeypatch.setattr(ollama_service.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(llama_cpp_service, "is_tcp_open", fake_is_open)
+    monkeypatch.setattr(llama_cpp_service.subprocess, "Popen", fake_popen)
 
-    proc = ollama_service.ollama_start(host="127.0.0.1", port=11434)
+    proc = llama_cpp_service.llama_cpp_start(
+        host="127.0.0.1",
+        port=8080,
+        service_conf={"model_path": "/tmp/missing.gguf"},
+    )
     assert proc is None
     assert called["popen"] == 0

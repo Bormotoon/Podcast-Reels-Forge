@@ -33,16 +33,14 @@ except ImportError:  # pragma: no cover
     def tqdm(iterable: object, **_: object) -> object:
         return iterable
 
-from podcast_reels_forge.utils.ollama_service import (
-    get_ollama_models,
-    ollama_start,
-    ollama_stop,
-    parse_local_ollama_host_port,
-    pull_ollama_model,
+from podcast_reels_forge.utils.llama_cpp_service import (
+    llama_cpp_start,
+    llama_cpp_stop,
+    parse_local_llama_cpp_host_port,
 )
 from podcast_reels_forge.config import (
     normalize_model_folder_name,
-    resolve_ollama_role_mapping,
+    resolve_llama_cpp_role_mapping,
 )
 from podcast_reels_forge.stages.analyze_stage import run_staged_analysis
 from podcast_reels_forge.stages.transcribe_stage import (
@@ -250,8 +248,8 @@ def _get_model_overrides(conf: dict[str, Any], model: str) -> dict[str, Any]:
     return ov if isinstance(ov, dict) else {}
 
 
-def _merge_ollama_conf(base: dict[str, Any], model: str) -> dict[str, Any]:
-    """Merge base ollama config with per-model overrides.
+def _merge_llama_cpp_conf(base: dict[str, Any], model: str) -> dict[str, Any]:
+    """Merge base llama.cpp config with per-model overrides.
 
     Supports shallow overrides, with a nested merge for the 'watchdog' dict.
     """
@@ -369,13 +367,13 @@ def run_pipeline(
     diar_conf = conf.get("diarization", {})
     diar_enabled = bool(diar_conf.get("enabled", False))
     subtitle_settings = subtitle_settings_from_conf(conf, repo_dir=repo_dir)
-    a_conf = conf.get("ollama", {})
+    a_conf = conf.get("llama_cpp", {})
     prompts_conf = conf.get("prompts", {})
     p_conf = conf.get("processing", {})
     v_conf = conf.get("video", {})
     exports_conf = conf.get("exports", {})
 
-    roles = resolve_ollama_role_mapping(conf)
+    roles = resolve_llama_cpp_role_mapping(conf)
     final_model_folder = _model_folder_name(roles.judge)
 
     stages_per_file = 1 + (1 if diar_enabled else 0) + 2
@@ -487,23 +485,17 @@ def run_pipeline(
                 pass
 
         # 3) Analyze (staged, single final output folder)
-        url = str(a_conf.get("url", "http://127.0.0.1:11434/api/generate")).strip()
-        ollama_proc: subprocess.Popen | None = None
-        local_ollama = parse_local_ollama_host_port(str(url))
-        if local_ollama:
-            host, port = local_ollama
-            ollama_proc = ollama_start(host=host, port=port)
-
-        # Proactively check/pull models if using Ollama
-        if "ollama" in str(url).lower():
-            try:
-                available = get_ollama_models(url)
-                for model in roles.unique_models():
-                    if model not in available and f"{model}:latest" not in available:
-                        status(f"[ollama] model '{model}' not found, pulling...", quiet=quiet)
-                        pull_ollama_model(url, model)
-            except Exception as e:
-                log.warning("Could not verify/pull Ollama models: %s", e)
+        url = str(a_conf.get("url", "http://127.0.0.1:8080/v1/chat/completions")).strip()
+        llama_cpp_proc: subprocess.Popen | None = None
+        local_llama = parse_local_llama_cpp_host_port(str(url))
+        service_conf = a_conf.get("service", {}) if isinstance(a_conf, dict) else {}
+        if local_llama and bool(service_conf.get("auto_start", True)):
+            host, port = local_llama
+            llama_cpp_proc = llama_cpp_start(
+                host=host,
+                port=port,
+                service_conf=service_conf if isinstance(service_conf, dict) else {},
+            )
 
         try:
             analysis_model_folder.mkdir(parents=True, exist_ok=True)
@@ -527,11 +519,11 @@ def run_pipeline(
                     final_moments = run_staged_analysis(
                         transcript_path=transcript_path,
                         outdir=analysis_model_folder,
-                        provider_name="ollama",
+                        provider_name="llama_cpp",
                         url=url,
                         api_key=None,
                         roles=roles,
-                        ollama_conf=a_conf,
+                        llama_cpp_conf=a_conf,
                         prompts_conf=prompts_conf,
                         processing_conf=p_conf,
                         diarization_path=diar_path if diar_enabled and diar_path.exists() else None,
@@ -564,8 +556,8 @@ def run_pipeline(
             except StopIteration:
                 pass
         finally:
-            if ollama_proc:
-                ollama_stop(ollama_proc)
+            if llama_cpp_proc:
+                llama_cpp_stop(llama_cpp_proc)
 
         # 4) Cut + exports (single final output)
         padding = int(p_conf.get("reel_padding", 5))

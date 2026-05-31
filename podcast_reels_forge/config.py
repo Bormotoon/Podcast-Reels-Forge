@@ -1,6 +1,6 @@
 """Configuration helpers for Podcast Reels Forge.
 
-This module keeps the role-based Ollama model mapping and the filesystem-safe
+This module keeps the role-based llama.cpp model mapping and the filesystem-safe
 model folder naming rules in one place so the pipeline, analyzer and docs stay
 consistent.
 """
@@ -10,12 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-ALLOWED_OLLAMA_MODELS = frozenset(
+ALLOWED_LLAMA_CPP_MODELS = frozenset(
     {
-        "gemma4:26b",
-        "gemma4:e4b",
-        "gemma3:12b",
-        "gemma3:4b",
+        "gemma4",
+        "gemma4:27b",
+        "gemma4:12b",
     },
 )
 
@@ -23,7 +22,7 @@ DEFAULT_ROLE_ORDER = ("scout", "cleanup", "refine", "judge")
 
 
 @dataclass(frozen=True)
-class OllamaRoleMapping:
+class LlamaCppRoleMapping:
     """Resolved model roles used by the default analysis pipeline."""
 
     scout: str
@@ -56,10 +55,9 @@ def normalize_model_folder_name(model: str) -> str:
 
     normalized = (model or "").strip().lower()
     special = {
-        "gemma4:26b": "gemma4_26b",
-        "gemma4:e4b": "gemma4_e4b",
-        "gemma3:12b": "gemma3_12b",
-        "gemma3:4b": "gemma3_4b",
+        "gemma4": "gemma4",
+        "gemma4:27b": "gemma4_27b",
+        "gemma4:12b": "gemma4_12b",
     }
     if normalized in special:
         return special[normalized]
@@ -96,47 +94,47 @@ def _validate_allowed_models(models: Mapping[str, str]) -> None:
         {
             model
             for model in models.values()
-            if model and model not in ALLOWED_OLLAMA_MODELS
+            if model and model not in ALLOWED_LLAMA_CPP_MODELS
         },
     )
     if invalid:
-        allowed = ", ".join(sorted(ALLOWED_OLLAMA_MODELS))
+        allowed = ", ".join(sorted(ALLOWED_LLAMA_CPP_MODELS))
         raise SystemExit(
-            "Unsupported Ollama models in config. Allowed default lineup: "
+            "Unsupported llama.cpp models in config. Allowed default lineup: "
             f"{allowed}; got: {', '.join(invalid)}",
         )
 
 
-def resolve_ollama_role_mapping(conf: Mapping[str, Any] | None) -> OllamaRoleMapping:
+def resolve_llama_cpp_role_mapping(conf: Mapping[str, Any] | None) -> LlamaCppRoleMapping:
     """Resolve the active role mapping from config.
 
     The preferred format is:
 
-    ollama:
+        llama_cpp:
       roles:
-        scout: gemma4:e4b
-        cleanup: gemma3:4b
-        refine: gemma3:12b
-        judge: gemma4:26b
+                scout: gemma4
+                cleanup: gemma4
+                refine: gemma4
+                judge: gemma4
 
     A legacy `models:` list is still accepted for compatibility when the role
     map is absent, but the new role-based format is the default.
     """
 
-    ollama_conf: Mapping[str, Any] = conf.get("ollama", {}) if isinstance(conf, Mapping) else {}
-    if not isinstance(ollama_conf, Mapping):
-        ollama_conf = {}
+    llama_cpp_conf: Mapping[str, Any] = conf.get("llama_cpp", {}) if isinstance(conf, Mapping) else {}
+    if not isinstance(llama_cpp_conf, Mapping):
+        llama_cpp_conf = {}
 
-    role_map = _load_role_model_map(ollama_conf.get("roles"))
+    role_map = _load_role_model_map(llama_cpp_conf.get("roles"))
     if not role_map:
         legacy_models = [
             _clean_model_name(model)
-            for model in ollama_conf.get("models", [])
+            for model in llama_cpp_conf.get("models", [])
             if _clean_model_name(model)
         ]
         if len(legacy_models) < len(DEFAULT_ROLE_ORDER):
             raise SystemExit(
-                "Missing ollama.roles config. Provide the new role mapping or a "
+                "Missing llama_cpp.roles config. Provide the new role mapping or a "
                 f"legacy models list with at least {len(DEFAULT_ROLE_ORDER)} models.",
             )
         role_map = {
@@ -147,7 +145,7 @@ def resolve_ollama_role_mapping(conf: Mapping[str, Any] | None) -> OllamaRoleMap
     missing = [role for role in DEFAULT_ROLE_ORDER if role not in role_map]
     if missing:
         raise SystemExit(
-            "Missing required ollama role assignments: " + ", ".join(missing),
+            "Missing required llama_cpp role assignments: " + ", ".join(missing),
         )
 
     scout = role_map["scout"]
@@ -156,19 +154,13 @@ def resolve_ollama_role_mapping(conf: Mapping[str, Any] | None) -> OllamaRoleMap
     judge = role_map["judge"]
     metadata = role_map.get("metadata", judge)
 
-    resolved = OllamaRoleMapping(
+    resolved = LlamaCppRoleMapping(
         scout=scout,
         cleanup=cleanup,
         refine=refine,
         judge=judge,
         metadata=metadata,
     )
-
-    required_unique = [resolved.scout, resolved.cleanup, resolved.refine, resolved.judge]
-    if len(set(required_unique)) != len(required_unique):
-        raise SystemExit(
-            "ollama.roles must assign four distinct models to scout, cleanup, refine, and judge",
-        )
 
     _validate_allowed_models(
         {
@@ -183,13 +175,13 @@ def resolve_ollama_role_mapping(conf: Mapping[str, Any] | None) -> OllamaRoleMap
     return resolved
 
 
-def merge_ollama_role_conf(
+def merge_llama_cpp_role_conf(
     base_conf: Mapping[str, Any] | None,
     model: str,
     *,
     role: str | None = None,
 ) -> dict[str, Any]:
-    """Merge global Ollama config with role/model specific overrides."""
+    """Merge global llama.cpp config with role/model specific overrides."""
 
     base = dict(base_conf or {})
     merged: dict[str, Any] = dict(base)

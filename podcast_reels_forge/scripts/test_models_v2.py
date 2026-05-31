@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gemma-only Ollama benchmark for transcript moment extraction."""
+"""Gemma-only llama.cpp benchmark for transcript moment extraction."""
 
 from __future__ import annotations
 
@@ -12,14 +12,9 @@ from typing import Any
 
 import requests
 
-MODELS = [
-    "gemma4:e4b",
-    "gemma3:4b",
-    "gemma3:12b",
-    "gemma4:26b",
-]
+MODELS = ["gemma4"]
 
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
+LLAMA_CPP_URL = "http://127.0.0.1:8080/v1/chat/completions"
 TARGET_MOMENTS = 5
 MAX_PASSES = 3
 MAX_PROMPT_CHARS = 18000
@@ -305,16 +300,19 @@ def run_model_iterative(
         prompt = build_prompt(transcript, already_selected=selected, pass_index=pass_index)
         try:
             response = requests.post(
-                OLLAMA_URL,
+                LLAMA_CPP_URL,
                 json={
                     "model": model,
-                    "prompt": prompt,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "You are a helpful assistant that always responds with valid JSON.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
                     "stream": False,
-                    "options": {
-                        "temperature": 0.2,
-                        "num_predict": 2048,
-                    },
-                    "format": "json",
+                    "temperature": 0.2,
+                    "max_tokens": 2048,
                 },
                 timeout=900,
             )
@@ -324,7 +322,7 @@ def run_model_iterative(
                 raw_parts.append(f"\n\n--- PASS {pass_index} ERROR_FIELD ---\n\n{payload.get('error')}")
                 break
 
-            raw = payload.get("response", "")
+            raw = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
             if not raw and isinstance(payload.get("thinking"), str):
                 raw = payload["thinking"]
 
@@ -417,7 +415,7 @@ def generate_report(output_dir: Path, models: list[str]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Benchmark Gemma Ollama models.")
+    parser = argparse.ArgumentParser(description="Benchmark Gemma llama.cpp models.")
     parser.add_argument(
         "--models",
         nargs="*",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test multiple Ollama models for viral moment detection quality."""
+"""Test llama.cpp models for viral moment detection quality."""
 
 import json
 import time
@@ -8,14 +8,9 @@ from pathlib import Path
 import requests
 
 # Models to test (excluding vision models and too small ones)
-MODELS = [
-    "gemma4:e4b",
-    "gemma3:4b",
-    "gemma3:12b",
-    "gemma4:26b",
-]
+MODELS = ["gemma4"]
 
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
+LLAMA_CPP_URL = "http://127.0.0.1:8080/v1/chat/completions"
 TIMEOUT = 600
 
 # Universal prompt optimized for all models
@@ -131,18 +126,26 @@ def run_model(model: str, prompt: str) -> tuple[dict, float, str]:
     
     try:
         response = requests.post(
-            OLLAMA_URL,
+            LLAMA_CPP_URL,
             json={
                 "model": model,
-                "prompt": prompt,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant that always responds with valid JSON.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
                 "stream": False,
-                "options": {"temperature": 0.4, "num_predict": 4096},
+                "temperature": 0.4,
+                "max_tokens": 4096,
             },
             timeout=TIMEOUT,
         )
         response.raise_for_status()
-        
-        raw = response.json().get("response", "")
+
+        payload = response.json()
+        raw = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
         elapsed = time.time() - start_time
         
         try:

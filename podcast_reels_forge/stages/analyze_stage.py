@@ -40,9 +40,9 @@ from podcast_reels_forge.analysis.ranking import (
 )
 from podcast_reels_forge.analysis.serializers import atomic_write_json
 from podcast_reels_forge.config import (
-    OllamaRoleMapping,
-    merge_ollama_role_conf,
-    resolve_ollama_role_mapping,
+    LlamaCppRoleMapping,
+    merge_llama_cpp_role_conf,
+    resolve_llama_cpp_role_mapping,
 )
 from podcast_reels_forge.llm.providers import (
     AnthropicConfig,
@@ -50,18 +50,18 @@ from podcast_reels_forge.llm.providers import (
     GeminiConfig,
     GeminiProvider,
     LLMProvider,
-    OllamaConfig,
-    OllamaProvider,
+    LlamaCppConfig,
+    LlamaCppProvider,
     OpenAIConfig,
     OpenAIProvider,
 )
 from podcast_reels_forge.utils.json_utils import extract_first_json_value
 from podcast_reels_forge.utils.logging_utils import setup_logging
-from podcast_reels_forge.utils.ollama_service import (
+from podcast_reels_forge.utils.llama_cpp_service import (
     ENV_MANAGED_BY_PIPELINE,
-    ollama_start,
-    ollama_stop,
-    parse_local_ollama_host_port,
+    llama_cpp_start,
+    llama_cpp_stop,
+    parse_local_llama_cpp_host_port,
 )
 from podcast_reels_forge.utils.reel_markdown import (
     build_description_text,
@@ -311,12 +311,12 @@ def create_provider(
     model: str,
     url: str | None = None,
     api_key: str | None = None,
-    ollama_fallback_models: list[str] | None = None,
-    ollama_watchdog: bool = True,
-    ollama_first_token_timeout_s: int = 120,
-    ollama_stall_timeout_s: int = 120,
-    ollama_log_interval_s: int = 10,
-    ollama_max_retries: int = 2,
+    llama_cpp_fallback_models: list[str] | None = None,
+    llama_cpp_watchdog: bool = True,
+    llama_cpp_first_token_timeout_s: int = 120,
+    llama_cpp_stall_timeout_s: int = 120,
+    llama_cpp_log_interval_s: int = 10,
+    llama_cpp_max_retries: int = 2,
 ) -> LLMProvider:
     """Create an LLM provider.
 
@@ -324,17 +324,17 @@ def create_provider(
     are not used by the default workflow.
     """
 
-    if provider_name == "ollama":
-        return OllamaProvider(
-            OllamaConfig(
-                url=url or "http://127.0.0.1:11434/api/generate",
+    if provider_name == "llama_cpp":
+        return LlamaCppProvider(
+            LlamaCppConfig(
+                url=url or "http://127.0.0.1:8080/v1/chat/completions",
                 model=model,
-                watchdog_enabled=bool(ollama_watchdog),
-                first_token_timeout_s=int(ollama_first_token_timeout_s),
-                stall_timeout_s=int(ollama_stall_timeout_s),
-                log_interval_s=int(ollama_log_interval_s),
-                max_retries=int(ollama_max_retries),
-                fallback_models=tuple(ollama_fallback_models or []),
+                watchdog_enabled=bool(llama_cpp_watchdog),
+                first_token_timeout_s=int(llama_cpp_first_token_timeout_s),
+                stall_timeout_s=int(llama_cpp_stall_timeout_s),
+                log_interval_s=int(llama_cpp_log_interval_s),
+                max_retries=int(llama_cpp_max_retries),
+                fallback_models=tuple(llama_cpp_fallback_models or []),
             ),
         )
     if provider_name == "openai":
@@ -372,24 +372,24 @@ def _provider_for_role(
     return create_provider(
         provider_name,
         model=model,
-        url=base_url if provider_name == "ollama" else None,
+        url=base_url if provider_name == "llama_cpp" else None,
         api_key=api_key,
-        ollama_fallback_models=[
+        llama_cpp_fallback_models=[
             str(item).strip()
             for item in conf.get("fallback_models", [])
             if str(item).strip()
         ],
-        ollama_watchdog=bool(watchdog.get("enabled", conf.get("watchdog_enabled", True))),
-        ollama_first_token_timeout_s=int(
+        llama_cpp_watchdog=bool(watchdog.get("enabled", conf.get("watchdog_enabled", True))),
+        llama_cpp_first_token_timeout_s=int(
             watchdog.get("first_token_timeout", conf.get("first_token_timeout_s", 120)),
         ),
-        ollama_stall_timeout_s=int(
+        llama_cpp_stall_timeout_s=int(
             watchdog.get("stall_timeout", conf.get("stall_timeout_s", 120)),
         ),
-        ollama_log_interval_s=int(
+        llama_cpp_log_interval_s=int(
             watchdog.get("log_interval", conf.get("log_interval_s", 10)),
         ),
-        ollama_max_retries=int(
+        llama_cpp_max_retries=int(
             watchdog.get("max_retries", conf.get("max_retries", 2)),
         ),
     )
@@ -401,7 +401,7 @@ def _stage_config(
     role: str,
     model: str,
 ) -> dict[str, Any]:
-    merged = merge_ollama_role_conf(base_conf, model, role=role)
+    merged = merge_llama_cpp_role_conf(base_conf, model, role=role)
     return merged
 
 
@@ -762,8 +762,8 @@ def run_staged_analysis(
     provider_name: str,
     url: str,
     api_key: str | None,
-    roles: OllamaRoleMapping,
-    ollama_conf: Mapping[str, Any],
+    roles: LlamaCppRoleMapping,
+    llama_cpp_conf: Mapping[str, Any],
     prompts_conf: Mapping[str, Any],
     processing_conf: Mapping[str, Any],
     diarization_path: Path | None = None,
@@ -807,46 +807,46 @@ def run_staged_analysis(
     if target_total <= 0:
         target_total = int(processing_conf.get("reels_count", 4))
 
-    base_timeout = int(ollama_conf.get("timeout", 900))
-    base_temperature = float(ollama_conf.get("temperature", 0.25))
-    scout_conf = _stage_config(ollama_conf, role="scout", model=roles.scout)
-    cleanup_conf = _stage_config(ollama_conf, role="cleanup", model=roles.cleanup)
-    refine_conf = _stage_config(ollama_conf, role="refine", model=roles.refine)
-    judge_conf = _stage_config(ollama_conf, role="judge", model=roles.judge)
-    metadata_conf = _stage_config(ollama_conf, role="metadata", model=roles.metadata)
+    base_timeout = int(llama_cpp_conf.get("timeout", 900))
+    base_temperature = float(llama_cpp_conf.get("temperature", 0.25))
+    scout_conf = _stage_config(llama_cpp_conf, role="scout", model=roles.scout)
+    cleanup_conf = _stage_config(llama_cpp_conf, role="cleanup", model=roles.cleanup)
+    refine_conf = _stage_config(llama_cpp_conf, role="refine", model=roles.refine)
+    judge_conf = _stage_config(llama_cpp_conf, role="judge", model=roles.judge)
+    metadata_conf = _stage_config(llama_cpp_conf, role="metadata", model=roles.metadata)
 
     scout_provider = _make_stage_provider(
         provider_name,
         model=roles.scout,
-        base_url=str(ollama_conf.get("url", url)),
+        base_url=str(llama_cpp_conf.get("url", url)),
         stage_conf=scout_conf,
         api_key=api_key,
     )
     cleanup_provider = _make_stage_provider(
         provider_name,
         model=roles.cleanup,
-        base_url=str(ollama_conf.get("url", url)),
+        base_url=str(llama_cpp_conf.get("url", url)),
         stage_conf=cleanup_conf,
         api_key=api_key,
     )
     refine_provider = _make_stage_provider(
         provider_name,
         model=roles.refine,
-        base_url=str(ollama_conf.get("url", url)),
+        base_url=str(llama_cpp_conf.get("url", url)),
         stage_conf=refine_conf,
         api_key=api_key,
     )
     judge_provider = _make_stage_provider(
         provider_name,
         model=roles.judge,
-        base_url=str(ollama_conf.get("url", url)),
+        base_url=str(llama_cpp_conf.get("url", url)),
         stage_conf=judge_conf,
         api_key=api_key,
     )
     metadata_provider = _make_stage_provider(
         provider_name,
         model=roles.metadata,
-        base_url=str(ollama_conf.get("url", url)),
+        base_url=str(llama_cpp_conf.get("url", url)),
         stage_conf=metadata_conf,
         api_key=api_key,
     )
@@ -857,8 +857,8 @@ def run_staged_analysis(
     judge_prompt = _ensure_prompt_text("judge", prompt_lang, variant)
     metadata_prompt = _ensure_prompt_text("metadata", prompt_lang, variant)
 
-    scout_chunk_seconds = _stage_chunk_seconds(scout_conf, int(ollama_conf.get("chunk_seconds", 900)))
-    scout_max_chars = _stage_max_chars(scout_conf, int(ollama_conf.get("max_chars_chunk", 12000)))
+    scout_chunk_seconds = _stage_chunk_seconds(scout_conf, int(llama_cpp_conf.get("chunk_seconds", 900)))
+    scout_max_chars = _stage_max_chars(scout_conf, int(llama_cpp_conf.get("max_chars_chunk", 12000)))
     chunks = build_analysis_chunks(
         segments,
         chunk_seconds=scout_chunk_seconds,
@@ -1045,21 +1045,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI args for the analysis stage."""
 
     ap = argparse.ArgumentParser(
-        description="Analyze transcript with local staged Ollama models to find viral moments.",
+        description="Analyze transcript with local staged llama.cpp models to find viral moments.",
     )
     ap.add_argument("--transcript", type=Path, required=True, help="Path to transcript JSON file")
     ap.add_argument("--outdir", type=Path, default=Path("out"), help="Output directory")
     ap.add_argument(
         "--provider",
-        choices=("ollama", "openai", "anthropic", "gemini"),
-        default="ollama",
+        choices=("llama_cpp", "openai", "anthropic", "gemini"),
+        default="llama_cpp",
         help="LLM provider to use (cloud providers are legacy compatibility only)",
     )
     ap.add_argument("--api-key", help="Optional override for legacy cloud providers")
     ap.add_argument(
         "--url",
-        default="http://127.0.0.1:11434/api/generate",
-        help="Ollama API URL",
+        default="http://127.0.0.1:8080/v1/chat/completions",
+        help="llama.cpp API URL",
     )
     ap.add_argument("--model", help="Legacy single-model mode (maps to all roles)")
     ap.add_argument("--scout-model", help="Scout role model")
@@ -1083,13 +1083,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--diarization", type=Path, help="Optional diarization.json for speaker tags")
     ap.add_argument("--quiet", action="store_true", help="Suppress non-error output")
     ap.add_argument("--verbose", action="store_true", help="Verbose output")
-    ap.add_argument("--ollama-watchdog", action=argparse.BooleanOptionalAction, default=True, help="Enable/disable Ollama stall watchdog")
-    ap.add_argument("--ollama-first-token-timeout", type=int, default=120, help="No output timeout before first token")
-    ap.add_argument("--ollama-stall-timeout", type=int, default=120, help="No output timeout while streaming")
-    ap.add_argument("--ollama-log-interval", type=int, default=10, help="Progress heartbeat interval")
-    ap.add_argument("--ollama-max-retries", type=int, default=2, help="Retries on stall/timeout")
+    ap.add_argument("--llama-watchdog", action=argparse.BooleanOptionalAction, default=True, help="Enable/disable llama.cpp stall watchdog")
+    ap.add_argument("--llama-first-token-timeout", type=int, default=120, help="No output timeout before first token")
+    ap.add_argument("--llama-stall-timeout", type=int, default=120, help="No output timeout while streaming")
+    ap.add_argument("--llama-log-interval", type=int, default=10, help="Progress heartbeat interval")
+    ap.add_argument("--llama-max-retries", type=int, default=2, help="Retries on stall/timeout")
     ap.add_argument(
-        "--ollama-fallback-model",
+        "--llama-fallback-model",
         action="append",
         default=[],
         help="Fallback model to try on stall/timeout (can be repeated)",
@@ -1097,7 +1097,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return ap.parse_args(argv)
 
 
-def _resolve_role_mapping(args: argparse.Namespace, conf_model: str | None = None) -> OllamaRoleMapping:
+def _resolve_role_mapping(args: argparse.Namespace, conf_model: str | None = None) -> LlamaCppRoleMapping:
     if args.model:
         legacy_model = str(args.model).strip()
         role_map = {
@@ -1107,15 +1107,15 @@ def _resolve_role_mapping(args: argparse.Namespace, conf_model: str | None = Non
             "judge": args.judge_model or legacy_model,
             "metadata": args.metadata_model or args.judge_model or legacy_model,
         }
-        return resolve_ollama_role_mapping({"ollama": {"roles": role_map}})
+        return resolve_llama_cpp_role_mapping({"llama_cpp": {"roles": role_map}})
     role_map = {
-        "scout": args.scout_model or conf_model or "gemma4:e4b",
-        "cleanup": args.cleanup_model or conf_model or "gemma3:4b",
-        "refine": args.refine_model or conf_model or "gemma3:12b",
-        "judge": args.judge_model or conf_model or "gemma4:26b",
-        "metadata": args.metadata_model or args.judge_model or conf_model or "gemma4:26b",
+        "scout": args.scout_model or conf_model or "gemma4",
+        "cleanup": args.cleanup_model or conf_model or "gemma4",
+        "refine": args.refine_model or conf_model or "gemma4",
+        "judge": args.judge_model or conf_model or "gemma4",
+        "metadata": args.metadata_model or args.judge_model or conf_model or "gemma4",
     }
-    return resolve_ollama_role_mapping({"ollama": {"roles": role_map}})
+    return resolve_llama_cpp_role_mapping({"llama_cpp": {"roles": role_map}})
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -1152,20 +1152,20 @@ def main(argv: list[str] | None = None) -> None:
             "highlights": {"moments_count": args.highlights_moments},
         },
     }
-    ollama_conf = {
+    llama_cpp_conf = {
         "url": args.url,
         "timeout": args.timeout,
         "temperature": args.temperature,
         "chunk_seconds": args.chunk_seconds,
         "max_chars_chunk": args.max_chars_chunk,
         "watchdog": {
-            "enabled": bool(args.ollama_watchdog),
-            "first_token_timeout": args.ollama_first_token_timeout,
-            "stall_timeout": args.ollama_stall_timeout,
-            "log_interval": args.ollama_log_interval,
-            "max_retries": args.ollama_max_retries,
+            "enabled": bool(args.llama_watchdog),
+            "first_token_timeout": args.llama_first_token_timeout,
+            "stall_timeout": args.llama_stall_timeout,
+            "log_interval": args.llama_log_interval,
+            "max_retries": args.llama_max_retries,
         },
-        "fallback_models": list(args.ollama_fallback_model or []),
+        "fallback_models": list(args.llama_fallback_model or []),
     }
 
     transcript_lang = data.get("language")
@@ -1177,10 +1177,10 @@ def main(argv: list[str] | None = None) -> None:
     proc: subprocess.Popen | None = None
     try:
         managed_by_pipeline = os.environ.get(ENV_MANAGED_BY_PIPELINE) == "1"
-        local = parse_local_ollama_host_port(args.url) if args.url else None
-        if args.provider == "ollama" and local and not managed_by_pipeline:
+        local = parse_local_llama_cpp_host_port(args.url) if args.url else None
+        if args.provider == "llama_cpp" and local and not managed_by_pipeline:
             host, port = local
-            proc = ollama_start(host=host, port=port)
+            proc = llama_cpp_start(host=host, port=port, service_conf={})
 
         final_moments = run_staged_analysis(
             transcript_path=args.transcript,
@@ -1189,7 +1189,7 @@ def main(argv: list[str] | None = None) -> None:
             url=args.url,
             api_key=args.api_key,
             roles=roles,
-            ollama_conf=ollama_conf,
+            llama_cpp_conf=llama_cpp_conf,
             prompts_conf={
                 **prompts_conf,
                 "language": prompt_lang,
@@ -1205,7 +1205,7 @@ def main(argv: list[str] | None = None) -> None:
         _status(f"[analyze] moments={len(final_moments)}", quiet=bool(args.quiet))
     finally:
         if proc:
-            ollama_stop(proc)
+            llama_cpp_stop(proc)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,172 @@
+"""Utilities for managing a local llama.cpp server process.
+
+These helpers are intentionally small and dependency-free so they can be used
+from both the pipeline orchestrator and stage scripts.
+"""
+
+from __future__ import annotations
+
+import logging
+import socket
+import subprocess
+import time
+from pathlib import Path
+from typing import Any, Final
+from urllib.parse import urlparse
+
+LOGGER = logging.getLogger("Forge")
+
+# When set to "1", stage scripts should not start/stop llama-server themselves.
+ENV_MANAGED_BY_PIPELINE: Final[str] = "FORGE_MANAGED_LLAMA_CPP"
+
+
+def wait_tcp(host: str, port: int, timeout_s: int = 20) -> bool:
+    """Wait until a TCP port starts accepting connections."""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                return True
+        except OSError:
+            time.sleep(0.2)
+    return False
+
+
+def is_tcp_open(host: str, port: int) -> bool:
+    """Return True if a TCP port is accepting connections."""
+    try:
+        with socket.create_connection((host, port), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
+def parse_local_llama_cpp_host_port(url: str) -> tuple[str, int] | None:
+    """Return (host, port) if URL points to local llama.cpp server, else None."""
+    parsed = urlparse(url)
+    host = parsed.hostname
+    if not host:
+        return None
+    if host not in {"127.0.0.1", "localhost"}:
+        return None
+    port = parsed.port or 8080
+    return (host, port)
+
+
+def _build_llama_server_cmd(
+    *,
+    model_path: str,
+    host: str,
+    port: int,
+    threads: int,
+    ctx_size: int,
+    n_gpu_layers: int,
+    batch_size: int,
+    ubatch_size: int,
+    main_gpu: int,
+    extra_args: list[str] | None,
+) -> list[str]:
+    cmd = [
+        "llama-server",
+        "-m",
+        model_path,
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "-t",
+        str(threads),
+        "-c",
+        str(ctx_size),
+        "--n-gpu-layers",
+        str(n_gpu_layers),
+        "--batch-size",
+        str(batch_size),
+        "--ubatch-size",
+        str(ubatch_size),
+        "--main-gpu",
+        str(main_gpu),
+        "--flash-attn",
+    ]
+    if extra_args:
+        cmd.extend(extra_args)
+    return cmd
+
+
+def llama_cpp_start(
+    *,
+    host: str,
+    port: int,
+    service_conf: dict[str, Any] | None = None,
+) -> subprocess.Popen | None:
+    """Start local llama-server in background, returning the started process.
+
+    Returns:
+        subprocess.Popen if a new instance was started by this call.
+        None if server is already running, unavailable, or failed to start.
+    """
+    if is_tcp_open(host, port):
+        LOGGER.info(
+            "llama.cpp server already running on %s:%s; not starting a new instance",
+            host,
+            port,
+        )
+        return None
+
+    conf = dict(service_conf or {})
+    model_path = str(conf.get("model_path", "")).strip()
+    if not model_path:
+        LOGGER.warning("llama_cpp.service.model_path is not set; cannot auto-start llama-server")
+        return None
+    if not Path(model_path).exists():
+        LOGGER.warning("llama.cpp model file not found: %s", model_path)
+        return None
+
+    cmd = _build_llama_server_cmd(
+        model_path=model_path,
+        host=host,
+        port=port,
+        threads=int(conf.get("threads", 8)),
+        ctx_size=int(conf.get("ctx_size", 8192)),
+        n_gpu_layers=int(conf.get("n_gpu_layers", 99)),
+        batch_size=int(conf.get("batch_size", 1024)),
+        ubatch_size=int(conf.get("ubatch_size", 512)),
+        main_gpu=int(conf.get("main_gpu", 0)),
+        extra_args=[str(x) for x in conf.get("extra_args", []) if str(x).strip()],
+    )
+
+    try:
+        p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if wait_tcp(host, port, timeout_s=int(conf.get("startup_timeout", 60))):
+            if p.poll() is None:
+                return p
+            LOGGER.warning("llama-server exited early while port became available")
+            return None
+
+        p.terminate()
+        try:
+            p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            p.kill()
+    except FileNotFoundError:
+        LOGGER.warning("llama-server binary not found in PATH")
+        return None
+    except OSError as exc:
+        LOGGER.warning("Failed to start llama-server: %s", exc)
+        return None
+    return None
+
+
+def llama_cpp_stop(p: subprocess.Popen) -> None:
+    """Terminate a llama-server process started by this app."""
+    try:
+        p.terminate()
+        p.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        LOGGER.warning("llama-server did not terminate in time; killing")
+        try:
+            p.kill()
+        except OSError:
+            LOGGER.exception("Failed to kill llama-server process")
+    except OSError:
+        LOGGER.exception("Failed to terminate llama-server process")

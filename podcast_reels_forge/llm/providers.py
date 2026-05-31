@@ -28,10 +28,10 @@ class LLMProvider(Protocol):
 
 
 @dataclass(frozen=True)
-class OllamaConfig:
-    """RU: Конфиг для Ollama API.
+class LlamaCppConfig:
+    """RU: Конфиг для llama.cpp server API.
 
-    EN: Config for Ollama API.
+    EN: Config for llama.cpp server API.
     """
 
     url: str
@@ -46,25 +46,25 @@ class OllamaConfig:
     fallback_models: tuple[str, ...] = ()
 
 
-class OllamaWatchdogTriggered(RuntimeError):
-    """Raised when an Ollama request appears stalled or too slow."""
+class LlamaCppWatchdogTriggered(RuntimeError):
+    """Raised when a local llama.cpp request appears stalled or too slow."""
 
     def __init__(self, *, reason: str, model: str, elapsed_s: float) -> None:
         super().__init__(
-            f"Ollama watchdog triggered ({reason}) for model '{model}' after {elapsed_s:.1f}s",
+            f"llama.cpp watchdog triggered ({reason}) for model '{model}' after {elapsed_s:.1f}s",
         )
         self.reason = reason
         self.model = model
         self.elapsed_s = elapsed_s
 
 
-class OllamaProvider:
-    """RU: Провайдер для Ollama (/api/generate).
+class LlamaCppProvider:
+    """RU: Провайдер для llama.cpp (/v1/chat/completions).
 
-    EN: Provider for Ollama (/api/generate).
+    EN: Provider for llama.cpp (/v1/chat/completions).
     """
 
-    def __init__(self, cfg: OllamaConfig):
+    def __init__(self, cfg: LlamaCppConfig):
         self.cfg = cfg
 
     def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
@@ -89,7 +89,7 @@ class OllamaProvider:
             try:
                 if attempt_idx > 1:
                     LOGGER.warning(
-                        "Retrying Ollama (%d/%d) with model=%s",
+                        "Retrying llama.cpp (%d/%d) with model=%s",
                         attempt_idx,
                         len(attempt_models),
                         model,
@@ -100,7 +100,7 @@ class OllamaProvider:
                     temperature=temperature,
                     max_total_s=int(timeout),
                 )
-            except OllamaWatchdogTriggered as exc:
+            except LlamaCppWatchdogTriggered as exc:
                 last_exc = exc
                 continue
             except (requests_exceptions.Timeout, requests_exceptions.RequestException) as exc:
@@ -109,7 +109,7 @@ class OllamaProvider:
 
         if last_exc is not None:
             raise last_exc
-        raise RuntimeError("Ollama generate failed without a captured exception")
+        raise RuntimeError("llama.cpp generate failed without a captured exception")
 
     def _generate_streaming(
         self,
@@ -135,27 +135,18 @@ class OllamaProvider:
         if read_timeout <= 0:
             read_timeout = max_total_s if max_total_s > 0 else 900
 
-        is_chat = self.cfg.url.endswith("/api/chat")
-        if is_chat:
-            payload = {
-                "model": model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are a helpful assistant that always responds with valid JSON. Never include explanatory text outside the JSON.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                "stream": True,
-                "options": {"temperature": temperature},
-            }
-        else:
-            payload = {
-                "model": model,
-                "prompt": prompt,
-                "stream": True,
-                "options": {"temperature": temperature},
-            }
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that always responds with valid JSON. Never include explanatory text outside the JSON.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "stream": True,
+            "temperature": float(temperature),
+        }
 
         with requests.post(
             self.cfg.url,
@@ -169,9 +160,7 @@ class OllamaProvider:
                     err_msg = r.json().get("error", "")
                 except Exception:
                     pass
-                if "not found" in err_msg.lower() or not err_msg:
-                    raise RuntimeError(f"Ollama returned 404: {err_msg or 'Not Found'}. Do you need to run 'ollama pull {model}'?")
-                raise RuntimeError(f"Ollama returned 404: {err_msg}")
+                raise RuntimeError(f"llama.cpp returned 404: {err_msg or 'Not Found'}")
                 
             r.raise_for_status()
 
@@ -179,7 +168,7 @@ class OllamaProvider:
                 now = time.monotonic()
 
                 if max_total_s > 0 and (now - start) > float(max_total_s):
-                    raise OllamaWatchdogTriggered(
+                    raise LlamaCppWatchdogTriggered(
                         reason="max_total_timeout",
                         model=model,
                         elapsed_s=now - start,
@@ -195,10 +184,7 @@ class OllamaProvider:
                     # Ignore malformed lines (shouldn't happen, but keep robust).
                     continue
 
-                if is_chat:
-                    piece = obj.get("message", {}).get("content")
-                else:
-                    piece = obj.get("response")
+                piece = obj.get("choices", [{}])[0].get("delta", {}).get("content")
 
                 if isinstance(piece, str) and piece:
                     parts.append(piece)
@@ -207,7 +193,7 @@ class OllamaProvider:
                 if self.cfg.watchdog_enabled:
                     # Before first token, be stricter.
                     if chars == 0 and (now - start) > float(self.cfg.first_token_timeout_s):
-                        raise OllamaWatchdogTriggered(
+                        raise LlamaCppWatchdogTriggered(
                             reason="first_token_timeout",
                             model=model,
                             elapsed_s=now - start,
@@ -215,26 +201,27 @@ class OllamaProvider:
 
                     if (now - last_log) >= float(max(1, int(self.cfg.log_interval_s))):
                         LOGGER.info(
-                            "Ollama progress: model=%s, received=%d chars, elapsed=%.1fs",
+                            "llama.cpp progress: model=%s, received=%d chars, elapsed=%.1fs",
                             model,
                             chars,
                             now - start,
                         )
                         last_log = now
 
-                done = obj.get("done")
-                if done is True:
+                finish_reason = obj.get("choices", [{}])[0].get("finish_reason")
+                if finish_reason is not None:
                     break
 
         if not got_any and self.cfg.watchdog_enabled:
             now = time.monotonic()
-            raise OllamaWatchdogTriggered(
+            raise LlamaCppWatchdogTriggered(
                 reason="no_response_data",
                 model=model,
                 elapsed_s=now - start,
             )
 
         return "".join(parts)
+
 
 
 @dataclass(frozen=True)

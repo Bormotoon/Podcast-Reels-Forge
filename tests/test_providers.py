@@ -104,34 +104,34 @@ def test_gemini_provider_parses_candidates(monkeypatch: MonkeyPatch) -> None:
         raise AssertionError(message)
 
 
-def test_ollama_provider_streaming_collects_response(monkeypatch: MonkeyPatch) -> None:
-    """Ensure Ollama provider can consume NDJSON streaming responses."""
+def test_llama_cpp_provider_streaming_collects_response(monkeypatch: MonkeyPatch) -> None:
+    """Ensure llama.cpp provider can consume OpenAI-style NDJSON chunks."""
 
     def fake_post(_url: str, **kwargs: object) -> DummyStreamResponse:
         payload = kwargs.get("json")
         if not isinstance(payload, dict):
             raise AssertionError("Expected json payload dict")
         if payload.get("stream") is not True:
-            raise AssertionError("Expected stream=True for Ollama")
+            raise AssertionError("Expected stream=True for llama.cpp")
 
         # Two streamed chunks + done marker.
         return DummyStreamResponse(
             [
-                '{"response":"hi","done":false}',
-                '{"response":" there","done":true}',
+                '{"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}',
+                '{"choices":[{"delta":{"content":" there"},"finish_reason":"stop"}]}',
             ],
         )
 
     monkeypatch.setattr(providers, "requests", SimpleNamespace(post=fake_post))
-    provider = providers.OllamaProvider(
-        providers.OllamaConfig(url="http://x/api/generate", model="m"),
+    provider = providers.LlamaCppProvider(
+        providers.LlamaCppConfig(url="http://x/v1/chat/completions", model="m"),
     )
     result = provider.generate("x", temperature=0.0, timeout=5)
     if result != "hi there":
-        raise AssertionError("Expected Ollama provider to join streamed chunks")
+        raise AssertionError("Expected llama.cpp provider to join streamed chunks")
 
 
-def test_ollama_provider_retries_and_switches_model(monkeypatch: MonkeyPatch) -> None:
+def test_llama_cpp_provider_retries_and_switches_model(monkeypatch: MonkeyPatch) -> None:
     """Ensure watchdog/timeout failures can trigger a retry with fallback model."""
 
     calls: list[str] = []
@@ -146,12 +146,14 @@ def test_ollama_provider_retries_and_switches_model(monkeypatch: MonkeyPatch) ->
         if len(calls) == 1:
             raise providers.requests_exceptions.ReadTimeout("stall")
 
-        return DummyStreamResponse(['{"response":"ok","done":true}'])
+        return DummyStreamResponse([
+            '{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}'
+        ])
 
     monkeypatch.setattr(providers, "requests", SimpleNamespace(post=fake_post))
-    provider = providers.OllamaProvider(
-        providers.OllamaConfig(
-            url="http://x/api/generate",
+    provider = providers.LlamaCppProvider(
+        providers.LlamaCppConfig(
+            url="http://x/v1/chat/completions",
             model="m1",
             max_retries=1,
             fallback_models=("m2",),

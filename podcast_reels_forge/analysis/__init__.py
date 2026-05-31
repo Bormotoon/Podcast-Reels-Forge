@@ -8,20 +8,20 @@ from podcast_reels_forge.analysis.contracts import (
     MomentRecord,
 )
 from podcast_reels_forge.config import (
-    ALLOWED_OLLAMA_MODELS,
+    ALLOWED_LLAMA_CPP_MODELS,
     DEFAULT_ROLE_ORDER,
-    OllamaRoleMapping,
+    LlamaCppRoleMapping,
     normalize_model_folder_name,
-    resolve_ollama_role_mapping,
+    resolve_llama_cpp_role_mapping,
 )
 
 __all__ = [
-    "ALLOWED_OLLAMA_MODELS",
+    "ALLOWED_LLAMA_CPP_MODELS",
     "AnalysisChunk",
     "AnalysisChunkUnit",
     "DEFAULT_ROLE_ORDER",
     "MomentRecord",
-    "OllamaRoleMapping",
+    "LlamaCppRoleMapping",
     "normalize_model_folder_name",
-    "resolve_ollama_role_mapping",
+    "resolve_llama_cpp_role_mapping",
 ]

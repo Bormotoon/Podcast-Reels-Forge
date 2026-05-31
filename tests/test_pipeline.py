@@ -136,7 +136,7 @@ def test_run_pipeline_builds_and_calls_stages(
         url: str,
         api_key: str | None,
         roles: object,
-        ollama_conf: dict[str, object],
+        llama_cpp_conf: dict[str, object],
         prompts_conf: dict[str, object],
         processing_conf: dict[str, object],
         diarization_path: Path | None = None,
@@ -152,7 +152,7 @@ def test_run_pipeline_builds_and_calls_stages(
                 "url": url,
                 "api_key": api_key,
                 "roles": roles,
-                "ollama_conf": ollama_conf,
+                "llama_cpp_conf": llama_cpp_conf,
                 "prompts_conf": prompts_conf,
                 "processing_conf": processing_conf,
                 "diarization_path": diarization_path,
@@ -222,26 +222,16 @@ def test_run_pipeline_builds_and_calls_stages(
         def __init__(self, pid: int):
             self.pid = pid
 
-    def fake_ollama_start(*, host: str, port: int):
+    def fake_llama_cpp_start(*, host: str, port: int, service_conf: dict[str, object] | None = None):
+        _ = service_conf
         started.append((host, port))
         return FakeProc(123)
 
-    def fake_ollama_stop(proc):
+    def fake_llama_cpp_stop(proc):
         stopped.append(getattr(proc, "pid", 0))
 
-    monkeypatch.setattr(pipeline, "ollama_start", fake_ollama_start)
-    monkeypatch.setattr(pipeline, "ollama_stop", fake_ollama_stop)
-    monkeypatch.setattr(
-        pipeline,
-        "get_ollama_models",
-        lambda url: [
-            "gemma4:e4b",
-            "gemma3:4b",
-            "gemma3:12b",
-            "gemma4:26b",
-        ],
-    )
-    monkeypatch.setattr(pipeline, "pull_ollama_model", lambda url, model: True)
+    monkeypatch.setattr(pipeline, "llama_cpp_start", fake_llama_cpp_start)
+    monkeypatch.setattr(pipeline, "llama_cpp_stop", fake_llama_cpp_stop)
 
     conf = {
         "paths": {"input_dir": str(input_dir), "output_dir": str(tmp_path / "output")},
@@ -251,15 +241,19 @@ def test_run_pipeline_builds_and_calls_stages(
             "model": "large-v3",
             "compute_type": "float32",
         },
-        "ollama": {
+        "llama_cpp": {
             "roles": {
-                "scout": "gemma4:e4b",
-                "cleanup": "gemma3:4b",
-                "refine": "gemma3:12b",
-                "judge": "gemma4:26b",
-                "metadata": "gemma4:26b",
+                "scout": "gemma4",
+                "cleanup": "gemma4",
+                "refine": "gemma4",
+                "judge": "gemma4",
+                "metadata": "gemma4",
             },
-            "url": "http://127.0.0.1:11434/api/generate",
+            "url": "http://127.0.0.1:8080/v1/chat/completions",
+            "service": {
+                "auto_start": True,
+                "model_path": str(tmp_path / "model.gguf"),
+            },
             "timeout": 240,
             "temperature": 0.2,
             "chunk_seconds": 900,
@@ -300,15 +294,15 @@ def test_run_pipeline_builds_and_calls_stages(
 
     assert len(analysis_calls) == 1
     roles = analysis_calls[0]["roles"]
-    assert getattr(roles, "judge") == "gemma4:26b"
+    assert getattr(roles, "judge") == "gemma4"
     assert analysis_calls[0]["transcript_path"] == tmp_path / "output" / "video" / "video.json"
-    assert analysis_calls[0]["outdir"] == tmp_path / "output" / "video" / "gemma4_26b"
+    assert analysis_calls[0]["outdir"] == tmp_path / "output" / "video" / "gemma4"
 
-    if started != [("127.0.0.1", 11434)]:
-        message = f"Expected Ollama to be started once, got: {started}"
+    if started != [("127.0.0.1", 8080)]:
+        message = f"Expected llama.cpp to be started once, got: {started}"
         raise AssertionError(message)
     if stopped != [123]:
-        message = f"Expected Ollama to be stopped, got: {stopped}"
+        message = f"Expected llama.cpp to be stopped, got: {stopped}"
         raise AssertionError(message)
 
     assert [c[0] for c in calls] == ["podcast_reels_forge.scripts.video_processor"]
@@ -333,8 +327,8 @@ def test_run_pipeline_builds_and_calls_stages(
         raise AssertionError(message)
 
     assert len(sync_markdown_calls) == 1
-    assert sync_markdown_calls[0][1] == tmp_path / "output" / "video" / "gemma4_26b" / "reels"
-    assert (tmp_path / "output" / "video" / "gemma4_26b" / "moments.json").exists()
+    assert sync_markdown_calls[0][1] == tmp_path / "output" / "video" / "gemma4" / "reels"
+    assert (tmp_path / "output" / "video" / "gemma4" / "moments.json").exists()
 
 
 def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
@@ -360,7 +354,7 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
     monkeypatch.setattr(pipeline.subprocess, "run", fake_ffmpeg_run)
 
     output_root = tmp_path / "output"
-    model_dir = output_root / "video" / "gemma4_26b"
+    model_dir = output_root / "video" / "gemma4"
     reels_dir = model_dir / "reels"
     rejected_dir = reels_dir / "rejected"
     rejected_dir.mkdir(parents=True)
@@ -431,25 +425,14 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
 
     monkeypatch.setattr(
         pipeline,
-        "ollama_start",
-        lambda *, host, port: (started.append((host, port)) or FakeProc(321)),
+        "llama_cpp_start",
+        lambda *, host, port, service_conf=None: (started.append((host, port)) or FakeProc(321)),
     )
     monkeypatch.setattr(
         pipeline,
-        "ollama_stop",
+        "llama_cpp_stop",
         lambda proc: stopped.append(getattr(proc, "pid", 0)),
     )
-    monkeypatch.setattr(
-        pipeline,
-        "get_ollama_models",
-        lambda url: [
-            "gemma4:e4b",
-            "gemma3:4b",
-            "gemma3:12b",
-            "gemma4:26b",
-        ],
-    )
-    monkeypatch.setattr(pipeline, "pull_ollama_model", lambda url, model: True)
 
     subtitle_sync_calls: list[tuple[Path, Path]] = []
 
@@ -474,15 +457,19 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
     conf = {
         "paths": {"input_dir": str(input_dir), "output_dir": str(output_root)},
         "transcription": {"language": "auto"},
-        "ollama": {
+        "llama_cpp": {
             "roles": {
-                "scout": "gemma4:e4b",
-                "cleanup": "gemma3:4b",
-                "refine": "gemma3:12b",
-                "judge": "gemma4:26b",
-                "metadata": "gemma4:26b",
+                "scout": "gemma4",
+                "cleanup": "gemma4",
+                "refine": "gemma4",
+                "judge": "gemma4",
+                "metadata": "gemma4",
             },
-            "url": "http://127.0.0.1:11434/api/generate",
+            "url": "http://127.0.0.1:8080/v1/chat/completions",
+            "service": {
+                "auto_start": True,
+                "model_path": str(tmp_path / "model.gguf"),
+            },
         },
         "processing": {
             "reels_count": 1,
@@ -500,7 +487,7 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
     pipeline.run_pipeline(conf=conf, repo_dir=tmp_path, quiet=True, verbose=False)
 
     assert calls == []
-    assert started == [("127.0.0.1", 11434)]
+    assert started == [("127.0.0.1", 8080)]
     assert stopped == [321]
     assert (reels_dir / "reel_01.md").exists()
     assert (rejected_dir / "reel_02.md").exists()

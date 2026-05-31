@@ -161,10 +161,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     ap.add_argument(
         "--provider",
-        default="ollama",
-        choices=("ollama",),
+        default="llama_cpp",
+        choices=("llama_cpp",),
     )
-    ap.add_argument("--model", default="gemma4:26b")
+    ap.add_argument("--model", default="gemma4")
     ap.add_argument("--url", default=None)
     ap.add_argument("--temperature", type=float, default=0.3)
     ap.add_argument("--reels", type=int, default=4)
