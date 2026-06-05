@@ -595,7 +595,7 @@ def transcribe_file(config: TranscribeConfig) -> Path:
         srt_path = out_path.with_suffix(".srt")
 
         _dump_output(out_path, output)
-        _dump_srt_output(srt_path, output["segments"])
+        _dump_srt_output(srt_path, segment_dicts)
 
         if not config.quiet:
             LOGGER.info("[transcribe] saved=%s", out_path)

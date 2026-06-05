@@ -20,7 +20,6 @@ from podcast_reels_forge.utils.burned_subtitles import (
     DEFAULT_SUBTITLE_CSS_TEMPLATE,
     DEFAULT_SUBTITLE_FONT,
     SubtitleRenderSettings,
-    ensure_reel_burned_subtitles,
     sync_reel_burned_subtitles,
 )
 from podcast_reels_forge.utils.face_crop import (
@@ -497,13 +496,13 @@ def main(argv: list[str] | None = None) -> None:
                 _export_gif(mp4, stem.with_suffix(".gif"))
 
         # Write adjacent markdown descriptions for each successful reel.
-        for i, mp4 in enumerate(results):
-            if mp4 is None:
+        for i, reel_path in enumerate(results):
+            if reel_path is None:
                 continue
             try:
-                write_reel_markdown(moments[i], mp4)
+                write_reel_markdown(moments[i], reel_path)
             except OSError as exc:
-                LOG.warning("Failed to write reel markdown for %s: %s", mp4.name, exc)
+                LOG.warning("Failed to write reel markdown for %s: %s", reel_path.name, exc)
 
     _status(f"[cut] done ({len(final_reels)} reels)", quiet=args.quiet)
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from math import exp
 from typing import Any
 
 _QUESTION_RE = re.compile(r"[?？]")

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 import subprocess
@@ -841,7 +840,6 @@ def run_staged_analysis(
         target_total = int(processing_conf.get("reels_count", 4))
 
     base_timeout = int(llama_cpp_conf.get("timeout", 900))
-    base_temperature = float(llama_cpp_conf.get("temperature", 0.25))
     scout_conf = _stage_config(llama_cpp_conf, role="scout", model=roles.scout)
     cleanup_conf = _stage_config(llama_cpp_conf, role="cleanup", model=roles.cleanup)
     refine_conf = _stage_config(llama_cpp_conf, role="refine", model=roles.refine)

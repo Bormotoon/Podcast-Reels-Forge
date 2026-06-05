@@ -26,7 +26,6 @@ from typing import Any
 from podcast_reels_forge.utils.burned_subtitles import (
     DEFAULT_SUBTITLE_CSS_TEMPLATE,
     DEFAULT_SUBTITLE_FONT,
-    SubtitleRenderSettings,
     ensure_reel_burned_subtitles,
     subtitle_settings_from_conf,
 )
