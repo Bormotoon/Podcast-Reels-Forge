@@ -50,14 +50,11 @@ def _is_valid_json(path: Path) -> bool:
         return False
 
 
-def _resolve_device(device_raw: object, *, autotune: bool) -> str:
+def _resolve_device(device_raw: object) -> str:
     device = str(device_raw or "cuda").strip().lower()
     if device == "auto":
-        if not autotune:
-            return "cpu"
         try:
             import torch
-
             return "cuda" if torch.cuda.is_available() else "cpu"
         except ImportError:
             return "cpu"
@@ -93,7 +90,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--autotune",
         action="store_true",
-        help="Enable auto device resolution for transcription.device=auto",
+        help="Deprecated no-op: device=auto now always resolves to CUDA when available.",
     )
     return parser.parse_args(argv)
 
@@ -134,6 +131,12 @@ def main(argv: list[str] | None = None) -> None:
     model_name = str(t_conf.get("model", "small"))
     language = str(t_conf.get("language", "ru"))
     beam_size = int(t_conf.get("beam_size", 5))
+    best_of = int(t_conf.get("best_of", 1))
+    patience = float(t_conf.get("patience", 1.0))
+    batch_size = int(t_conf.get("batch_size", 8))
+    repetition_penalty = float(t_conf.get("repetition_penalty", 1.1))
+    no_repeat_ngram_size = int(t_conf.get("no_repeat_ngram_size", 3))
+    condition_on_previous_text = bool(t_conf.get("condition_on_previous_text", False))
 
     compute_type_raw = t_conf.get("compute_type")
     compute_type: str | None = None
@@ -142,7 +145,7 @@ def main(argv: list[str] | None = None) -> None:
         if ct.lower() != "auto":
             compute_type = ct
 
-    device = _resolve_device(t_conf.get("device", "cuda"), autotune=bool(args.autotune))
+    device = _resolve_device(t_conf.get("device", "cuda"))
 
     if not quiet:
         print(f"Found {len(audio_files)} audio file(s) in {input_dir}", flush=True)
@@ -178,6 +181,12 @@ def main(argv: list[str] | None = None) -> None:
             language=language,
             beam_size=beam_size,
             compute_type=compute_type,
+            best_of=best_of,
+            patience=patience,
+            batch_size=batch_size,
+            repetition_penalty=repetition_penalty,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+            condition_on_previous_text=condition_on_previous_text,
             quiet=quiet,
             verbose=verbose,
         )

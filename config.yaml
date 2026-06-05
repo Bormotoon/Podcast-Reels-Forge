@@ -19,12 +19,19 @@ cache:
   validate_json: true
 
 transcription:
-  # Quality-first default for stronger local GPUs.
   model: "large-v3"
   device: "auto"          # auto | cuda | cpu
   language: "auto"        # auto | ru | en
-  beam_size: 6
+  beam_size: 5
   compute_type: "auto"    # auto | float32 | float16 | int8 | int8_float16 | int8_float32
+  best_of: 1
+  patience: 1.0
+  # Batched GPU inference: main speed lever. 8 fits large-v3 in <10GB; raise to 16 if VRAM is free.
+  batch_size: 8
+  # Anti-hallucination: stops the endless "Спасибо." loop on silence/music.
+  condition_on_previous_text: false
+  repetition_penalty: 1.1
+  no_repeat_ngram_size: 3
 
 llama_cpp:
   url: "http://127.0.0.1:8080/v1/chat/completions"

@@ -513,6 +513,14 @@ def run_pipeline(
                 language=str(t_conf.get("language", "ru")),
                 beam_size=int(t_conf.get("beam_size", 5)),
                 compute_type=compute_type,
+                best_of=int(t_conf.get("best_of", 1)),
+                patience=float(t_conf.get("patience", 1.0)),
+                batch_size=int(t_conf.get("batch_size", 8)),
+                repetition_penalty=float(t_conf.get("repetition_penalty", 1.1)),
+                no_repeat_ngram_size=int(t_conf.get("no_repeat_ngram_size", 3)),
+                condition_on_previous_text=bool(
+                    t_conf.get("condition_on_previous_text", False)
+                ),
                 quiet=quiet,
                 verbose=verbose,
             )

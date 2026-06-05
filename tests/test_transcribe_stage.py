@@ -43,10 +43,14 @@ def test_select_compute_type_default_old_gpu(mock_torch: MagicMock) -> None:
     assert _select_compute_type("cuda", None) == "int8_float16"
 
 
+@patch("podcast_reels_forge.stages.transcribe_stage.BatchedInferencePipeline")
 @patch("podcast_reels_forge.stages.transcribe_stage.WhisperModel")
 @patch("podcast_reels_forge.stages.transcribe_stage.torch")
 def test_transcribe_file_cleans_cuda_cache(
-    mock_torch: MagicMock, mock_whisper: MagicMock, tmp_path: Path,
+    mock_torch: MagicMock,
+    mock_whisper: MagicMock,
+    mock_batched: MagicMock,
+    tmp_path: Path,
 ) -> None:
     mock_torch.cuda.is_available.return_value = True
     mock_torch.cuda.empty_cache.return_value = None
@@ -66,7 +70,6 @@ def test_transcribe_file_cleans_cuda_cache(
         verbose=False,
     )
 
-    mock_model_instance = mock_whisper.return_value
     mock_info = MagicMock()
     mock_info.language = "en"
     mock_info.duration = 1.0
@@ -76,17 +79,20 @@ def test_transcribe_file_cleans_cuda_cache(
     mock_segment.end = 1.0
     mock_segment.text = " hi "
 
-    mock_model_instance.transcribe.return_value = ([mock_segment], mock_info)
+    mock_batched.return_value.transcribe.return_value = ([mock_segment], mock_info)
 
     out_path = transcribe_file(config)
     assert out_path.exists()
     mock_torch.cuda.empty_cache.assert_called()
 
+@patch("podcast_reels_forge.stages.transcribe_stage.BatchedInferencePipeline")
 @patch("podcast_reels_forge.stages.transcribe_stage.WhisperModel")
-def test_transcribe_file_orchestration(mock_whisper: MagicMock, tmp_path: Path) -> None:
+def test_transcribe_file_orchestration(
+    mock_whisper: MagicMock, mock_batched: MagicMock, tmp_path: Path,
+) -> None:
     input_file = tmp_path / "audio.mp3"
     input_file.write_text("dummy")
-    
+
     config = TranscribeConfig(
         input_path=input_file,
         outdir=tmp_path / "out",
@@ -98,20 +104,19 @@ def test_transcribe_file_orchestration(mock_whisper: MagicMock, tmp_path: Path) 
         quiet=True,
         verbose=False
     )
-    
+
     # Mock model behaviors
-    mock_model_instance = mock_whisper.return_value
     mock_info = MagicMock()
     mock_info.language = "en"
     mock_info.duration = 10.0
-    
+
     mock_segment = MagicMock()
     mock_segment.start = 0.0
     mock_segment.end = 2.0
     mock_segment.text = " Hello world "
-    
-    mock_model_instance.transcribe.return_value = ([mock_segment], mock_info)
-    
+
+    mock_batched.return_value.transcribe.return_value = ([mock_segment], mock_info)
+
     out_path = transcribe_file(config)
     srt_path = out_path.with_suffix(".srt")
     

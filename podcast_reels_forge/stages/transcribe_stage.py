@@ -5,12 +5,21 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
-from faster_whisper import WhisperModel
+# RU: Xet-протокол HF на некоторых сетях зависает (сокет в CLOSE-WAIT) — форсируем
+#     обычный HTTP. Должно быть выставлено ДО импорта faster_whisper/huggingface_hub,
+#     т.к. флаг читается в константу при их импорте. setdefault оставляет override.
+# EN: HF Xet protocol hangs on some networks (CLOSE-WAIT socket) — force plain HTTP.
+#     Must run BEFORE faster_whisper/huggingface_hub import (the flag is read into a
+#     constant at their import time). setdefault keeps it overridable.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+
+from faster_whisper import BatchedInferencePipeline, WhisperModel
 
 try:
     import torch
@@ -39,9 +48,18 @@ class TranscribeConfig:
     compute_type: str | None
     word_timestamps: bool = True
     vad_filter: bool = True
-    condition_on_previous_text: bool = True
-    best_of: int = 5
-    patience: float = 1.2
+    # RU: False ломает цепочку галлюцинаций (бесконечное "Спасибо." на тишине/музыке).
+    # EN: False breaks the hallucination death-spiral (endless "Спасибо." on silence/music).
+    condition_on_previous_text: bool = False
+    best_of: int = 1
+    patience: float = 1.0
+    # RU: Батчевый инференс — основной рычаг скорости на GPU.
+    # EN: Batched inference — the main GPU speed lever.
+    batch_size: int = 8
+    # RU: Прямой штраф за повторы внутри декодирования.
+    # EN: Direct anti-repetition controls inside decoding.
+    repetition_penalty: float = 1.1
+    no_repeat_ngram_size: int = 3
     quiet: bool = False
     verbose: bool = False
 
@@ -84,8 +102,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--beam-size",
         type=int,
-        default=6,
-        help="Beam size for decoding (default: 6).",
+        default=5,
+        help="Beam size for decoding (default: 5).",
     )
     parser.add_argument(
         "--compute-type",
@@ -93,6 +111,44 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Override compute_type passed to faster-whisper. "
             "Default: int8_float16 on older GPUs, float16 on newer CUDA GPUs, float32 on CPU."
+        ),
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=8,
+        help="Batched-inference batch size; main GPU speed lever (default: 8).",
+    )
+    parser.add_argument(
+        "--best-of",
+        type=int,
+        default=1,
+        help="Number of candidates when sampling (default: 1).",
+    )
+    parser.add_argument(
+        "--patience",
+        type=float,
+        default=1.0,
+        help="Beam search patience (default: 1.0).",
+    )
+    parser.add_argument(
+        "--repetition-penalty",
+        type=float,
+        default=1.1,
+        help="Penalty for repeated tokens; curbs hallucination loops (default: 1.1).",
+    )
+    parser.add_argument(
+        "--no-repeat-ngram-size",
+        type=int,
+        default=3,
+        help="Block repeating n-grams of this size (default: 3).",
+    )
+    parser.add_argument(
+        "--condition-on-previous-text",
+        action="store_true",
+        help=(
+            "Feed prior text as context. OFF by default: leaving it on triggers the "
+            "endless-repetition hallucination on silence/music."
         ),
     )
     parser.add_argument("--quiet", action="store_true", help="Suppress non-error output")
@@ -147,6 +203,14 @@ def _load_model(model_name: str, resolved_device: str, compute_type: str) -> Whi
     return WhisperModel(model_name, device=resolved_device, compute_type=compute_type)
 
 
+# RU: Лестница температур — главный предохранитель от галлюцинаций. Если сегмент
+#     получает высокий compression_ratio (повторы) или низкий logprob, faster-whisper
+#     повторяет его на следующей температуре.
+# EN: Temperature fallback ladder — the main anti-hallucination safety net. A segment
+#     with high compression_ratio (repeats) or low logprob is retried at the next temp.
+TEMPERATURE_LADDER: Final = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+
+
 def _transcribe_with_optional_kwargs(
     model: WhisperModel,
     input_path: Path,
@@ -158,9 +222,14 @@ def _transcribe_with_optional_kwargs(
     condition_on_previous_text: bool,
     best_of: int,
     patience: float,
+    batch_size: int,
+    repetition_penalty: float,
+    no_repeat_ngram_size: int,
 ) -> tuple[Any, Any]:
-    """Call faster-whisper with optional quality flags and graceful fallback."""
+    """RU: Запускает батчевый pipeline faster-whisper с анти-галлюцинационными флагами.
 
+    EN: Run faster-whisper batched pipeline with anti-hallucination flags.
+    """
     kwargs: dict[str, Any] = {
         "language": language,
         "beam_size": beam_size,
@@ -169,16 +238,25 @@ def _transcribe_with_optional_kwargs(
         "condition_on_previous_text": condition_on_previous_text,
         "best_of": max(1, int(best_of)),
         "patience": max(1.0, float(patience)),
-        "temperature": [0.0, 0.2, 0.4],
+        "temperature": TEMPERATURE_LADDER,
+        "compression_ratio_threshold": 2.4,
+        "log_prob_threshold": -1.0,
+        "no_speech_threshold": 0.6,
+        "repetition_penalty": max(1.0, float(repetition_penalty)),
+        "no_repeat_ngram_size": max(0, int(no_repeat_ngram_size)),
     }
+
+    batched = BatchedInferencePipeline(model=model)
     try:
-        return model.transcribe(str(input_path), **kwargs)
-    except TypeError:
-        return model.transcribe(
+        return batched.transcribe(
             str(input_path),
-            language=language,
-            beam_size=beam_size,
+            batch_size=max(1, int(batch_size)),
+            **kwargs,
         )
+    except TypeError:
+        # RU: Запасной путь для несовместимой версии API.
+        # EN: Fallback for an incompatible API version.
+        return model.transcribe(str(input_path), language=language, beam_size=beam_size)
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
@@ -369,6 +447,9 @@ def transcribe_file(config: TranscribeConfig) -> Path:
                 condition_on_previous_text=bool(config.condition_on_previous_text),
                 best_of=int(config.best_of),
                 patience=float(config.patience),
+                batch_size=int(config.batch_size),
+                repetition_penalty=float(config.repetition_penalty),
+                no_repeat_ngram_size=int(config.no_repeat_ngram_size),
             )
         except RuntimeError as exc:
             # RU: Если OOM произошёл во время инференса — деградируем и повторяем 1 раз.
@@ -392,6 +473,9 @@ def transcribe_file(config: TranscribeConfig) -> Path:
                     condition_on_previous_text=bool(config.condition_on_previous_text),
                     best_of=int(config.best_of),
                     patience=float(config.patience),
+                    batch_size=int(config.batch_size),
+                    repetition_penalty=float(config.repetition_penalty),
+                    no_repeat_ngram_size=int(config.no_repeat_ngram_size),
                 )
             else:
                 raise
@@ -492,6 +576,12 @@ def main(argv: list[str] | None = None) -> None:
         language=args.language,
         beam_size=args.beam_size,
         compute_type=args.compute_type,
+        best_of=args.best_of,
+        patience=args.patience,
+        batch_size=args.batch_size,
+        repetition_penalty=args.repetition_penalty,
+        no_repeat_ngram_size=args.no_repeat_ngram_size,
+        condition_on_previous_text=args.condition_on_previous_text,
         quiet=args.quiet,
         verbose=args.verbose,
     )
