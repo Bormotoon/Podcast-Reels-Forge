@@ -51,6 +51,7 @@ from podcast_reels_forge.utils.burned_subtitles import (
     subtitle_settings_from_conf,
     sync_reel_burned_subtitles,
 )
+from podcast_reels_forge.utils.ffmpeg import ffmpeg_bin
 from podcast_reels_forge.utils.reel_markdown import sync_reel_markdowns
 
 log = logging.getLogger("Forge")
@@ -123,7 +124,7 @@ def _ensure_mp3_companion(video_path: Path) -> Path:
         mp3_path.name,
     )
     cmd = [
-        "ffmpeg",
+        ffmpeg_bin(),
         "-y",
         "-i",
         str(video_path),
@@ -513,6 +514,17 @@ def run_pipeline(
                 language=str(t_conf.get("language", "ru")),
                 beam_size=int(t_conf.get("beam_size", 5)),
                 compute_type=compute_type,
+                best_of=int(t_conf.get("best_of", 1)),
+                patience=float(t_conf.get("patience", 1.0)),
+                batch_size=int(t_conf.get("batch_size", 16)),
+                repetition_penalty=float(t_conf.get("repetition_penalty", 1.1)),
+                no_repeat_ngram_size=int(t_conf.get("no_repeat_ngram_size", 3)),
+                condition_on_previous_text=bool(
+                    t_conf.get("condition_on_previous_text", False)
+                ),
+                mode=str(t_conf.get("mode", "fast")),
+                initial_prompt=t_conf.get("initial_prompt") or None,
+                quality_beam_size=int(t_conf.get("quality_beam_size", 10)),
                 quiet=quiet,
                 verbose=verbose,
             )
@@ -678,6 +690,8 @@ def run_pipeline(
             ]
             if "use_nvenc" in v_conf and not bool(v_conf.get("use_nvenc")):
                 video_args.append("--no-nvenc")
+            video_args += ["--nvenc-cq", str(v_conf.get("nvenc_cq", 21))]
+            video_args += ["--nvenc-preset", str(v_conf.get("nvenc_preset", "p5"))]
             if v_conf.get("vertical_crop", True):
                 video_args.append("--vertical")
             if v_conf.get("smart_crop_face", True):

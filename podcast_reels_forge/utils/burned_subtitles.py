@@ -654,7 +654,7 @@ def _resolve_config_path(
     repo_dir: Path,
     default: Path,
 ) -> Path:
-    path = Path(value).expanduser() if value else default
+    path = Path(str(value)).expanduser() if value else default
     if not path.is_absolute():
         path = repo_dir / path
     return path.resolve()
@@ -680,7 +680,7 @@ def _coerce_float(
 
 def _coerce_int(value: object, *, default: int, minimum: int = 1) -> int:
     try:
-        out = int(value)  # type: ignore[arg-type]
+        out = int(value)  # type: ignore[call-overload]
     except (TypeError, ValueError):
         out = int(default)
     return max(out, minimum)

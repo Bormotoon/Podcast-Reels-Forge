@@ -63,6 +63,7 @@ def test_find_input_queue_creates_mp3_companion(
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(pipeline.subprocess, "run", fake_run)
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
 
     queue = pipeline.find_input_queue(input_dir)
 
@@ -71,7 +72,7 @@ def test_find_input_queue_creates_mp3_companion(
     assert queue[0]["audio"] == input_dir / "episode.mp3"
     assert (input_dir / "episode.mp3").exists()
     assert calls
-    assert calls[0][0] == "ffmpeg"
+    assert str(calls[0][0]).endswith("ffmpeg")
     assert "-b:a" in calls[0]
     assert "320k" in calls[0]
 
@@ -99,6 +100,7 @@ def test_run_pipeline_builds_and_calls_stages(
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(pipeline.subprocess, "run", fake_ffmpeg_run)
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
 
     transcribe_calls: list[pipeline.TranscribeConfig] = []
 
@@ -352,6 +354,7 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(pipeline.subprocess, "run", fake_ffmpeg_run)
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
 
     output_root = tmp_path / "output"
     model_dir = output_root / "video" / "gemma4"

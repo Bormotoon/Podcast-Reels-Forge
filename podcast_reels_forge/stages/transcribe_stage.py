@@ -5,12 +5,21 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
-from faster_whisper import WhisperModel
+# RU: Xet-протокол HF на некоторых сетях зависает (сокет в CLOSE-WAIT) — форсируем
+#     обычный HTTP. Должно быть выставлено ДО импорта faster_whisper/huggingface_hub,
+#     т.к. флаг читается в константу при их импорте. setdefault оставляет override.
+# EN: HF Xet protocol hangs on some networks (CLOSE-WAIT socket) — force plain HTTP.
+#     Must run BEFORE faster_whisper/huggingface_hub import (the flag is read into a
+#     constant at their import time). setdefault keeps it overridable.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+
+from faster_whisper import BatchedInferencePipeline, WhisperModel
 
 try:
     import torch
@@ -39,9 +48,35 @@ class TranscribeConfig:
     compute_type: str | None
     word_timestamps: bool = True
     vad_filter: bool = True
-    condition_on_previous_text: bool = True
-    best_of: int = 5
-    patience: float = 1.2
+    # RU: False ломает цепочку галлюцинаций (бесконечное "Спасибо." на тишине/музыке).
+    # EN: False breaks the hallucination death-spiral (endless "Спасибо." on silence/music).
+    condition_on_previous_text: bool = False
+    best_of: int = 1
+    patience: float = 1.0
+    # RU: Батчевый инференс — основной рычаг скорости на GPU.
+    # EN: Batched inference — the main GPU speed lever.
+    batch_size: int = 16
+    # RU: Прямой штраф за повторы внутри декодирования.
+    # EN: Direct anti-repetition controls inside decoding.
+    repetition_penalty: float = 1.1
+    no_repeat_ngram_size: int = 3
+    # RU: "fast" — батчевый конвейер (быстро, без межсегментного контекста).
+    #     "quality" — последовательный конвейер с контекстом и защитой от галлюцинаций
+    #     (точнее на сложном/тихом аудио, но в ~10 раз медленнее).
+    # EN: "fast" — batched pipeline (fast, no cross-segment context).
+    #     "quality" — sequential pipeline with context + hallucination guard
+    #     (more accurate on hard/quiet audio, but ~10x slower).
+    mode: str = "fast"
+    # RU: Подсказка темы — смещает словарь модели; помогает в обоих режимах.
+    # EN: Domain prompt — biases the model's vocabulary; helps in both modes.
+    initial_prompt: str | None = None
+    # RU: Бим только для режима качества. EN: Beam used only in quality mode.
+    quality_beam_size: int = 10
+    # RU: Режим качества: пропускать тихие участки, где рождаются галлюцинации
+    #     (позволяет безопасно держать condition_on_previous_text=True).
+    # EN: Quality mode: skip silent gaps where hallucinations spawn
+    #     (lets us keep condition_on_previous_text=True safely).
+    hallucination_silence_threshold: float = 2.0
     quiet: bool = False
     verbose: bool = False
 
@@ -84,8 +119,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--beam-size",
         type=int,
-        default=6,
-        help="Beam size for decoding (default: 6).",
+        default=5,
+        help="Beam size for decoding (default: 5).",
     )
     parser.add_argument(
         "--compute-type",
@@ -94,6 +129,61 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Override compute_type passed to faster-whisper. "
             "Default: int8_float16 on older GPUs, float16 on newer CUDA GPUs, float32 on CPU."
         ),
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=16,
+        help="Batched-inference batch size; main GPU speed lever (default: 16).",
+    )
+    parser.add_argument(
+        "--best-of",
+        type=int,
+        default=1,
+        help="Number of candidates when sampling (default: 1).",
+    )
+    parser.add_argument(
+        "--patience",
+        type=float,
+        default=1.0,
+        help="Beam search patience (default: 1.0).",
+    )
+    parser.add_argument(
+        "--repetition-penalty",
+        type=float,
+        default=1.1,
+        help="Penalty for repeated tokens; curbs hallucination loops (default: 1.1).",
+    )
+    parser.add_argument(
+        "--no-repeat-ngram-size",
+        type=int,
+        default=3,
+        help="Block repeating n-grams of this size (default: 3).",
+    )
+    parser.add_argument(
+        "--condition-on-previous-text",
+        action="store_true",
+        help=(
+            "Feed prior text as context. OFF by default: leaving it on triggers the "
+            "endless-repetition hallucination on silence/music."
+        ),
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("fast", "quality"),
+        default="fast",
+        help="fast=batched (default); quality=sequential, context-aware, ~10x slower but more accurate.",
+    )
+    parser.add_argument(
+        "--initial-prompt",
+        default=None,
+        help="Optional domain context to bias vocabulary (helps both modes).",
+    )
+    parser.add_argument(
+        "--quality-beam-size",
+        type=int,
+        default=10,
+        help="Beam size used only in quality mode (default: 10).",
     )
     parser.add_argument("--quiet", action="store_true", help="Suppress non-error output")
     parser.add_argument("--verbose", action="store_true", help="Verbose output")
@@ -147,6 +237,14 @@ def _load_model(model_name: str, resolved_device: str, compute_type: str) -> Whi
     return WhisperModel(model_name, device=resolved_device, compute_type=compute_type)
 
 
+# RU: Лестница температур — главный предохранитель от галлюцинаций. Если сегмент
+#     получает высокий compression_ratio (повторы) или низкий logprob, faster-whisper
+#     повторяет его на следующей температуре.
+# EN: Temperature fallback ladder — the main anti-hallucination safety net. A segment
+#     with high compression_ratio (repeats) or low logprob is retried at the next temp.
+TEMPERATURE_LADDER: Final = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+
+
 def _transcribe_with_optional_kwargs(
     model: WhisperModel,
     input_path: Path,
@@ -158,27 +256,56 @@ def _transcribe_with_optional_kwargs(
     condition_on_previous_text: bool,
     best_of: int,
     patience: float,
+    batch_size: int,
+    repetition_penalty: float,
+    no_repeat_ngram_size: int,
+    mode: str = "fast",
+    initial_prompt: str | None = None,
+    quality_beam_size: int = 10,
+    hallucination_silence_threshold: float = 2.0,
 ) -> tuple[Any, Any]:
-    """Call faster-whisper with optional quality flags and graceful fallback."""
+    """RU: Транскрибация faster-whisper. fast=батчевый, quality=последовательный с контекстом.
 
+    EN: faster-whisper transcription. fast=batched, quality=sequential with context.
+    """
     kwargs: dict[str, Any] = {
         "language": language,
-        "beam_size": beam_size,
         "word_timestamps": word_timestamps,
         "vad_filter": vad_filter,
-        "condition_on_previous_text": condition_on_previous_text,
         "best_of": max(1, int(best_of)),
         "patience": max(1.0, float(patience)),
-        "temperature": [0.0, 0.2, 0.4],
+        "temperature": TEMPERATURE_LADDER,
+        "compression_ratio_threshold": 2.4,
+        "log_prob_threshold": -1.0,
+        "no_speech_threshold": 0.6,
+        "repetition_penalty": max(1.0, float(repetition_penalty)),
+        "no_repeat_ngram_size": max(0, int(no_repeat_ngram_size)),
     }
-    try:
+    if initial_prompt:
+        kwargs["initial_prompt"] = initial_prompt
+
+    if str(mode).strip().lower() == "quality":
+        # RU: Последовательный конвейер: межсегментный контекст + защита от галлюцинаций.
+        # EN: Sequential pipeline: cross-segment context + hallucination guard.
+        kwargs["beam_size"] = max(1, int(quality_beam_size))
+        kwargs["condition_on_previous_text"] = True
+        kwargs["hallucination_silence_threshold"] = float(hallucination_silence_threshold)
         return model.transcribe(str(input_path), **kwargs)
-    except TypeError:
-        return model.transcribe(
+
+    # fast: batched pipeline (no cross-segment conditioning by design).
+    kwargs["beam_size"] = beam_size
+    kwargs["condition_on_previous_text"] = condition_on_previous_text
+    batched = BatchedInferencePipeline(model=model)
+    try:
+        return batched.transcribe(
             str(input_path),
-            language=language,
-            beam_size=beam_size,
+            batch_size=max(1, int(batch_size)),
+            **kwargs,
         )
+    except TypeError:
+        # RU: Запасной путь для несовместимой версии API.
+        # EN: Fallback for an incompatible API version.
+        return model.transcribe(str(input_path), language=language, beam_size=beam_size)
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
@@ -358,30 +485,15 @@ def transcribe_file(config: TranscribeConfig) -> Path:
         if config.verbose and not config.quiet:
             LOGGER.info("[transcribe] input=%s", config.input_path)
 
-        try:
-            segments, info = _transcribe_with_optional_kwargs(
-                model,
-                config.input_path,
-                language=lang,
-                beam_size=config.beam_size,
-                word_timestamps=bool(config.word_timestamps),
-                vad_filter=bool(config.vad_filter),
-                condition_on_previous_text=bool(config.condition_on_previous_text),
-                best_of=int(config.best_of),
-                patience=float(config.patience),
-            )
-        except RuntimeError as exc:
-            # RU: Если OOM произошёл во время инференса — деградируем и повторяем 1 раз.
-            # EN: If OOM happens during inference, degrade and retry once.
-            if resolved_device == "cuda" and _is_cuda_oom(exc):
-                LOGGER.warning(
-                    "CUDA OOM during transcription; retrying on CPU. model=%s",
-                    config.model_name,
-                )
-                _cleanup_cuda()
-                resolved_device = "cpu"
-                compute_type = "float32"
-                model = _load_model(config.model_name, resolved_device, compute_type)
+        # RU: Прогон с деградацией при OOM: GPU(batch) → GPU(batch/2) → … → CPU.
+        #     Высокий batch_size даёт скорость; лесенка гарантирует, что мы не упадём.
+        #     В режиме quality батч не используется — стартуем с 1, чтобы OOM сразу шёл на CPU.
+        # EN: Run with OOM degradation: GPU(batch) → GPU(batch/2) → … → CPU.
+        #     High batch_size buys speed; the ladder guarantees we never hard-fail.
+        #     Quality mode ignores batching — start at 1 so an OOM goes straight to CPU.
+        cur_batch = max(1, int(config.batch_size)) if str(config.mode).lower() != "quality" else 1
+        while True:
+            try:
                 segments, info = _transcribe_with_optional_kwargs(
                     model,
                     config.input_path,
@@ -392,9 +504,32 @@ def transcribe_file(config: TranscribeConfig) -> Path:
                     condition_on_previous_text=bool(config.condition_on_previous_text),
                     best_of=int(config.best_of),
                     patience=float(config.patience),
+                    batch_size=cur_batch,
+                    repetition_penalty=float(config.repetition_penalty),
+                    no_repeat_ngram_size=int(config.no_repeat_ngram_size),
+                    mode=config.mode,
+                    initial_prompt=config.initial_prompt,
+                    quality_beam_size=config.quality_beam_size,
+                    hallucination_silence_threshold=config.hallucination_silence_threshold,
                 )
-            else:
-                raise
+                break
+            except RuntimeError as exc:
+                if not (resolved_device == "cuda" and _is_cuda_oom(exc)):
+                    raise
+                _cleanup_cuda()
+                if cur_batch > 1:
+                    cur_batch = max(1, cur_batch // 2)
+                    LOGGER.warning(
+                        "CUDA OOM during transcription; retrying on GPU with batch_size=%d",
+                        cur_batch,
+                    )
+                    continue
+                LOGGER.warning(
+                    "CUDA OOM persists at batch_size=1; switching transcription to CPU",
+                )
+                resolved_device = "cpu"
+                compute_type = "float32"
+                model = _load_model(config.model_name, resolved_device, compute_type)
 
         segments_list = list(segments)
         segment_dicts: list[dict[str, Any]] = []
@@ -441,6 +576,7 @@ def transcribe_file(config: TranscribeConfig) -> Path:
             "audio": str(config.input_path.resolve()),
             "source_audio": str(config.input_path.resolve()),
             "model": config.model_name,
+            "mode": config.mode,
             "device": resolved_device,
             "compute_type": compute_type,
             "language": getattr(info, "language", config.language),
@@ -459,7 +595,7 @@ def transcribe_file(config: TranscribeConfig) -> Path:
         srt_path = out_path.with_suffix(".srt")
 
         _dump_output(out_path, output)
-        _dump_srt_output(srt_path, output["segments"])
+        _dump_srt_output(srt_path, segment_dicts)
 
         if not config.quiet:
             LOGGER.info("[transcribe] saved=%s", out_path)
@@ -492,6 +628,15 @@ def main(argv: list[str] | None = None) -> None:
         language=args.language,
         beam_size=args.beam_size,
         compute_type=args.compute_type,
+        best_of=args.best_of,
+        patience=args.patience,
+        batch_size=args.batch_size,
+        repetition_penalty=args.repetition_penalty,
+        no_repeat_ngram_size=args.no_repeat_ngram_size,
+        condition_on_previous_text=args.condition_on_previous_text,
+        mode=args.mode,
+        initial_prompt=args.initial_prompt,
+        quality_beam_size=args.quality_beam_size,
         quiet=args.quiet,
         verbose=args.verbose,
     )

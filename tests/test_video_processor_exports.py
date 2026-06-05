@@ -54,6 +54,6 @@ def test_exports_flags_invoke_ffmpeg(monkeypatch: MonkeyPatch, tmp_path: Path) -
 
     # RU: Как минимум один вызов ffmpeg на каждый экспорт.
     # EN: At least one ffmpeg call per export.
-    if not any(cmd and cmd[0] == "ffmpeg" for cmd in calls):
+    if not any(cmd and str(cmd[0]).endswith("ffmpeg") for cmd in calls):
         message = "Expected ffmpeg calls for exports"
         raise AssertionError(message)

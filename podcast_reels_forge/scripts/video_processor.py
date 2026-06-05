@@ -20,7 +20,6 @@ from podcast_reels_forge.utils.burned_subtitles import (
     DEFAULT_SUBTITLE_CSS_TEMPLATE,
     DEFAULT_SUBTITLE_FONT,
     SubtitleRenderSettings,
-    ensure_reel_burned_subtitles,
     sync_reel_burned_subtitles,
 )
 from podcast_reels_forge.utils.face_crop import (
@@ -29,6 +28,11 @@ from podcast_reels_forge.utils.face_crop import (
     compute_crop_x_for_scaled_height,
     detect_face_center_ratio,
     face_detection_available,
+)
+from podcast_reels_forge.utils.ffmpeg import (
+    build_video_codec_args,
+    ffmpeg_bin,
+    ffmpeg_has_nvenc,
 )
 from podcast_reels_forge.utils.reel_markdown import write_reel_markdown
 
@@ -57,6 +61,9 @@ class FfmpegOptions:
     face_samples: int
     face_min_size: int
     filter_face_ratio: float = 0.0
+    # NVENC quality knobs: cq is the VBR quality target (lower = better), preset is p1..p7.
+    nvenc_cq: int = 21
+    nvenc_preset: str = "p5"
 
 
 def _run_subprocess(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -131,39 +138,35 @@ def ffmpeg_cut(
     start_offset = max(0, start - opts.padding)
     end_offset = end + opts.padding
 
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-ss",
-        str(start_offset),
-        "-to",
-        str(end_offset),
-        "-i",
-        str(video_in),
-    ]
-    if filters:
-        cmd += ["-vf", ",".join(filters)]
+    def _build(use_nvenc: bool) -> list[str]:
+        cmd = [
+            ffmpeg_bin(),
+            "-y",
+            "-ss",
+            str(start_offset),
+            "-to",
+            str(end_offset),
+            "-i",
+            str(video_in),
+        ]
+        if filters:
+            cmd += ["-vf", ",".join(filters)]
+        cmd += build_video_codec_args(
+            use_nvenc=use_nvenc,
+            v_bitrate=opts.v_bitrate,
+            preset=opts.preset,
+            nvenc_cq=opts.nvenc_cq,
+            nvenc_preset=opts.nvenc_preset,
+        )
+        # +faststart moves the moov atom to the front for instant playback/upload.
+        cmd += ["-c:a", "aac", "-b:a", opts.a_bitrate, "-movflags", "+faststart", str(out_path)]
+        return cmd
 
-    vcodec = "h264_nvenc" if opts.use_nvenc else "libx264"
-    cmd += [
-        "-c:v",
-        vcodec,
-        "-preset",
-        opts.preset,
-        "-b:v",
-        opts.v_bitrate,
-        "-c:a",
-        "aac",
-        "-b:a",
-        opts.a_bitrate,
-        str(out_path),
-    ]
-
-    res = _run_subprocess(cmd)
-    if res.returncode != 0 and opts.use_nvenc:
-        # Fallback to software x264 if NVENC is unavailable.
-        cmd[cmd.index("h264_nvenc")] = "libx264"
-        res = _run_subprocess(cmd)
+    res = _run_subprocess(_build(opts.use_nvenc))
+    if res.returncode != 0 and opts.use_nvenc and ffmpeg_has_nvenc():
+        # NVENC was attempted but failed; rebuild with software libx264.
+        LOG.warning("NVENC encode failed for %s; retrying with software libx264", out_path.name)
+        res = _run_subprocess(_build(False))
 
     return res.returncode == 0, out_path
 
@@ -180,7 +183,7 @@ def create_concat_sample(reels: list[Path], out_path: Path) -> bool:
             f.write(f"file '{reel.resolve()}'\n")
 
     cmd = [
-        "ffmpeg",
+        ffmpeg_bin(),
         "-y",
         "-f",
         "concat",
@@ -202,7 +205,7 @@ def _export_webm(mp4_path: Path, out_path: Path) -> bool:
     """Export video as WebM format."""
 
     cmd = [
-        "ffmpeg",
+        ffmpeg_bin(),
         "-y",
         "-i",
         str(mp4_path),
@@ -223,7 +226,7 @@ def _export_audio(mp4_path: Path, out_path: Path) -> bool:
     """Export audio-only track from video."""
 
     cmd = [
-        "ffmpeg",
+        ffmpeg_bin(),
         "-y",
         "-i",
         str(mp4_path),
@@ -243,7 +246,7 @@ def _export_gif(mp4_path: Path, out_path: Path) -> bool:
     palette = out_path.with_suffix(out_path.suffix + ".palette.png")
     vf = "fps=12,scale=480:-1:flags=lanczos"
     cmd1 = [
-        "ffmpeg",
+        ffmpeg_bin(),
         "-y",
         "-i",
         str(mp4_path),
@@ -252,7 +255,7 @@ def _export_gif(mp4_path: Path, out_path: Path) -> bool:
         str(palette),
     ]
     cmd2 = [
-        "ffmpeg",
+        ffmpeg_bin(),
         "-y",
         "-i",
         str(mp4_path),
@@ -294,13 +297,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--face-min-size", type=int, default=60, help="Min face size in pixels")
     ap.add_argument("--v-bitrate", default="5M", help="Video bitrate")
     ap.add_argument("--a-bitrate", default="192k", help="Audio bitrate")
-    ap.add_argument("--preset", default="fast", help="FFmpeg preset")
+    ap.add_argument("--preset", default="fast", help="libx264 preset (software fallback)")
     ap.add_argument(
         "--nvenc",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Use NVENC if available (default: enabled)",
     )
+    ap.add_argument("--nvenc-cq", type=int, default=21, help="NVENC VBR quality target, lower=better (default: 21)")
+    ap.add_argument("--nvenc-preset", default="p5", help="NVENC preset p1(fast)..p7(quality) (default: p5)")
     ap.add_argument("--padding", type=float, default=0, help="Extra seconds around moment")
     ap.add_argument("--export-webm", action="store_true", help="Export reels as .webm")
     ap.add_argument("--export-gif", action="store_true", help="Export reels as .gif")
@@ -404,6 +409,8 @@ def main(argv: list[str] | None = None) -> None:
         face_samples=int(args.face_samples),
         face_min_size=int(args.face_min_size),
         filter_face_ratio=float(args.filter_face_ratio),
+        nvenc_cq=int(args.nvenc_cq),
+        nvenc_preset=str(args.nvenc_preset),
     )
 
     if opts.smart_crop_face and opts.vertical_crop and not face_detection_available():
@@ -489,13 +496,13 @@ def main(argv: list[str] | None = None) -> None:
                 _export_gif(mp4, stem.with_suffix(".gif"))
 
         # Write adjacent markdown descriptions for each successful reel.
-        for i, mp4 in enumerate(results):
-            if mp4 is None:
+        for i, reel_path in enumerate(results):
+            if reel_path is None:
                 continue
             try:
-                write_reel_markdown(moments[i], mp4)
+                write_reel_markdown(moments[i], reel_path)
             except OSError as exc:
-                LOG.warning("Failed to write reel markdown for %s: %s", mp4.name, exc)
+                LOG.warning("Failed to write reel markdown for %s: %s", reel_path.name, exc)
 
     _status(f"[cut] done ({len(final_reels)} reels)", quiet=args.quiet)
 
