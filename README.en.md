@@ -14,6 +14,7 @@
 - [What it does](#what-it-does)
 - [Key Features](#key-features)
 - [Quick Start](#quick-start)
+- [Run Modes by Task](#run-modes-by-task)
 - [Pipeline Overview](#pipeline-overview)
 - [Output Layout](#output-layout)
 - [Command Line Arguments](#command-line-arguments)
@@ -31,10 +32,10 @@
 
 Main workflow steps:
 
-1. **Speech Recognition (Whisper)**: Converts audio/video into text with precise timestamps.
+1. **Speech Recognition (faster-whisper)**: Converts audio/video into text with precise timestamps. Model `large-v3`, with two modes — fast batched and accurate context-aware (see [Run Modes by Task](#run-modes-by-task)).
 2. **Diarization (Optional)**: Identifies different speakers throughout the audio.
 3. **AI Analysis (LLM)**: A staged `scout -> cleanup -> refine -> judge -> metadata` flow on local Gemma models.
-4. **Video Editing (FFmpeg)**: Cuts the video, applies vertical cropping (9:16), stabilized face framing, and burns subtitles.
+4. **Video Editing (FFmpeg + NVENC)**: Cuts the video, applies vertical cropping (9:16), stabilized face framing, and burns subtitles. GPU encoding via NVENC (~5× faster than software).
 
 Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 
@@ -43,9 +44,11 @@ Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 ## Key features
 
 - **Batch Processing**: Drop multiple videos into `input/`, and the forge will process them all sequentially.
+- **Two transcription modes**: `fast` (batched, ~5 min per hour of audio) and `quality` (sequential with context, more accurate on quiet/noisy recordings).
+- **Hallucination guard**: Suppresses Whisper repetition loops (endless "Thank you." on silence/music) via a temperature ladder, repetition penalty, and `condition_on_previous_text`.
 - **Role-based llama.cpp pipeline**: Local staged flow through **llama.cpp** with a Gemma 4 lineup: `gemma4`.
 - **Smart Face Crop**: Automatically detects faces and centers the frame during vertical cropping.
-- **Hardware Acceleration**: Uses **CUDA** for Whisper and **NVENC** for high-speed video rendering.
+- **Hardware Acceleration**: **CUDA** (ctranslate2) for Whisper and **NVENC** for video rendering. The NVENC-capable ffmpeg is auto-detected.
 - **llama.cpp Watchdog**: Monitors model responsiveness and automatically retries stalled generations.
 - **Flexible Clip Types**: Configure specific counts and durations for Stories, Reels, and Highlights separately.
 
@@ -81,6 +84,63 @@ Place your video files (mp4, mkv, mov) in the `input/` directory.
 
 ```bash
 python3 start_forge.py
+```
+
+---
+
+## Run modes by task
+
+Forge can run end-to-end (full pipeline) or transcription-only. Transcription has two modes — `fast` (default) and `quality`.
+
+| Mode | When to use | Speed\* |
+|---|---|---|
+| `fast` (batched) | Clean recording, need a quick draft | ~5 min per hour of audio |
+| `quality` (sequential, context-aware) | Quiet/far-field/noisy recording (dictaphone, phone, hall): fixes garbled words | ~1 h per hour of audio |
+
+\* Reference for an RTX 5060 Ti 16GB with `large-v3`. Quality mode is slower because it processes segments sequentially with language context instead of independent batches.
+
+### Full pipeline (transcribe → analyze → cut with NVENC)
+
+```bash
+python3 start_forge.py                     # transcription mode comes from config.yaml
+python3 start_forge.py --verbose           # verbose logs
+python3 start_forge.py --no-skip-existing  # rerun all stages, ignore cache
+```
+
+For the full pipeline, set the transcription mode in `config.yaml` → `transcription.mode` (`fast`/`quality`).
+
+### Transcription-only for audio in `input/`
+
+```bash
+# Fast mode (default)
+python3 transcribe_input_audio.py --verbose
+
+# Quality mode + topic hint — greatly improves quiet/noisy recordings
+python3 transcribe_input_audio.py --verbose --mode quality \
+  --initial-prompt "School parent meeting. Curriculum, classes, teachers."
+
+# Re-transcribe from scratch, ignoring cache
+python3 transcribe_input_audio.py --verbose --no-skip-existing
+```
+
+> 💡 **Topic hint** (`--initial-prompt`) biases the model's vocabulary and helps in both modes. Provide context specific to the recording.
+
+> 💡 **Audio denoising** in practice **hurts** recognition — Whisper is trained on "dirty" audio. Get gains from quality mode and the topic hint, not from preprocessing.
+
+### Re-render videos without AI analysis
+
+```bash
+python3 rerender_videos.py --smart-crop-face --replace
+```
+
+### Inspect the result
+
+```bash
+python3 - <<'PY'
+import json; d=json.load(open('output/<stem>/<stem>.json'))
+s=d['segments']
+print('mode:', d.get('mode'), '| segments:', len(s))
+PY
 ```
 
 ---
@@ -133,13 +193,24 @@ Main flags for `start_forge.py`:
 - `--autotune`: Automatically tune parameters for current hardware (smaller chunks, longer timeouts).
 - `--no-progress`: Disable progress bar (useful for CI/logging).
 
+Flags for the standalone transcriber `transcribe_input_audio.py`:
+
+- `--mode <fast|quality>`: Override `transcription.mode` from config.
+- `--initial-prompt "<text>"`: Topic hint to bias the model's vocabulary.
+- `--verbose` / `--quiet`: Log level.
+- `--no-skip-existing`: Re-transcribe even if a JSON already exists.
+
 ---
 
 ## Configuration (config.yaml)
 
 ### Key Sections
 
-- **`transcription`**: Choose Whisper model, device (`auto`/`cuda`/`cpu`), and language.
+- **`transcription`**: Whisper model (`large-v3`), device (`auto`/`cuda`/`cpu`), language.
+  - `mode`: `fast` (batched) or `quality` (sequential, more accurate).
+  - `batch_size`: batch size in fast mode (default 16; on OOM it auto-halves down to CPU).
+  - `quality_beam_size`: beam width in quality mode (default 10).
+  - `initial_prompt`: default topic hint (overridable with `--initial-prompt`).
 - **`llama_cpp`**:
   - `roles`: Role mapping for `scout / cleanup / refine / judge / metadata`.
   - `role_overrides`: Per-role timeout and chunk-size tweaks.
@@ -148,7 +219,10 @@ Main flags for `start_forge.py`:
 - **`video`**:
   - `vertical_crop`: Enable/disable 9:16 aspect ratio.
   - `smart_crop_face`: Enable smart centering on faces.
-  - `use_nvenc`: Use NVIDIA hardware acceleration.
+  - `use_nvenc`: Prefer NVIDIA hardware encoding (NVENC). Falls back to libx264 automatically if no NVENC ffmpeg build is found.
+  - `nvenc_cq`: NVENC VBR quality target (lower = better; default 21).
+  - `nvenc_preset`: NVENC preset `p1`(faster)…`p7`(higher quality), default `p5`.
+  - `video_bitrate`: Bitrate ceiling (for NVENC, caps the VBR peak).
 - **`subtitles`**:
   - `enabled`: Toggle automatic burned subtitle rendering with `pycaps`.
   - `font`: Path to the subtitle font file. Default: `assets/fonts/bignoodletoooblique.ttf`.
@@ -184,9 +258,11 @@ python3 rerender_videos.py --smart-crop-face --replace
 
 ## Performance and stability
 
-- **Whisper**: If you hit Out of Memory (OOM) errors, use `small` or `base` models.
+- **Whisper (memory)**: On OOM, `batch_size` auto-halves (16 → 8 → … → CPU), so it won't crash — just slower. To speed up, free VRAM or lower `batch_size`.
+- **Whisper (quality)**: Garbled words on quiet/far-field recordings are fixed by `quality` mode + `--initial-prompt`, **not** by audio cleanup (denoising hurts recognition).
+- **Blackwell GPU (RTX 50xx)**: Requires `torch>=2.7` built for CUDA 12.x. The PyTorch `sm_120` warning is harmless — Whisper inference runs via ctranslate2, not PyTorch kernels.
+- **ffmpeg / NVENC**: Forge auto-detects an NVENC-capable ffmpeg (`/usr/local/bin`, `/usr/bin`); you can force a path via the `FORGE_FFMPEG` env var. If NVENC is unavailable, encoding falls back to CPU (libx264).
 - **llama.cpp**: If a model takes too long to respond, increase `llama_cpp.watchdog.first_token_timeout` in config.
-- **FFmpeg**: If encoder errors occur, try disabling `use_nvenc` in config to use CPU encoding instead.
 - **Pycaps / Playwright**: If subtitle rendering fails with a Chromium-related error, run `playwright install chromium`.
 
 ---
