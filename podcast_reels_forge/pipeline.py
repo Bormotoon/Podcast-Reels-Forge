@@ -522,6 +522,9 @@ def run_pipeline(
                 condition_on_previous_text=bool(
                     t_conf.get("condition_on_previous_text", False)
                 ),
+                mode=str(t_conf.get("mode", "fast")),
+                initial_prompt=t_conf.get("initial_prompt") or None,
+                quality_beam_size=int(t_conf.get("quality_beam_size", 10)),
                 quiet=quiet,
                 verbose=verbose,
             )

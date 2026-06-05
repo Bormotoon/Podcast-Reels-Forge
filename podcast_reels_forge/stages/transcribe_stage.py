@@ -60,6 +60,23 @@ class TranscribeConfig:
     # EN: Direct anti-repetition controls inside decoding.
     repetition_penalty: float = 1.1
     no_repeat_ngram_size: int = 3
+    # RU: "fast" — батчевый конвейер (быстро, без межсегментного контекста).
+    #     "quality" — последовательный конвейер с контекстом и защитой от галлюцинаций
+    #     (точнее на сложном/тихом аудио, но в ~10 раз медленнее).
+    # EN: "fast" — batched pipeline (fast, no cross-segment context).
+    #     "quality" — sequential pipeline with context + hallucination guard
+    #     (more accurate on hard/quiet audio, but ~10x slower).
+    mode: str = "fast"
+    # RU: Подсказка темы — смещает словарь модели; помогает в обоих режимах.
+    # EN: Domain prompt — biases the model's vocabulary; helps in both modes.
+    initial_prompt: str | None = None
+    # RU: Бим только для режима качества. EN: Beam used only in quality mode.
+    quality_beam_size: int = 10
+    # RU: Режим качества: пропускать тихие участки, где рождаются галлюцинации
+    #     (позволяет безопасно держать condition_on_previous_text=True).
+    # EN: Quality mode: skip silent gaps where hallucinations spawn
+    #     (lets us keep condition_on_previous_text=True safely).
+    hallucination_silence_threshold: float = 2.0
     quiet: bool = False
     verbose: bool = False
 
@@ -151,6 +168,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "endless-repetition hallucination on silence/music."
         ),
     )
+    parser.add_argument(
+        "--mode",
+        choices=("fast", "quality"),
+        default="fast",
+        help="fast=batched (default); quality=sequential, context-aware, ~10x slower but more accurate.",
+    )
+    parser.add_argument(
+        "--initial-prompt",
+        default=None,
+        help="Optional domain context to bias vocabulary (helps both modes).",
+    )
+    parser.add_argument(
+        "--quality-beam-size",
+        type=int,
+        default=10,
+        help="Beam size used only in quality mode (default: 10).",
+    )
     parser.add_argument("--quiet", action="store_true", help="Suppress non-error output")
     parser.add_argument("--verbose", action="store_true", help="Verbose output")
     return parser.parse_args(argv)
@@ -225,17 +259,19 @@ def _transcribe_with_optional_kwargs(
     batch_size: int,
     repetition_penalty: float,
     no_repeat_ngram_size: int,
+    mode: str = "fast",
+    initial_prompt: str | None = None,
+    quality_beam_size: int = 10,
+    hallucination_silence_threshold: float = 2.0,
 ) -> tuple[Any, Any]:
-    """RU: Запускает батчевый pipeline faster-whisper с анти-галлюцинационными флагами.
+    """RU: Транскрибация faster-whisper. fast=батчевый, quality=последовательный с контекстом.
 
-    EN: Run faster-whisper batched pipeline with anti-hallucination flags.
+    EN: faster-whisper transcription. fast=batched, quality=sequential with context.
     """
     kwargs: dict[str, Any] = {
         "language": language,
-        "beam_size": beam_size,
         "word_timestamps": word_timestamps,
         "vad_filter": vad_filter,
-        "condition_on_previous_text": condition_on_previous_text,
         "best_of": max(1, int(best_of)),
         "patience": max(1.0, float(patience)),
         "temperature": TEMPERATURE_LADDER,
@@ -245,7 +281,20 @@ def _transcribe_with_optional_kwargs(
         "repetition_penalty": max(1.0, float(repetition_penalty)),
         "no_repeat_ngram_size": max(0, int(no_repeat_ngram_size)),
     }
+    if initial_prompt:
+        kwargs["initial_prompt"] = initial_prompt
 
+    if str(mode).strip().lower() == "quality":
+        # RU: Последовательный конвейер: межсегментный контекст + защита от галлюцинаций.
+        # EN: Sequential pipeline: cross-segment context + hallucination guard.
+        kwargs["beam_size"] = max(1, int(quality_beam_size))
+        kwargs["condition_on_previous_text"] = True
+        kwargs["hallucination_silence_threshold"] = float(hallucination_silence_threshold)
+        return model.transcribe(str(input_path), **kwargs)
+
+    # fast: batched pipeline (no cross-segment conditioning by design).
+    kwargs["beam_size"] = beam_size
+    kwargs["condition_on_previous_text"] = condition_on_previous_text
     batched = BatchedInferencePipeline(model=model)
     try:
         return batched.transcribe(
@@ -438,9 +487,11 @@ def transcribe_file(config: TranscribeConfig) -> Path:
 
         # RU: Прогон с деградацией при OOM: GPU(batch) → GPU(batch/2) → … → CPU.
         #     Высокий batch_size даёт скорость; лесенка гарантирует, что мы не упадём.
+        #     В режиме quality батч не используется — стартуем с 1, чтобы OOM сразу шёл на CPU.
         # EN: Run with OOM degradation: GPU(batch) → GPU(batch/2) → … → CPU.
         #     High batch_size buys speed; the ladder guarantees we never hard-fail.
-        cur_batch = max(1, int(config.batch_size))
+        #     Quality mode ignores batching — start at 1 so an OOM goes straight to CPU.
+        cur_batch = max(1, int(config.batch_size)) if str(config.mode).lower() != "quality" else 1
         while True:
             try:
                 segments, info = _transcribe_with_optional_kwargs(
@@ -456,6 +507,10 @@ def transcribe_file(config: TranscribeConfig) -> Path:
                     batch_size=cur_batch,
                     repetition_penalty=float(config.repetition_penalty),
                     no_repeat_ngram_size=int(config.no_repeat_ngram_size),
+                    mode=config.mode,
+                    initial_prompt=config.initial_prompt,
+                    quality_beam_size=config.quality_beam_size,
+                    hallucination_silence_threshold=config.hallucination_silence_threshold,
                 )
                 break
             except RuntimeError as exc:
@@ -521,6 +576,7 @@ def transcribe_file(config: TranscribeConfig) -> Path:
             "audio": str(config.input_path.resolve()),
             "source_audio": str(config.input_path.resolve()),
             "model": config.model_name,
+            "mode": config.mode,
             "device": resolved_device,
             "compute_type": compute_type,
             "language": getattr(info, "language", config.language),
@@ -578,6 +634,9 @@ def main(argv: list[str] | None = None) -> None:
         repetition_penalty=args.repetition_penalty,
         no_repeat_ngram_size=args.no_repeat_ngram_size,
         condition_on_previous_text=args.condition_on_previous_text,
+        mode=args.mode,
+        initial_prompt=args.initial_prompt,
+        quality_beam_size=args.quality_beam_size,
         quiet=args.quiet,
         verbose=args.verbose,
     )

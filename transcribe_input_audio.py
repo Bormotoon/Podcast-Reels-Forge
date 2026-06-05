@@ -92,6 +92,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Deprecated no-op: device=auto now always resolves to CUDA when available.",
     )
+    parser.add_argument(
+        "--mode",
+        choices=("fast", "quality"),
+        default=None,
+        help="Override transcription.mode: fast (batched) or quality (sequential, accurate, slow).",
+    )
+    parser.add_argument(
+        "--initial-prompt",
+        default=None,
+        help="Override transcription.initial_prompt: domain context to bias vocabulary.",
+    )
     return parser.parse_args(argv)
 
 
@@ -137,6 +148,9 @@ def main(argv: list[str] | None = None) -> None:
     repetition_penalty = float(t_conf.get("repetition_penalty", 1.1))
     no_repeat_ngram_size = int(t_conf.get("no_repeat_ngram_size", 3))
     condition_on_previous_text = bool(t_conf.get("condition_on_previous_text", False))
+    mode = str(args.mode or t_conf.get("mode", "fast"))
+    initial_prompt = args.initial_prompt or t_conf.get("initial_prompt") or None
+    quality_beam_size = int(t_conf.get("quality_beam_size", 10))
 
     compute_type_raw = t_conf.get("compute_type")
     compute_type: str | None = None
@@ -187,6 +201,9 @@ def main(argv: list[str] | None = None) -> None:
             repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             condition_on_previous_text=condition_on_previous_text,
+            mode=mode,
+            initial_prompt=initial_prompt,
+            quality_beam_size=quality_beam_size,
             quiet=quiet,
             verbose=verbose,
         )

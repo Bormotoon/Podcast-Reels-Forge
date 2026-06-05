@@ -33,6 +33,14 @@ transcription:
   condition_on_previous_text: false
   repetition_penalty: 1.1
   no_repeat_ngram_size: 3
+  # fast = batched pipeline (~5 min/episode, no cross-segment context).
+  # quality = sequential pipeline with context + hallucination guard: more accurate on
+  # hard/quiet/far-field audio (fixes word-agreement errors), but ~10x slower (~1h/episode).
+  mode: "fast"
+  quality_beam_size: 10        # beam used only in quality mode
+  # Optional domain context to bias vocabulary (helps both modes). Example:
+  # initial_prompt: "Родительское собрание в школе. Программа, занятия, преподаватели."
+  initial_prompt: ""
 
 llama_cpp:
   url: "http://127.0.0.1:8080/v1/chat/completions"
