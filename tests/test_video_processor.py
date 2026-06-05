@@ -35,7 +35,7 @@ def test_ffmpeg_cut_standard(mock_run: MagicMock) -> None:
     assert success is True
     assert out_p == out_path
     cmd = mock_run.call_args[0][0]
-    assert "ffmpeg" in cmd
+    assert any(str(c).endswith("ffmpeg") for c in cmd)
     # Check SS and TO
     assert "10.0" in cmd
     assert "20.0" in cmd

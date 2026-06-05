@@ -67,6 +67,8 @@ def _build_llama_server_cmd(
     main_gpu: int,
     parallel: int,
     extra_args: list[str] | None,
+    cache_type_k: str | None = "q8_0",
+    cache_type_v: str | None = "q8_0",
 ) -> list[str]:
     cmd = [
         "llama-server",
@@ -88,8 +90,21 @@ def _build_llama_server_cmd(
         str(ubatch_size),
         "--main-gpu",
         str(main_gpu),
+        # RU: Явное значение: голый --flash-attn в новых сборках принимает [on|off|auto]
+        #     и может «съесть» следующий аргумент как значение.
+        # EN: Pass an explicit value: bare --flash-attn in recent builds takes [on|off|auto]
+        #     and could swallow the next argument as its value.
         "--flash-attn",
+        "on",
     ]
+    # RU: Квантование KV-кэша (требует flash-attn) вдвое снижает VRAM под кэш —
+    #     это даёт запас на 16GB для большего контекста/parallel.
+    # EN: KV-cache quantization (needs flash-attn) halves KV VRAM — frees headroom
+    #     on 16GB for larger context / more parallel slots.
+    if cache_type_k:
+        cmd += ["--cache-type-k", str(cache_type_k)]
+    if cache_type_v:
+        cmd += ["--cache-type-v", str(cache_type_v)]
     if parallel > 1:
         cmd += ["--parallel", str(parallel)]
     if extra_args:
@@ -140,6 +155,8 @@ def llama_cpp_start(
         main_gpu=int(conf.get("main_gpu", 0)),
         parallel=max(1, int(conf.get("parallel", 1))),
         extra_args=[str(x) for x in conf.get("extra_args", []) if str(x).strip()],
+        cache_type_k=str(conf.get("cache_type_k", "q8_0")) or None,
+        cache_type_v=str(conf.get("cache_type_v", "q8_0")) or None,
     )
 
     try:

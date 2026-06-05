@@ -37,6 +37,7 @@ from podcast_reels_forge.utils.face_crop import (
     detect_face_center_ratio,
     face_detection_available,
 )
+from podcast_reels_forge.utils.ffmpeg import ffmpeg_bin, ffmpeg_has_nvenc
 from podcast_reels_forge.utils.reel_markdown import write_reel_markdown
 
 try:
@@ -146,8 +147,22 @@ def _cut_one(
     if is_rejected and rejected_dir:
         out_path = rejected_dir / out_path.name
 
+    rate = f"{settings.v_bitrate_k}k"
+    if ffmpeg_has_nvenc():
+        # GPU NVENC: quality-driven VBR capped at the configured bitrate.
+        venc = [
+            "-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq",
+            "-profile:v", "high", "-rc", "vbr", "-cq", "21",
+            "-b:v", "0", "-maxrate", rate, "-bufsize", f"{settings.v_bitrate_k * 2}k",
+        ]
+    else:
+        venc = [
+            "-c:v", "libx264", "-preset", "medium", "-profile:v", "high", "-level", "4.1",
+            "-b:v", rate, "-maxrate", rate, "-bufsize", f"{settings.v_bitrate_k * 2}k",
+        ]
+
     cmd = [
-        "ffmpeg",
+        ffmpeg_bin(),
         "-y",
         "-hide_banner",
         "-loglevel",
@@ -164,20 +179,7 @@ def _cut_one(
         "0:v:0",
         "-map",
         "0:a?",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-profile:v",
-        "high",
-        "-level",
-        "4.1",
-        "-b:v",
-        f"{settings.v_bitrate_k}k",
-        "-maxrate",
-        f"{settings.v_bitrate_k}k",
-        "-bufsize",
-        f"{settings.v_bitrate_k * 2}k",
+        *venc,
         "-r",
         str(settings.fps),
         "-pix_fmt",

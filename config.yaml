@@ -26,8 +26,9 @@ transcription:
   compute_type: "auto"    # auto | float32 | float16 | int8 | int8_float16 | int8_float32
   best_of: 1
   patience: 1.0
-  # Batched GPU inference: main speed lever. 8 fits large-v3 in <10GB; raise to 16 if VRAM is free.
-  batch_size: 8
+  # Batched GPU inference: main speed lever. Transcription runs alone (llama.cpp starts
+  # after), so all 16GB is free: 16 fits large-v3 in ~10-11GB. OOM auto-halves the batch.
+  batch_size: 16
   # Anti-hallucination: stops the endless "Спасибо." loop on silence/music.
   condition_on_previous_text: false
   repetition_penalty: 1.1
@@ -47,6 +48,9 @@ llama_cpp:
     threads: 8
     main_gpu: 0
     parallel: 2
+    # Quantize the KV cache (needs flash-attn) to ~halve its VRAM; frees headroom on 16GB.
+    cache_type_k: "q8_0"
+    cache_type_v: "q8_0"
     extra_args: []
   scout_parallelism: 2
   roles:
@@ -139,10 +143,12 @@ video:
   threads: 4
   vertical_crop: true
   smart_crop_face: true
-  video_bitrate: "6M"
+  video_bitrate: "8M"      # NVENC: peak ceiling for quality-driven VBR; software: target
   audio_bitrate: "192k"
-  preset: "fast"
-  use_nvenc: true
+  preset: "fast"           # libx264 preset (software fallback only)
+  use_nvenc: true          # prefer GPU NVENC; auto-falls back to libx264 if unavailable
+  nvenc_cq: 21             # NVENC VBR quality target, lower = better (18-24 sensible)
+  nvenc_preset: "p5"       # NVENC preset p1(fastest)..p7(best); p5 is balanced
   face_samples: 9
   face_min_size: 72
 

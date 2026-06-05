@@ -55,7 +55,7 @@ class TranscribeConfig:
     patience: float = 1.0
     # RU: Батчевый инференс — основной рычаг скорости на GPU.
     # EN: Batched inference — the main GPU speed lever.
-    batch_size: int = 8
+    batch_size: int = 16
     # RU: Прямой штраф за повторы внутри декодирования.
     # EN: Direct anti-repetition controls inside decoding.
     repetition_penalty: float = 1.1
@@ -116,8 +116,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=8,
-        help="Batched-inference batch size; main GPU speed lever (default: 8).",
+        default=16,
+        help="Batched-inference batch size; main GPU speed lever (default: 16).",
     )
     parser.add_argument(
         "--best-of",
@@ -436,33 +436,13 @@ def transcribe_file(config: TranscribeConfig) -> Path:
         if config.verbose and not config.quiet:
             LOGGER.info("[transcribe] input=%s", config.input_path)
 
-        try:
-            segments, info = _transcribe_with_optional_kwargs(
-                model,
-                config.input_path,
-                language=lang,
-                beam_size=config.beam_size,
-                word_timestamps=bool(config.word_timestamps),
-                vad_filter=bool(config.vad_filter),
-                condition_on_previous_text=bool(config.condition_on_previous_text),
-                best_of=int(config.best_of),
-                patience=float(config.patience),
-                batch_size=int(config.batch_size),
-                repetition_penalty=float(config.repetition_penalty),
-                no_repeat_ngram_size=int(config.no_repeat_ngram_size),
-            )
-        except RuntimeError as exc:
-            # RU: Если OOM произошёл во время инференса — деградируем и повторяем 1 раз.
-            # EN: If OOM happens during inference, degrade and retry once.
-            if resolved_device == "cuda" and _is_cuda_oom(exc):
-                LOGGER.warning(
-                    "CUDA OOM during transcription; retrying on CPU. model=%s",
-                    config.model_name,
-                )
-                _cleanup_cuda()
-                resolved_device = "cpu"
-                compute_type = "float32"
-                model = _load_model(config.model_name, resolved_device, compute_type)
+        # RU: Прогон с деградацией при OOM: GPU(batch) → GPU(batch/2) → … → CPU.
+        #     Высокий batch_size даёт скорость; лесенка гарантирует, что мы не упадём.
+        # EN: Run with OOM degradation: GPU(batch) → GPU(batch/2) → … → CPU.
+        #     High batch_size buys speed; the ladder guarantees we never hard-fail.
+        cur_batch = max(1, int(config.batch_size))
+        while True:
+            try:
                 segments, info = _transcribe_with_optional_kwargs(
                     model,
                     config.input_path,
@@ -473,12 +453,28 @@ def transcribe_file(config: TranscribeConfig) -> Path:
                     condition_on_previous_text=bool(config.condition_on_previous_text),
                     best_of=int(config.best_of),
                     patience=float(config.patience),
-                    batch_size=int(config.batch_size),
+                    batch_size=cur_batch,
                     repetition_penalty=float(config.repetition_penalty),
                     no_repeat_ngram_size=int(config.no_repeat_ngram_size),
                 )
-            else:
-                raise
+                break
+            except RuntimeError as exc:
+                if not (resolved_device == "cuda" and _is_cuda_oom(exc)):
+                    raise
+                _cleanup_cuda()
+                if cur_batch > 1:
+                    cur_batch = max(1, cur_batch // 2)
+                    LOGGER.warning(
+                        "CUDA OOM during transcription; retrying on GPU with batch_size=%d",
+                        cur_batch,
+                    )
+                    continue
+                LOGGER.warning(
+                    "CUDA OOM persists at batch_size=1; switching transcription to CPU",
+                )
+                resolved_device = "cpu"
+                compute_type = "float32"
+                model = _load_model(config.model_name, resolved_device, compute_type)
 
         segments_list = list(segments)
         segment_dicts: list[dict[str, Any]] = []
