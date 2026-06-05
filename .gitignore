@@ -95,3 +95,7 @@ models/
 # FFmpeg artifacts
 *.txt.bak
 *.palette.png
+
+# Local wheels / secrets
+*.whl
+.env
