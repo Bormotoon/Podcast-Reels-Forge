@@ -43,59 +43,63 @@ transcription:
   initial_prompt: ""
 
 llama_cpp:
-  url: "http://127.0.0.1:8080/v1/chat/completions"
+  url: "http://127.0.0.1:11440/completion"
   service:
     auto_start: true
-    model_path: "models/gemma4/gemma4-q4_k_m.gguf"
-    startup_timeout: 60
-    # RTX 5060 16GB profile: full GPU offload, large context, flash attention.
-    n_gpu_layers: 99
+    model_path: "/opt/llamacpp/models/gemma4-26b.gguf"
+    startup_timeout: 120
+    # RTX 5060 Ti 16GB: gemma4:26b (Q4_K_M, ~17GB) — weights are ~15.5GB on GPU.
+    # n_gpu_layers=0 → llama-server auto-fit fills VRAM maximally without OOM.
+    # Non-zero values disable auto-fit; use 999 to try full offload (may OOM).
+    n_gpu_layers: 0
     ctx_size: 8192
     batch_size: 1024
     ubatch_size: 512
-    threads: 8
+    threads: 4
     main_gpu: 0
-    parallel: 2
+    parallel: 1
     # Quantize the KV cache (needs flash-attn) to ~halve its VRAM; frees headroom on 16GB.
     cache_type_k: "q8_0"
     cache_type_v: "q8_0"
     extra_args: []
-  scout_parallelism: 2
+  scout_parallelism: 1
   roles:
-    scout: "gemma4"
-    cleanup: "gemma4"
-    refine: "gemma4"
-    judge: "gemma4"
-    metadata: "gemma4"
-  timeout: 420
+    scout: "gemma4:26b"
+    cleanup: "gemma4:26b"
+    refine: "gemma4:26b"
+    judge: "gemma4:26b"
+    metadata: "gemma4:26b"
+  timeout: 600
   temperature: 0.2
   chunk_seconds: 900
-  max_chars_chunk: 12000
+  # Russian text ~2-3 chars/token. 7000 chars ≈ 2800-3500 tokens.
+  # With instructions (~350 tokens) + n_predict (2048) = ~6250 total < ctx 8192.
+  max_chars_chunk: 7000
   watchdog:
     enabled: true
-    first_token_timeout: 60
-    stall_timeout: 90
+    first_token_timeout: 90
+    stall_timeout: 120
     log_interval: 10
-    max_retries: 1
+    max_retries: 4
   fallback_models: []
 
   # Role-specific overrides. Keep the default flow local, predictable, and fast.
   role_overrides:
     scout:
-      timeout: 360
+      timeout: 600
       chunk_seconds: 1200
       temperature: 0.35
     cleanup:
-      timeout: 240
+      timeout: 420
       temperature: 0.12
     refine:
-      timeout: 360
+      timeout: 600
       temperature: 0.15
     judge:
-      timeout: 420
+      timeout: 600
       temperature: 0.05
     metadata:
-      timeout: 240
+      timeout: 420
       temperature: 0.10
 
   # Legacy compatibility only. Prefer role_overrides above.

@@ -332,7 +332,7 @@ def create_provider(
     if provider_name == "llama_cpp":
         return LlamaCppProvider(
             LlamaCppConfig(
-                url=url or "http://127.0.0.1:8080/v1/chat/completions",
+                url=url or "http://127.0.0.1:11440/completion",
                 model=model,
                 watchdog_enabled=bool(llama_cpp_watchdog),
                 first_token_timeout_s=int(llama_cpp_first_token_timeout_s),
@@ -949,9 +949,20 @@ def run_staged_analysis(
     )
     atomic_write_json(outdir / "scout_candidates.json", build_candidate_json(scouted_candidates))
 
+    # Limit total candidates before cleanup to stay within ctx=8192.
+    # 25 candidates × ~200 tokens + prompt ≈ 5400 tokens; adding n_predict(2048) = 7448 < 8192.
+    _CLEANUP_CAP = 25
+    cleanup_input = scouted_candidates
+    if len(scouted_candidates) > _CLEANUP_CAP:
+        cleanup_input = sorted(scouted_candidates, key=lambda m: m.score, reverse=True)[:_CLEANUP_CAP]
+        LOGGER.info(
+            "pre-cleanup cap: reduced %d → %d candidates (top by score)",
+            len(scouted_candidates), _CLEANUP_CAP,
+        )
+
     cleaned_candidates = cleanup_candidates(
         cleanup_provider,
-        scouted_candidates,
+        cleanup_input,
         requirements=requirements,
         prompt=cleanup_prompt,
         temperature=cleanup_temp,

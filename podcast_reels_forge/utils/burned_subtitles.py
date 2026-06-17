@@ -172,8 +172,10 @@ def sync_reel_burned_subtitles(
     if not settings.enabled or not reels_root.exists():
         return written
 
+    import re as _re
     reel_files = sorted(
-        p for p in reels_root.rglob("reel_*.mp4") if p.is_file()
+        p for p in reels_root.rglob("reel_*.mp4")
+        if p.is_file() and _re.match(r"^reel_\d+\.mp4$", p.name)
     )
     if not reel_files:
         return written
@@ -236,19 +238,19 @@ def _render_reel_with_subtitles_assets(
     srt_path = reel_path.with_suffix(".srt")
     write_srt_file(srt_path, clip_segments)
 
-    tmp_output = reel_path.with_name(f"{reel_path.stem}.subtitled{reel_path.suffix}")
-    if tmp_output.exists():
-        tmp_output.unlink(missing_ok=True)
+    subtitled_path = reel_path.with_name(f"{reel_path.stem}.subtitled{reel_path.suffix}")
+    if subtitled_path.exists():
+        subtitled_path.unlink(missing_ok=True)
 
     _render_reel_with_pycaps(
         template_dir=template_dir,
         reel_path=reel_path,
-        tmp_output=tmp_output,
+        tmp_output=subtitled_path,
         clip_segments=clip_segments,
         settings=settings,
         verbose=verbose,
     )
-    tmp_output.replace(reel_path)
+    # Keep reel_path as the clean (no-subtitle) version; subtitled_path is the burned version.
     return srt_path
 
 

@@ -34,9 +34,11 @@ except ImportError:  # pragma: no cover
         return iterable
 
 from podcast_reels_forge.utils.llama_cpp_service import (
+    is_tcp_open,
     llama_cpp_start,
     llama_cpp_stop,
     parse_local_llama_cpp_host_port,
+    wait_for_server_ready,
 )
 from podcast_reels_forge.config import (
     normalize_model_folder_name,
@@ -581,6 +583,14 @@ def run_pipeline(
                 service_conf=service_conf if isinstance(service_conf, dict) else {},
             )
 
+        # Wait for the server to finish loading the model before sending requests.
+        # This handles both our own auto-started instance and an external server
+        # that is still loading (returns 503 "Loading model" until ready).
+        if local_llama:
+            host, port = local_llama
+            startup_timeout = int((service_conf or {}).get("startup_timeout", 120))
+            wait_for_server_ready(host, port, timeout_s=max(startup_timeout, 300))
+
         try:
             analysis_model_folder.mkdir(parents=True, exist_ok=True)
             moments_path = analysis_model_folder / "moments.json"
@@ -642,6 +652,21 @@ def run_pipeline(
         finally:
             if llama_cpp_proc:
                 llama_cpp_stop(llama_cpp_proc)
+            else:
+                # Free VRAM from any external llama-server before the cut stage so
+                # NVENC can use the GPU unimpeded. systemd (Restart=always) will
+                # restart the service after the process exits.
+                if local_llama:
+                    h, p = local_llama
+                    if is_tcp_open(h, p):
+                        import subprocess as _sp
+                        _sp.run(
+                            ["pkill", "-f", f"llama-server.*--port.*{p}"],
+                            capture_output=True, timeout=10,
+                        )
+                        log.info("Stopped external llama-server on port %d to free VRAM for NVENC", p)
+                        import time as _t
+                        _t.sleep(3)
 
         # 4) Cut + exports (single final output)
         padding = int(p_conf.get("reel_padding", 5))
@@ -658,7 +683,11 @@ def run_pipeline(
                 pass
             continue
 
-        existing_reels = list(reels_dir.glob("reel_*.mp4")) if reels_dir.exists() else []
+        import re as _re
+        existing_reels = [
+            p for p in (reels_dir.glob("reel_*.mp4") if reels_dir.exists() else [])
+            if _re.match(r"^reel_\d+\.mp4$", p.name)
+        ]
         skip_cut = skip_existing and bool(existing_reels)
         if skip_cut:
             status(

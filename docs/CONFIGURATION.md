@@ -30,22 +30,22 @@ llama_cpp:
   url: "http://127.0.0.1:8080/v1/chat/completions"
   service:
     auto_start: true
-    model_path: "models/gemma4/gemma4-q4_k_m.gguf"
-    startup_timeout: 60
-    n_gpu_layers: 99
-    ctx_size: 8192
+    model_path: "models/gemma4_27b/gemma4-27b-q4_k_m.gguf"
+    startup_timeout: 90
+    n_gpu_layers: 32   # partial offload: 27b (Q4_K_M) doesn't fit fully in 16GB VRAM
+    ctx_size: 4096
     batch_size: 1024
     ubatch_size: 512
     threads: 8
     main_gpu: 0
     extra_args: []
   roles:
-    scout: "gemma4"
-    cleanup: "gemma4"
-    refine: "gemma4"
-    judge: "gemma4"
-    metadata: "gemma4"
-  timeout: 420
+    scout: "gemma4:27b"
+    cleanup: "gemma4:27b"
+    refine: "gemma4:27b"
+    judge: "gemma4:27b"
+    metadata: "gemma4:27b"
+  timeout: 600
   temperature: 0.2
   chunk_seconds: 900
   max_chars_chunk: 12000
@@ -68,7 +68,7 @@ Notes:
 
 - `roles` is the default way to configure the staged analysis pipeline.
 - `model_overrides` is retained only for legacy compatibility.
-- The default workflow is llama.cpp-only and Gemma 4-only.
+- The default workflow is llama.cpp-only and Gemma 4-only (currently the `gemma4:27b` lineup, partially offloaded to fit 16GB VRAM).
 
 ## Processing / Обработка
 

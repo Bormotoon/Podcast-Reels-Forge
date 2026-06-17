@@ -42,6 +42,37 @@ def is_tcp_open(host: str, port: int) -> bool:
         return False
 
 
+def wait_for_server_ready(host: str, port: int, *, timeout_s: int = 300) -> bool:
+    """Poll /health until the server reports status=ok, or timeout expires.
+
+    Returns True when the server is ready, False if timeout is reached.
+    Uses stdlib only (no third-party deps) so it works before venv activation.
+    """
+    import json
+    import urllib.error
+    import urllib.request
+
+    url = f"http://{host}:{port}/health"
+    deadline = time.time() + timeout_s
+    logged_waiting = False
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=3) as resp:
+                data = json.loads(resp.read())
+                if data.get("status") == "ok":
+                    return True
+        except urllib.error.HTTPError:
+            # 503 "Loading model" → still loading, keep waiting
+            if not logged_waiting:
+                LOGGER.info("llama.cpp server loading model; waiting (max %ds)...", timeout_s)
+                logged_waiting = True
+        except Exception:
+            pass
+        time.sleep(3)
+    LOGGER.warning("llama.cpp server not ready after %ds; proceeding anyway", timeout_s)
+    return False
+
+
 def parse_local_llama_cpp_host_port(url: str) -> tuple[str, int] | None:
     """Return (host, port) if URL points to local llama.cpp server, else None."""
     parsed = urlparse(url)
@@ -82,8 +113,6 @@ def _build_llama_server_cmd(
         str(threads),
         "-c",
         str(ctx_size),
-        "--n-gpu-layers",
-        str(n_gpu_layers),
         "--batch-size",
         str(batch_size),
         "--ubatch-size",
@@ -97,6 +126,12 @@ def _build_llama_server_cmd(
         "--flash-attn",
         "on",
     ]
+    # RU: n_gpu_layers=0 → авто-fit решает сколько слоёв на GPU (максимально возможно).
+    #     Любое ненулевое значение передаётся явно и отключает auto-fit.
+    # EN: n_gpu_layers=0 → auto-fit decides layer count (fills VRAM as much as possible).
+    #     Any non-zero value is passed explicitly and disables auto-fit.
+    if n_gpu_layers != 0:
+        cmd += ["--n-gpu-layers", str(n_gpu_layers)]
     # RU: Квантование KV-кэша (требует flash-attn) вдвое снижает VRAM под кэш —
     #     это даёт запас на 16GB для большего контекста/parallel.
     # EN: KV-cache quantization (needs flash-attn) halves KV VRAM — frees headroom
@@ -105,8 +140,11 @@ def _build_llama_server_cmd(
         cmd += ["--cache-type-k", str(cache_type_k)]
     if cache_type_v:
         cmd += ["--cache-type-v", str(cache_type_v)]
-    if parallel > 1:
-        cmd += ["--parallel", str(parallel)]
+    # RU: --parallel всегда передаём явно — иначе llama-server ставит auto (=4),
+    #     что занимает лишние ~3-4 GB VRAM под KV-cache дополнительных слотов.
+    # EN: Always pass --parallel explicitly — without it llama-server defaults to
+    #     auto (=4), wasting ~3-4 GB of VRAM on extra KV-cache slots.
+    cmd += ["--parallel", str(parallel)]
     if extra_args:
         cmd.extend(extra_args)
     return cmd

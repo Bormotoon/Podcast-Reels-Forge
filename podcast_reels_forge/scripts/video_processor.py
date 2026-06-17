@@ -34,7 +34,7 @@ from podcast_reels_forge.utils.ffmpeg import (
     ffmpeg_bin,
     ffmpeg_has_nvenc,
 )
-from podcast_reels_forge.utils.reel_markdown import write_reel_markdown
+from podcast_reels_forge.utils.reel_markdown import write_reel_instagram_txt, write_reel_markdown
 
 try:
     from tqdm import tqdm
@@ -86,10 +86,11 @@ def ffmpeg_cut(
     opts: FfmpegOptions,
     is_rejected: bool = False,
     rejected_dir: Path | None = None,
-) -> tuple[bool, Path]:
+) -> tuple[bool, Path, str | None]:
     """Cut a segment from video with optional vertical crop."""
 
     filters: list[str] = []
+    face_rejection_reason: str | None = None
     if opts.vertical_crop:
         # Default: center crop to 9:16.
         vf = "scale=w=1080:h=1920:force_original_aspect_ratio=increase,crop=1080:1920"
@@ -104,10 +105,13 @@ def ffmpeg_cut(
             end_offset = end + opts.padding
             sample_times = build_sample_times(start_offset, end_offset, face_settings.samples)
             center_ratio, face_rate = detect_face_center_ratio(video_in, sample_times_s=sample_times, settings=face_settings)
-            
+
             if opts.filter_face_ratio > 0 and face_rate < opts.filter_face_ratio:
                 LOG.debug("Rejecting clip (face detection rate %.2f < %.2f)", face_rate, opts.filter_face_ratio)
                 is_rejected = True
+                face_rejection_reason = (
+                    f"face ratio {face_rate:.2f} < {opts.filter_face_ratio:.2f}"
+                )
 
             if center_ratio is not None:
                 LOG.debug("Face detected at ratio %.2f; applying smart crop", center_ratio)
@@ -168,7 +172,7 @@ def ffmpeg_cut(
         LOG.warning("NVENC encode failed for %s; retrying with software libx264", out_path.name)
         res = _run_subprocess(_build(False))
 
-    return res.returncode == 0, out_path
+    return res.returncode == 0, out_path, face_rejection_reason
 
 
 def create_concat_sample(reels: list[Path], out_path: Path) -> bool:
@@ -416,39 +420,45 @@ def main(argv: list[str] | None = None) -> None:
     if opts.smart_crop_face and opts.vertical_crop and not face_detection_available():
         LOG.warning("--smart-crop-face enabled but opencv is not available; falling back to center crop")
 
-    def process_moment(i_m: tuple[int, dict[str, object]]) -> Path | None:
+    def process_moment(
+        i_m: tuple[int, dict[str, object]],
+    ) -> tuple[Path | None, list[str]]:
+        """Returns (final_path_or_none, rejection_reasons)."""
         i, m = i_m
         out_file = reels_dir / f"reel_{i + 1:02d}.mp4"
         start_val = m.get("start", 0)
         end_val = m.get("end", 0)
-        # Type-safe conversion to float
         try:
             start_f = float(start_val) if start_val is not None else 0.0  # type: ignore[arg-type]
             end_f = float(end_val) if end_val is not None else 0.0  # type: ignore[arg-type]
         except (TypeError, ValueError):
             start_f, end_f = 0.0, 0.0
-            
+
         score_val = m.get("score", 0.0)
         try:
             score = float(score_val) if score_val is not None else 0.0  # type: ignore[arg-type]
         except (TypeError, ValueError):
             score = 0.0
-            
+
         duration = end_f - start_f
-        
+
         is_rejected = False
+        rejection_reasons: list[str] = []
         if args.filter_min_score > 0 and score < args.filter_min_score:
             is_rejected = True
+            rejection_reasons.append(f"score {score:.1f} < {args.filter_min_score:.1f}")
         if args.filter_min_duration > 0 and duration < args.filter_min_duration:
             is_rejected = True
-        if args.filter_max_duration > 0 and duration > args.filter_max_duration:
+            rejection_reasons.append(f"duration {duration:.0f}s < {args.filter_min_duration:.0f}s")
+        if args.filter_max_duration < 9999 and duration > args.filter_max_duration:
             is_rejected = True
+            rejection_reasons.append(f"duration {duration:.0f}s > {args.filter_max_duration:.0f}s")
 
         rejected_dir = reels_dir / "rejected"
         if is_rejected:
             rejected_dir.mkdir(exist_ok=True)
 
-        success, final_path = ffmpeg_cut(
+        success, final_path, face_reason = ffmpeg_cut(
             args.input,
             start_f,
             end_f,
@@ -457,19 +467,27 @@ def main(argv: list[str] | None = None) -> None:
             is_rejected=is_rejected,
             rejected_dir=rejected_dir,
         )
-        return final_path if success else None
+        if face_reason:
+            rejection_reasons.append(face_reason)
+        return (final_path if success else None), rejection_reasons
 
     _status(f"[cut] {len(moments)} moments", quiet=args.quiet)
     with ThreadPoolExecutor(max_workers=args.threads) as pool:
-        it: Iterable[Path | None] = pool.map(process_moment, enumerate(moments))
+        raw_results: Iterable[tuple[Path | None, list[str]]] = pool.map(
+            process_moment, enumerate(moments)
+        )
         if args.verbose:
-            it = tqdm(it, total=len(moments))
-        results = list(it)
+            raw_results = tqdm(raw_results, total=len(moments))
+        results = list(raw_results)
 
-    final_reels = [r for r in results if r is not None]
-    if final_reels:
+    # results[i] = (final_path | None, rejection_reasons)
+    all_cut_paths = [path for path, _ in results]
+    final_reels = [p for p in all_cut_paths if p is not None and "rejected" not in p.parts]
+
+    if any(p is not None for p in all_cut_paths):
         if subtitle_settings is not None:
             try:
+                # Burn subtitles for every cut clip (accepted + rejected).
                 sync_reel_burned_subtitles(
                     moments,
                     reels_dir,
@@ -482,9 +500,10 @@ def main(argv: list[str] | None = None) -> None:
                 LOG.error("Failed to burn subtitles: %s", exc)
                 sys.exit(1)
 
-        sample_path = args.outdir / "reels_preview.mp4"
-        if create_concat_sample(final_reels, sample_path) and not args.quiet:
-            LOG.info("preview ready: %s", sample_path)
+        if final_reels:
+            sample_path = args.outdir / "reels_preview.mp4"
+            if create_concat_sample(final_reels, sample_path) and not args.quiet:
+                LOG.info("preview ready: %s", sample_path)
 
         for mp4 in final_reels:
             stem = mp4.with_suffix("")
@@ -495,10 +514,18 @@ def main(argv: list[str] | None = None) -> None:
             if args.export_gif:
                 _export_gif(mp4, stem.with_suffix(".gif"))
 
-        # Write adjacent markdown descriptions for each successful reel.
-        for i, reel_path in enumerate(results):
-            if reel_path is None:
+        # Write per-clip .txt (Instagram caption) and .md for every clip, including rejected.
+        for i, (reel_path, rejection_reasons) in enumerate(results):
+            if reel_path is None or i >= len(moments):
                 continue
+            try:
+                write_reel_instagram_txt(
+                    moments[i],
+                    reel_path,
+                    rejection_reasons=rejection_reasons or None,
+                )
+            except OSError as exc:
+                LOG.warning("Failed to write instagram txt for %s: %s", reel_path.name, exc)
             try:
                 write_reel_markdown(moments[i], reel_path)
             except OSError as exc:

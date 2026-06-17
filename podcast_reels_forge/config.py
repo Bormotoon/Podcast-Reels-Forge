@@ -13,6 +13,7 @@ from typing import Any, Mapping
 ALLOWED_LLAMA_CPP_MODELS = frozenset(
     {
         "gemma4",
+        "gemma4:26b",
         "gemma4:27b",
         "gemma4:12b",
     },
@@ -56,6 +57,7 @@ def normalize_model_folder_name(model: str) -> str:
     normalized = (model or "").strip().lower()
     special = {
         "gemma4": "gemma4",
+        "gemma4:26b": "gemma4_26b",
         "gemma4:27b": "gemma4_27b",
         "gemma4:12b": "gemma4_12b",
     }

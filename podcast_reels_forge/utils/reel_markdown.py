@@ -445,6 +445,61 @@ def write_reel_markdown(
     return md_path
 
 
+def render_reel_instagram_txt(
+    moment: Mapping[str, Any],
+    *,
+    rejection_reasons: list[str] | None = None,
+    max_description_chars: int = DESCRIPTION_MAX_CHARS,
+    hashtag_count: int = HASHTAG_COUNT,
+) -> str:
+    """Return a ready-to-paste Instagram caption: hook + description + hashtags.
+
+    For rejected clips, a rejection header is prepended so the file stays
+    informative without polluting the copy-pasteable body.
+    """
+    description = build_description_text(moment, max_chars=max_description_chars)
+    hashtags = build_hashtags(moment, count=hashtag_count, description_text=description)
+    hook = _strip_inline_hashtags(_clean_text(moment.get("hook")))
+
+    lines: list[str] = []
+
+    if rejection_reasons:
+        lines.append(f"[ОТКЛОНЁН: {', '.join(rejection_reasons)}]")
+        lines.append("")
+
+    if hook and hook != description:
+        lines.append(hook)
+        lines.append("")
+
+    lines.append(description)
+    lines.append("")
+    lines.append(" ".join(hashtags))
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_reel_instagram_txt(
+    moment: Mapping[str, Any],
+    reel_path: Path,
+    *,
+    rejection_reasons: list[str] | None = None,
+    max_description_chars: int = DESCRIPTION_MAX_CHARS,
+    hashtag_count: int = HASHTAG_COUNT,
+) -> Path:
+    txt_path = reel_path.with_suffix(".txt")
+    txt_path.parent.mkdir(parents=True, exist_ok=True)
+    txt_path.write_text(
+        render_reel_instagram_txt(
+            moment,
+            rejection_reasons=rejection_reasons,
+            max_description_chars=max_description_chars,
+            hashtag_count=hashtag_count,
+        ),
+        encoding="utf-8",
+    )
+    return txt_path
+
+
 def reel_index_from_path(reel_path: Path) -> int | None:
     match = _REEL_STEM_RE.match(reel_path.stem)
     if not match:

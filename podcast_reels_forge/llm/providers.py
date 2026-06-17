@@ -8,14 +8,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import logging
+import re
+import threading
 import time
-from typing import Protocol
+from typing import Any, Protocol
 
 import requests
 from requests import exceptions as requests_exceptions
 
 
 LOGGER = logging.getLogger("forge")
+
+# Module-level cache: base_url → template type ("gemma4" | "gemma3" | "qwen" | "raw")
+_template_cache: dict[str, str] = {}
+_template_lock = threading.Lock()
 
 
 class LLMProvider(Protocol):
@@ -37,211 +43,220 @@ class LlamaCppConfig:
     url: str
     model: str
 
-    # Watchdog / retry controls (optional)
+    # Retry / logging controls
+    max_retries: int = 2
+    log_interval_s: int = 10
+
+    # Legacy fields kept for call-site compat; unused by native /completion path.
     watchdog_enabled: bool = True
     first_token_timeout_s: int = 120
     stall_timeout_s: int = 120
-    log_interval_s: int = 10
-    max_retries: int = 2
     fallback_models: tuple[str, ...] = ()
 
 
-class LlamaCppWatchdogTriggered(RuntimeError):
-    """Raised when a local llama.cpp request appears stalled or too slow."""
+def _base_url(url: str) -> str:
+    """Strip any known endpoint suffix to get the server base URL."""
+    for suffix in ("/v1/chat/completions", "/v1/completions", "/completion"):
+        if url.endswith(suffix):
+            return url[: -len(suffix)]
+    return url.rstrip("/")
 
-    def __init__(self, *, reason: str, model: str, elapsed_s: float) -> None:
-        super().__init__(
-            f"llama.cpp watchdog triggered ({reason}) for model '{model}' after {elapsed_s:.1f}s",
-        )
-        self.reason = reason
-        self.model = model
-        self.elapsed_s = elapsed_s
+
+def _completion_url(url: str) -> str:
+    """Return the /completion endpoint URL regardless of what was configured."""
+    return _base_url(url) + "/completion"
+
+
+def _detect_template(base: str) -> str:
+    """Query /props and return "gemma4" | "gemma3" | "qwen" | "raw".
+
+    Result is cached permanently once a non-raw template is detected.
+    """
+    with _template_lock:
+        cached = _template_cache.get(base)
+        if cached and cached != "raw":
+            return cached
+
+    try:
+        resp = requests.get(f"{base}/props", timeout=5)
+        resp.raise_for_status()
+        template = resp.json().get("chat_template", "")
+    except Exception:
+        template = ""
+
+    if "<|turn>" in template:
+        ttype = "gemma4"
+    elif "<start_of_turn>" in template:
+        ttype = "gemma3"
+    elif "<|im_start|>" in template:
+        ttype = "qwen"
+    else:
+        ttype = "raw"
+
+    with _template_lock:
+        _template_cache[base] = ttype
+    return ttype
+
+
+def _wrap_prompt(prompt: str, ttype: str) -> str:
+    """Wrap prompt with server chat-template tokens.
+
+    For gemma4: the <|channel>thought\\n<channel|> assistant prefill suppresses
+    the reasoning/thinking block so the model starts answering immediately.
+    """
+    if ttype == "gemma4":
+        return f"<|turn>user\n{prompt}\n<turn|>\n<|turn>model\n<|channel>thought\n<channel|>"
+    if ttype == "gemma3":
+        return f"<start_of_turn>user\n{prompt}\n<end_of_turn>\n<start_of_turn>model\n"
+    return prompt
 
 
 class LlamaCppProvider:
-    """RU: Провайдер для llama.cpp (/v1/chat/completions).
+    """RU: Провайдер для llama.cpp /completion (native, non-streaming).
 
-    EN: Provider for llama.cpp (/v1/chat/completions).
+    Использует /completion, а не /v1/chat/completions, чтобы:
+    - Точно контролировать chat-template для gemma4/gemma3.
+    - Подавлять thinking-токены через assistant-prefill.
+    - Использовать json_schema для grammar-constrained JSON-вывода.
+
+    EN: Provider for llama.cpp /completion (native, non-streaming).
+
+    Uses /completion instead of /v1/chat/completions to:
+    - Precisely control the chat template for gemma4/gemma3.
+    - Suppress thinking tokens via assistant prefill.
+    - Use json_schema grammar for reliable JSON output.
     """
 
-    def __init__(self, cfg: LlamaCppConfig):
+    def __init__(self, cfg: LlamaCppConfig) -> None:
         self.cfg = cfg
+        self._endpoint = _completion_url(cfg.url)
+        self._base = _base_url(cfg.url)
 
     def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
-        # RU: Для локальных моделей важно видеть прогресс и уметь отменять.
-        # EN: For local models we want progress + the ability to abort on stalls.
-
-        models: list[str] = [self.cfg.model]
-        models += [m for m in self.cfg.fallback_models if m and m.strip()]
-
-        # Total attempts = 1 + max_retries, but we also try each fallback model in order.
-        total_attempts = max(1, 1 + int(self.cfg.max_retries))
-        attempt_models: list[str] = []
-        for m in models:
-            if len(attempt_models) >= total_attempts:
-                break
-            attempt_models.append(m)
-        while len(attempt_models) < total_attempts:
-            attempt_models.append(attempt_models[-1])
-
+        attempts = max(1, 1 + int(self.cfg.max_retries))
         last_exc: Exception | None = None
-        for attempt_idx, model in enumerate(attempt_models, 1):
+
+        for attempt in range(1, attempts + 1):
+            if attempt > 1:
+                LOGGER.warning(
+                    "Retrying llama.cpp (%d/%d) endpoint=%s",
+                    attempt,
+                    attempts,
+                    self._endpoint,
+                )
             try:
-                if attempt_idx > 1:
-                    LOGGER.warning(
-                        "Retrying llama.cpp (%d/%d) with model=%s",
-                        attempt_idx,
-                        len(attempt_models),
-                        model,
-                    )
-                return self._generate_streaming(
-                    model=model,
+                return self._call(
                     prompt=prompt,
                     temperature=temperature,
                     max_total_s=int(timeout),
                 )
-            except LlamaCppWatchdogTriggered as exc:
-                last_exc = exc
+            except _Retryable as exc:
+                last_exc = exc.cause
+                LOGGER.warning("llama.cpp retryable error (attempt %d): %s", attempt, exc)
                 continue
-            except (requests_exceptions.Timeout, requests_exceptions.RequestException) as exc:
+            except (requests_exceptions.ConnectionError, requests_exceptions.Timeout) as exc:
                 last_exc = exc
+                LOGGER.warning("llama.cpp connection error (attempt %d): %s", attempt, exc)
                 continue
 
         if last_exc is not None:
             raise last_exc
         raise RuntimeError("llama.cpp generate failed without a captured exception")
 
-    def _generate_streaming(
-        self,
-        *,
-        model: str,
-        prompt: str,
-        temperature: float,
-        max_total_s: int,
-    ) -> str:
-        start = time.monotonic()
-        last_log = start
-        got_any = False
-        chars = 0
-        parts: list[str] = []
+    def _call(self, *, prompt: str, temperature: float, max_total_s: int) -> str:
+        ttype = _detect_template(self._base)
+        wrapped = _wrap_prompt(prompt, ttype)
 
-        # Requests: connect timeout + per-read timeout.
-        connect_timeout = min(10, max_total_s) if max_total_s > 0 else 10
-        read_timeout = (
-            int(self.cfg.stall_timeout_s)
-            if self.cfg.watchdog_enabled
-            else max_total_s
-        )
-        if read_timeout <= 0:
-            read_timeout = max_total_s if max_total_s > 0 else 900
-
-        payload = {
-            "model": model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant that always responds with valid JSON. Never include explanatory text outside the JSON.",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "stream": True,
+        payload: dict[str, Any] = {
+            "prompt": wrapped,
+            "stream": False,
             "temperature": float(temperature),
+            # 2048 tokens is plenty for JSON responses; keeps total well under ctx=8192.
+            "n_predict": 2048,
+            # Grammar-constrained output: guarantees valid JSON object.
+            "json_schema": {"type": "object"},
         }
 
-        with requests.post(
-            self.cfg.url,
-            json=payload,
-            stream=True,
-            timeout=(connect_timeout, read_timeout),
-        ) as r:
-            if r.status_code == 404:
-                err_msg = ""
-                try:
-                    err_msg = r.json().get("error", "")
-                except Exception:
-                    pass
-                raise RuntimeError(f"llama.cpp returned 404: {err_msg or 'Not Found'}")
-                
-            r.raise_for_status()
+        start = time.monotonic()
+        last_log = start
 
-            for line in r.iter_lines(decode_unicode=True):
-                now = time.monotonic()
-
-                if max_total_s > 0 and (now - start) > float(max_total_s):
-                    raise LlamaCppWatchdogTriggered(
-                        reason="max_total_timeout",
-                        model=model,
-                        elapsed_s=now - start,
-                    )
-
-                if not line:
-                    continue
-
-                got_any = True
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    # Ignore malformed lines (shouldn't happen, but keep robust).
-                    continue
-
-                piece = obj.get("choices", [{}])[0].get("delta", {}).get("content")
-
-                if isinstance(piece, str) and piece:
-                    parts.append(piece)
-                    chars += len(piece)
-
-                if self.cfg.watchdog_enabled:
-                    # Before first token, be stricter.
-                    if chars == 0 and (now - start) > float(self.cfg.first_token_timeout_s):
-                        raise LlamaCppWatchdogTriggered(
-                            reason="first_token_timeout",
-                            model=model,
-                            elapsed_s=now - start,
-                        )
-
-                    if (now - last_log) >= float(max(1, int(self.cfg.log_interval_s))):
-                        LOGGER.info(
-                            "llama.cpp progress: model=%s, received=%d chars, elapsed=%.1fs",
-                            model,
-                            chars,
-                            now - start,
-                        )
-                        last_log = now
-
-                finish_reason = obj.get("choices", [{}])[0].get("finish_reason")
-                if finish_reason is not None:
-                    break
-
-        if not got_any and self.cfg.watchdog_enabled:
-            now = time.monotonic()
-            raise LlamaCppWatchdogTriggered(
-                reason="no_response_data",
-                model=model,
-                elapsed_s=now - start,
+        try:
+            r = requests.post(
+                self._endpoint,
+                json=payload,
+                timeout=max_total_s if max_total_s > 0 else None,
             )
+        except requests_exceptions.Timeout as exc:
+            raise _Retryable(exc) from exc
 
-        return "".join(parts)
+        # 503 "Loading model" → server is restarting, worth a retry
+        if r.status_code == 503:
+            try:
+                msg = r.json().get("error", {}).get("message", "")
+            except Exception:
+                msg = ""
+            LOGGER.warning("llama.cpp 503 (loading model): %s", msg)
+            time.sleep(30)
+            raise _Retryable(RuntimeError(f"llama.cpp 503: {msg}"))
 
+        try:
+            r.raise_for_status()
+        except requests_exceptions.HTTPError as exc:
+            preview = (r.text or "")[:500]
+            LOGGER.error(
+                "llama.cpp HTTP %d at %s — body: %s",
+                r.status_code, self._endpoint, preview,
+            )
+            raise exc
+
+        try:
+            data = r.json()
+        except ValueError as exc:
+            preview = (r.text or "")[:300]
+            raise RuntimeError(f"llama.cpp returned invalid JSON body: {preview}") from exc
+
+        text = str(
+            data.get("content")
+            or data.get("response")
+            or data.get("message", {}).get("content")
+            or ""
+        ).strip()
+
+        # Strip any leaked <think>…</think> blocks
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+        if not text:
+            raise RuntimeError("llama.cpp returned an empty response")
+
+        elapsed = time.monotonic() - start
+        LOGGER.info(
+            "llama.cpp ok: endpoint=%s elapsed=%.1fs chars=%d",
+            self._endpoint,
+            elapsed,
+            len(text),
+        )
+        return text
+
+
+class _Retryable(Exception):
+    """Internal signal: this error is safe to retry."""
+
+    def __init__(self, cause: Exception) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+
+
+# ── Cloud providers (legacy compat paths, unchanged) ─────────────────────────
 
 
 @dataclass(frozen=True)
 class OpenAIConfig:
-    """RU: Конфиг для OpenAI Chat Completions.
-
-    EN: Config for OpenAI Chat Completions.
-    """
-
     api_key: str
     model: str
 
 
 class OpenAIProvider:
-    """RU: Провайдер для OpenAI Chat Completions API.
-
-    EN: Provider for OpenAI Chat Completions API.
-    """
-
-    def __init__(self, cfg: OpenAIConfig):
+    def __init__(self, cfg: OpenAIConfig) -> None:
         self.cfg = cfg
 
     def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
@@ -271,26 +286,12 @@ class OpenAIProvider:
 
 @dataclass(frozen=True)
 class AnthropicConfig:
-    """RU: Конфиг для Anthropic Messages API.
-
-    EN: Config for Anthropic Messages API.
-    """
-
     api_key: str
     model: str
 
 
 class AnthropicProvider:
-    """RU: Минимальный провайдер Anthropic Messages API.
-
-    Примечание: требуется ANTHROPIC_API_KEY и корректный идентификатор модели.
-
-    EN: Minimal Anthropic Messages API provider.
-
-    Note: requires ANTHROPIC_API_KEY and a valid model id.
-    """
-
-    def __init__(self, cfg: AnthropicConfig):
+    def __init__(self, cfg: AnthropicConfig) -> None:
         self.cfg = cfg
 
     def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
@@ -312,7 +313,6 @@ class AnthropicProvider:
         )
         r.raise_for_status()
         data = r.json()
-        # content: [{type: 'text', text: '...'}]
         parts = data.get("content") or []
         if parts and isinstance(parts, list) and isinstance(parts[0], dict):
             return parts[0].get("text", "")
@@ -321,26 +321,12 @@ class AnthropicProvider:
 
 @dataclass(frozen=True)
 class GeminiConfig:
-    """RU: Конфиг для Gemini Generative Language API.
-
-    EN: Config for Gemini Generative Language API.
-    """
-
     api_key: str
     model: str
 
 
 class GeminiProvider:
-    """RU: Минимальный провайдер Gemini через REST API generative language.
-
-    Примечание: endpoint зависит от модели; здесь используется API v1beta.
-
-    EN: Minimal Gemini provider via generative language REST.
-
-    Note: endpoint varies by model; this uses the v1beta API.
-    """
-
-    def __init__(self, cfg: GeminiConfig):
+    def __init__(self, cfg: GeminiConfig) -> None:
         self.cfg = cfg
 
     def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
@@ -356,7 +342,6 @@ class GeminiProvider:
         )
         r.raise_for_status()
         data = r.json()
-        # candidates[0].content.parts[0].text
         cands = data.get("candidates") or []
         if cands:
             content = cands[0].get("content") or {}
