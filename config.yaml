@@ -141,7 +141,7 @@ exports:
   audio_only: false
 
 subtitles:
-  enabled: true
+  enabled: false
   font: "assets/fonts/bignoodletoooblique.ttf"
   css: "assets/subtitles/forge_subtitles.css"
   font_size_px: 46
