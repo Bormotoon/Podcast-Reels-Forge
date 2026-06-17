@@ -22,6 +22,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -223,6 +224,25 @@ def _outputs_ready(outputs: list[Path], *, validate_json: bool) -> bool:
             if _read_json_if_valid(p) is None:
                 return False
     return True
+
+
+def _kill_llama_server(port: int) -> None:
+    """Kill any llama-server process listening on *port* and wait for VRAM to free.
+
+    Safe to call even if no server is running. Used to reclaim GPU VRAM before
+    stages that need it (Whisper transcription, NVENC encoding). systemd services
+    with Restart=always will restart the server automatically afterwards.
+    """
+    try:
+        result = subprocess.run(
+            ["pkill", "-f", f"llama-server.*--port.*{port}"],
+            capture_output=True, timeout=10,
+        )
+        if result.returncode == 0:
+            log.info("Killed llama-server on port %d to free VRAM", port)
+            time.sleep(3)
+    except Exception as exc:
+        log.debug("_kill_llama_server: %s", exc)
 
 
 def _has_cuda() -> bool:
@@ -451,6 +471,10 @@ def run_pipeline(
     roles = resolve_llama_cpp_role_mapping(conf)
     final_model_folder = _model_folder_name(roles.judge)
 
+    # Resolve local llama host/port once so all stages can reference it.
+    _llama_url = str(a_conf.get("url", "")).strip()
+    local_llama_global = parse_local_llama_cpp_host_port(_llama_url) if _llama_url else None
+
     stages_per_file = 1 + (1 if diar_enabled else 0) + 2
     total_stages = len(queue) * stages_per_file
     stage_iter = iter(
@@ -488,10 +512,16 @@ def run_pipeline(
             transcript_path = legacy_audio_json
             transcript_srt_path = legacy_audio_json.with_suffix(".srt")
 
-        if skip_existing and _outputs_ready(
+        _transcribe_needed = not (skip_existing and _outputs_ready(
             [transcript_path, transcript_srt_path],
             validate_json=validate_json,
-        ):
+        ))
+        if _transcribe_needed and local_llama_global:
+            # Whisper large-v3 needs ~10GB VRAM. Kill any llama-server that
+            # holds the GPU before we start transcription.
+            _kill_llama_server(local_llama_global[1])
+
+        if not _transcribe_needed:
             status("[transcribe] skip (exists)", quiet=quiet)
         else:
             status("[transcribe] start", quiet=quiet)
@@ -652,21 +682,12 @@ def run_pipeline(
         finally:
             if llama_cpp_proc:
                 llama_cpp_stop(llama_cpp_proc)
-            else:
-                # Free VRAM from any external llama-server before the cut stage so
-                # NVENC can use the GPU unimpeded. systemd (Restart=always) will
-                # restart the service after the process exits.
-                if local_llama:
-                    h, p = local_llama
-                    if is_tcp_open(h, p):
-                        import subprocess as _sp
-                        _sp.run(
-                            ["pkill", "-f", f"llama-server.*--port.*{p}"],
-                            capture_output=True, timeout=10,
-                        )
-                        log.info("Stopped external llama-server on port %d to free VRAM for NVENC", p)
-                        import time as _t
-                        _t.sleep(3)
+            # Free VRAM from any llama-server (ours or external) before the cut
+            # stage so NVENC can use the GPU unimpeded.
+            if local_llama:
+                h, p = local_llama
+                if is_tcp_open(h, p):
+                    _kill_llama_server(p)
 
         # 4) Cut + exports (single final output)
         padding = int(p_conf.get("reel_padding", 5))
