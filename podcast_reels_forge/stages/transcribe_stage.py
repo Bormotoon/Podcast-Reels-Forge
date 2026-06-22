@@ -72,11 +72,6 @@ class TranscribeConfig:
     initial_prompt: str | None = None
     # RU: Бим только для режима качества. EN: Beam used only in quality mode.
     quality_beam_size: int = 10
-    # RU: Режим качества: пропускать тихие участки, где рождаются галлюцинации
-    #     (позволяет безопасно держать condition_on_previous_text=True).
-    # EN: Quality mode: skip silent gaps where hallucinations spawn
-    #     (lets us keep condition_on_previous_text=True safely).
-    hallucination_silence_threshold: float = 2.0
     quiet: bool = False
     verbose: bool = False
 
@@ -262,7 +257,6 @@ def _transcribe_with_optional_kwargs(
     mode: str = "fast",
     initial_prompt: str | None = None,
     quality_beam_size: int = 10,
-    hallucination_silence_threshold: float = 2.0,
 ) -> tuple[Any, Any]:
     """RU: Транскрибация faster-whisper. fast=батчевый, quality=последовательный с контекстом.
 
@@ -272,6 +266,10 @@ def _transcribe_with_optional_kwargs(
         "language": language,
         "word_timestamps": word_timestamps,
         "vad_filter": vad_filter,
+        "vad_parameters": dict(
+            min_silence_duration_ms=500,
+            speech_pad_ms=400,
+        ),
         "best_of": max(1, int(best_of)),
         "patience": max(1.0, float(patience)),
         "temperature": TEMPERATURE_LADDER,
@@ -289,7 +287,6 @@ def _transcribe_with_optional_kwargs(
         # EN: Sequential pipeline: cross-segment context + hallucination guard.
         kwargs["beam_size"] = max(1, int(quality_beam_size))
         kwargs["condition_on_previous_text"] = True
-        kwargs["hallucination_silence_threshold"] = float(hallucination_silence_threshold)
         return model.transcribe(str(input_path), **kwargs)
 
     # fast: batched pipeline (no cross-segment conditioning by design).
@@ -510,7 +507,6 @@ def transcribe_file(config: TranscribeConfig) -> Path:
                     mode=config.mode,
                     initial_prompt=config.initial_prompt,
                     quality_beam_size=config.quality_beam_size,
-                    hallucination_silence_threshold=config.hallucination_silence_threshold,
                 )
                 break
             except RuntimeError as exc:
