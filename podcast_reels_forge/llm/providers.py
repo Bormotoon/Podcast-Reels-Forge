@@ -5,21 +5,22 @@ EN: LLM providers (HTTP clients) for multiple platforms.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
-import json
 import logging
 import re
 import threading
 import time
 from typing import Any, Protocol
 
+import aiohttp
 import requests
 from requests import exceptions as requests_exceptions
 
 
 LOGGER = logging.getLogger("forge")
 
-# Module-level cache: base_url → template type ("gemma4" | "gemma3" | "qwen" | "raw")
+# Module-level cache: base_url -> template type ("gemma4" | "gemma3" | "qwen" | "raw")
 _template_cache: dict[str, str] = {}
 _template_lock = threading.Lock()
 
@@ -30,7 +31,7 @@ class LLMProvider(Protocol):
     EN: Protocol describing the minimal LLM provider interface.
     """
 
-    def generate(self, prompt: str, *, temperature: float, timeout: int) -> str: ...
+    async def generate(self, prompt: str, *, temperature: float, timeout: int) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -112,19 +113,9 @@ def _wrap_prompt(prompt: str, ttype: str) -> str:
 
 
 class LlamaCppProvider:
-    """RU: Провайдер для llama.cpp /completion (native, non-streaming).
+    """RU: Провайдер для llama.cpp /completion (native, non-streaming) через aiohttp.
 
-    Использует /completion, а не /v1/chat/completions, чтобы:
-    - Точно контролировать chat-template для gemma4/gemma3.
-    - Подавлять thinking-токены через assistant-prefill.
-    - Использовать json_schema для grammar-constrained JSON-вывода.
-
-    EN: Provider for llama.cpp /completion (native, non-streaming).
-
-    Uses /completion instead of /v1/chat/completions to:
-    - Precisely control the chat template for gemma4/gemma3.
-    - Suppress thinking tokens via assistant prefill.
-    - Use json_schema grammar for reliable JSON output.
+    EN: Provider for llama.cpp /completion (native, non-streaming) via aiohttp.
     """
 
     def __init__(self, cfg: LlamaCppConfig) -> None:
@@ -132,7 +123,7 @@ class LlamaCppProvider:
         self._endpoint = _completion_url(cfg.url)
         self._base = _base_url(cfg.url)
 
-    def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
+    async def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
         attempts = max(1, 1 + int(self.cfg.max_retries))
         last_exc: Exception | None = None
 
@@ -145,7 +136,7 @@ class LlamaCppProvider:
                     self._endpoint,
                 )
             try:
-                return self._call(
+                return await self._call(
                     prompt=prompt,
                     temperature=temperature,
                     max_total_s=int(timeout),
@@ -154,7 +145,7 @@ class LlamaCppProvider:
                 last_exc = exc.cause
                 LOGGER.warning("llama.cpp retryable error (attempt %d): %s", attempt, exc)
                 continue
-            except (requests_exceptions.ConnectionError, requests_exceptions.Timeout) as exc:
+            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
                 last_exc = exc
                 LOGGER.warning("llama.cpp connection error (attempt %d): %s", attempt, exc)
                 continue
@@ -163,7 +154,7 @@ class LlamaCppProvider:
             raise last_exc
         raise RuntimeError("llama.cpp generate failed without a captured exception")
 
-    def _call(self, *, prompt: str, temperature: float, max_total_s: int) -> str:
+    async def _call(self, *, prompt: str, temperature: float, max_total_s: int) -> str:
         ttype = _detect_template(self._base)
         wrapped = _wrap_prompt(prompt, ttype)
 
@@ -171,49 +162,34 @@ class LlamaCppProvider:
             "prompt": wrapped,
             "stream": False,
             "temperature": float(temperature),
-            # 2048 tokens is plenty for JSON responses; keeps total well under ctx=8192.
             "n_predict": 2048,
-            # Grammar-constrained output: guarantees valid JSON object.
             "json_schema": {"type": "object"},
         }
 
         start = time.monotonic()
-        last_log = start
 
-        try:
-            r = requests.post(
-                self._endpoint,
-                json=payload,
-                timeout=max_total_s if max_total_s > 0 else None,
-            )
-        except requests_exceptions.Timeout as exc:
-            raise _Retryable(exc) from exc
+        timeout_obj = aiohttp.ClientTimeout(total=max_total_s if max_total_s > 0 else None)
+        async with aiohttp.ClientSession(timeout=timeout_obj) as session:
+            async with session.post(self._endpoint, json=payload) as r:
+                if r.status == 503:
+                    await asyncio.sleep(30)
+                    raise _Retryable(RuntimeError("503: Model loading"))
 
-        # 503 "Loading model" → server is restarting, worth a retry
-        if r.status_code == 503:
-            try:
-                msg = r.json().get("error", {}).get("message", "")
-            except Exception:
-                msg = ""
-            LOGGER.warning("llama.cpp 503 (loading model): %s", msg)
-            time.sleep(30)
-            raise _Retryable(RuntimeError(f"llama.cpp 503: {msg}"))
+                if r.status >= 400:
+                    text = await r.text()
+                    preview = text[:500]
+                    LOGGER.error(
+                        "llama.cpp HTTP %d at %s -- body: %s",
+                        r.status, self._endpoint, preview,
+                    )
+                    raise aiohttp.ClientResponseError(
+                        r.request_info,
+                        r.history,
+                        status=r.status,
+                        message=f"HTTP {r.status}",
+                    )
 
-        try:
-            r.raise_for_status()
-        except requests_exceptions.HTTPError as exc:
-            preview = (r.text or "")[:500]
-            LOGGER.error(
-                "llama.cpp HTTP %d at %s — body: %s",
-                r.status_code, self._endpoint, preview,
-            )
-            raise exc
-
-        try:
-            data = r.json()
-        except ValueError as exc:
-            preview = (r.text or "")[:300]
-            raise RuntimeError(f"llama.cpp returned invalid JSON body: {preview}") from exc
+                data = await r.json()
 
         text = str(
             data.get("content")
@@ -222,7 +198,7 @@ class LlamaCppProvider:
             or ""
         ).strip()
 
-        # Strip any leaked <think>…</think> blocks
+        # Strip any leaked <think>...</think> blocks
         text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
         if not text:
@@ -246,7 +222,7 @@ class _Retryable(Exception):
         self.cause = cause
 
 
-# ── Cloud providers (legacy compat paths, unchanged) ─────────────────────────
+# -- Cloud providers (legacy compat paths, wrapped in asyncio.to_thread) --
 
 
 @dataclass(frozen=True)
@@ -259,29 +235,32 @@ class OpenAIProvider:
     def __init__(self, cfg: OpenAIConfig) -> None:
         self.cfg = cfg
 
-    def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
-        r = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.cfg.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": self.cfg.model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are a helpful assistant that always responds with valid JSON. Never include explanatory text outside the JSON.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": temperature,
-                "response_format": {"type": "json_object"},
-            },
-            timeout=timeout,
-        )
-        r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
+    async def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
+        def _sync_call() -> str:
+            r = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.cfg.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.cfg.model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "You are a helpful assistant that always responds with valid JSON. Never include explanatory text outside the JSON.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": temperature,
+                    "response_format": {"type": "json_object"},
+                },
+                timeout=timeout,
+            )
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"]
+
+        return await asyncio.to_thread(_sync_call)
 
 
 @dataclass(frozen=True)
@@ -294,29 +273,32 @@ class AnthropicProvider:
     def __init__(self, cfg: AnthropicConfig) -> None:
         self.cfg = cfg
 
-    def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
-        r = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": self.cfg.api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": self.cfg.model,
-                "max_tokens": 4096,
-                "temperature": temperature,
-                "system": "You are a helpful assistant that always responds with valid JSON. Never include explanatory text outside the JSON.",
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=timeout,
-        )
-        r.raise_for_status()
-        data = r.json()
-        parts = data.get("content") or []
-        if parts and isinstance(parts, list) and isinstance(parts[0], dict):
-            return parts[0].get("text", "")
-        return str(data)
+    async def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
+        def _sync_call() -> str:
+            r = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": self.cfg.api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": self.cfg.model,
+                    "max_tokens": 4096,
+                    "temperature": temperature,
+                    "system": "You are a helpful assistant that always responds with valid JSON. Never include explanatory text outside the JSON.",
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=timeout,
+            )
+            r.raise_for_status()
+            data = r.json()
+            parts = data.get("content") or []
+            if parts and isinstance(parts, list) and isinstance(parts[0], dict):
+                return parts[0].get("text", "")
+            return str(data)
+
+        return await asyncio.to_thread(_sync_call)
 
 
 @dataclass(frozen=True)
@@ -329,23 +311,26 @@ class GeminiProvider:
     def __init__(self, cfg: GeminiConfig) -> None:
         self.cfg = cfg
 
-    def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.cfg.model}:generateContent"
-        r = requests.post(
-            url,
-            params={"key": self.cfg.api_key},
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": temperature},
-            },
-            timeout=timeout,
-        )
-        r.raise_for_status()
-        data = r.json()
-        cands = data.get("candidates") or []
-        if cands:
-            content = cands[0].get("content") or {}
-            parts = content.get("parts") or []
-            if parts:
-                return parts[0].get("text", "")
-        return str(data)
+    async def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
+        def _sync_call() -> str:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.cfg.model}:generateContent"
+            r = requests.post(
+                url,
+                params={"key": self.cfg.api_key},
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"temperature": temperature},
+                },
+                timeout=timeout,
+            )
+            r.raise_for_status()
+            data = r.json()
+            cands = data.get("candidates") or []
+            if cands:
+                content = cands[0].get("content") or {}
+                parts = content.get("parts") or []
+                if parts:
+                    return parts[0].get("text", "")
+            return str(data)
+
+        return await asyncio.to_thread(_sync_call)

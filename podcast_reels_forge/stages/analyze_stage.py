@@ -11,6 +11,7 @@ historic helper functions.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -288,7 +289,7 @@ def _coerce_json_list(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
-def get_llm_json(
+async def get_llm_json(
     provider: LLMProvider,
     prompt: str,
     temperature: float,
@@ -296,7 +297,7 @@ def get_llm_json(
 ) -> dict[str, Any] | list[Any]:
     """Get JSON from an LLM response, logging a safe preview on failure."""
 
-    raw = provider.generate(prompt, temperature=temperature, timeout=timeout)
+    raw = await provider.generate(prompt, temperature=temperature, timeout=timeout)
     try:
         return extract_first_json_value(raw)
     except (json.JSONDecodeError, ValueError, TypeError):
@@ -608,7 +609,7 @@ def _stage_name_to_prompt_name(stage: str) -> str:
     return _STAGE_FILES.get(stage, stage)
 
 
-def scout_candidates(
+async def scout_candidates(
     provider: LLMProvider,
     chunks: Sequence[Any],
     *,
@@ -624,47 +625,39 @@ def scout_candidates(
     if not chunk_list:
         return candidates
 
-    def _run_chunk(chunk: Any) -> list[MomentRecord]:
-        prompt_text = _render_prompt(
-            prompt,
-            _prompt_payload(
-                requirements=requirements,
-                chunk=chunk.to_prompt_dict() if hasattr(chunk, "to_prompt_dict") else None,
-            ),
-        )
-        resp = get_llm_json(provider, prompt_text, temperature, timeout)
-        chunk_candidates = _parse_candidate_response(resp, stage="scout")
-        out: list[MomentRecord] = []
-        for candidate in chunk_candidates:
-            out.append(
-                _attach_chunk_metadata(
-                    candidate,
-                    chunk_id=getattr(chunk, "chunk_id", "chunk"),
-                    speaker_set=getattr(chunk, "speaker_set", ()),
+    sem = asyncio.Semaphore(parallelism)
+
+    async def _process_chunk(chunk: Any) -> list[MomentRecord]:
+        async with sem:
+            prompt_text = _render_prompt(
+                prompt,
+                _prompt_payload(
+                    requirements=requirements,
+                    chunk=chunk.to_prompt_dict() if hasattr(chunk, "to_prompt_dict") else None,
                 ),
             )
-        return out
+            resp = await get_llm_json(provider, prompt_text, temperature, timeout)
+            chunk_candidates = _parse_candidate_response(resp, stage="scout")
+            out: list[MomentRecord] = []
+            for candidate in chunk_candidates:
+                out.append(
+                    _attach_chunk_metadata(
+                        candidate,
+                        chunk_id=getattr(chunk, "chunk_id", "chunk"),
+                        speaker_set=getattr(chunk, "speaker_set", ()),
+                    ),
+                )
+            return out
 
-    workers = min(len(chunk_list), max(1, int(parallelism)))
-    if workers <= 1:
-        iterator: Any = iter(chunk_list)
-        if progress:
-            iterator = tqdm(iterator, total=len(chunk_list), desc="scout")
-        for chunk in iterator:
-            candidates.extend(_run_chunk(chunk))
-        return candidates
+    tasks = [_process_chunk(c) for c in chunk_list]
+    results = await asyncio.gather(*tasks)
 
-    mapped: Any
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        mapped = pool.map(_run_chunk, chunk_list)
-        if progress:
-            mapped = tqdm(mapped, total=len(chunk_list), desc=f"scout x{workers}")
-        for chunk_out in mapped:
-            candidates.extend(chunk_out)
+    for res in results:
+        candidates.extend(res)
     return candidates
 
 
-def cleanup_and_refine_candidates(
+async def cleanup_and_refine_candidates(
     provider: LLMProvider,
     candidates: Sequence[MomentRecord],
     *,
@@ -690,14 +683,14 @@ def cleanup_and_refine_candidates(
             candidates=sorted_candidates,
         ),
     )
-    resp = get_llm_json(provider, prompt_text, temperature, timeout)
+    resp = await get_llm_json(provider, prompt_text, temperature, timeout)
     refined = _parse_candidate_response(resp, stage="cleanup_refine")
     if refined:
         return dedupe_moments(refined)
     return list(sorted_candidates)
 
 
-def judge_and_finalize_candidates(
+async def judge_and_finalize_candidates(
     provider: LLMProvider,
     candidates: Sequence[MomentRecord],
     *,
@@ -717,7 +710,7 @@ def judge_and_finalize_candidates(
             candidates=candidates,
         ),
     )
-    resp = get_llm_json(provider, prompt_text, temperature, timeout)
+    resp = await get_llm_json(provider, prompt_text, temperature, timeout)
     judged = _parse_candidate_response(resp, stage="judge_metadata")
     if judged:
         selected = rank_moments(judged, clip_type_quotas=quotas)
@@ -730,7 +723,7 @@ def _ensure_prompt_text(stage: str, lang: str, variant: str) -> str:
     return _load_prompt(lang=lang, variant=variant, name=_stage_name_to_prompt_name(stage))
 
 
-def run_staged_analysis(
+async def run_staged_analysis(
     *,
     transcript_path: Path,
     outdir: Path,
@@ -858,7 +851,7 @@ def run_staged_analysis(
     if provider_name != "llama_cpp":
         scout_parallelism = 1
 
-    scouted_candidates = scout_candidates(
+    scouted_candidates = await scout_candidates(
         scout_provider,
         chunks,
         requirements=requirements,
@@ -880,7 +873,7 @@ def run_staged_analysis(
             len(scouted_candidates), _CLEANUP_CAP,
         )
 
-    cleaned_candidates = cleanup_and_refine_candidates(
+    cleaned_candidates = await cleanup_and_refine_candidates(
         cleanup_refine_provider,
         cleanup_input,
         requirements=requirements,
@@ -891,7 +884,7 @@ def run_staged_analysis(
     )
     atomic_write_json(outdir / "cleaned_candidates.json", build_candidate_json(cleaned_candidates))
 
-    final_moments = judge_and_finalize_candidates(
+    final_moments = await judge_and_finalize_candidates(
         judge_metadata_provider,
         cleaned_candidates,
         requirements=requirements,
@@ -919,7 +912,7 @@ def run_staged_analysis(
     return final_moments
 
 
-def find_moments(
+async def find_moments(
     provider: LLMProvider,
     segments: list[dict[str, Any]],
     duration: float,
@@ -969,7 +962,7 @@ def find_moments(
                 "chunk_json": json.dumps({"chunk_id": idx, "text": ch_txt}, ensure_ascii=False),
             },
         )
-        resp = get_llm_json(provider, prompt, 0.3, timeout)
+        resp = await get_llm_json(provider, prompt, 0.3, timeout)
         chunk_moments = _parse_candidate_response(resp, stage="scout")
         for moment in chunk_moments:
             candidates.append(moment)
@@ -1120,7 +1113,7 @@ def main(argv: list[str] | None = None) -> None:
             host, port = local
             proc = llama_cpp_start(host=host, port=port, service_conf={})
 
-        final_moments = run_staged_analysis(
+        final_moments = asyncio.run(run_staged_analysis(
             transcript_path=args.transcript,
             outdir=outdir,
             provider_name=args.provider,
@@ -1138,7 +1131,7 @@ def main(argv: list[str] | None = None) -> None:
             quiet=bool(args.quiet),
             verbose=bool(args.verbose),
             progress=bool(args.verbose and not args.quiet),
-        )
+        ))
 
         _status(f"[analyze] moments={len(final_moments)}", quiet=bool(args.quiet))
     finally:

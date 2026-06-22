@@ -17,6 +17,7 @@ This module contains the main pipeline logic that orchestrates all stages:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -640,7 +641,7 @@ def run_pipeline(
                     quiet=quiet,
                 )
                 try:
-                    final_moments = run_staged_analysis(
+                    final_moments = asyncio.run(run_staged_analysis(
                         transcript_path=transcript_path,
                         outdir=analysis_model_folder,
                         provider_name="llama_cpp",
@@ -654,7 +655,7 @@ def run_pipeline(
                         quiet=quiet,
                         verbose=verbose,
                         progress=progress,
-                    )
+                    ))
                     status(
                         f"[analyze] done ({final_model_folder}, moments={len(final_moments)})",
                         quiet=quiet,
