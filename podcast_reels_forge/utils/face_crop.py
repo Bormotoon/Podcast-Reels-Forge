@@ -3,15 +3,16 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 LOG = logging.getLogger(__name__)
 
-
-try:  # Optional dependency
+try:
     import cv2
-except Exception:  # pragma: no cover
-    cv2 = None  # type: ignore[assignment]
+    import mediapipe as mp
+    mp_face_detection = mp.solutions.face_detection
+    HAS_CV_AND_MP = True
+except ImportError:
+    HAS_CV_AND_MP = False
 
 
 @dataclass(frozen=True)
@@ -21,31 +22,7 @@ class FaceCropSettings:
 
 
 def face_detection_available() -> bool:
-    return cv2 is not None
-
-
-def _get_cascades() -> list[Any]:
-    if cv2 is None:
-        return []
-
-    # Cascade priority: alt2 is usually more robust than default.
-    names = [
-        "haarcascade_frontalface_alt2.xml",
-        "haarcascade_frontalface_default.xml",
-    ]
-    cascades = []
-    try:
-        base_path = Path(cv2.data.haarcascades)  # type: ignore[attr-defined]
-    except Exception:
-        return []
-
-    for name in names:
-        p = base_path / name
-        if p.exists():
-            c = cv2.CascadeClassifier(str(p))
-            if not c.empty():
-                cascades.append(c)
-    return cascades
+    return HAS_CV_AND_MP
 
 
 def detect_face_center_ratio(
@@ -54,17 +31,8 @@ def detect_face_center_ratio(
     sample_times_s: list[float],
     settings: FaceCropSettings,
 ) -> tuple[float | None, float]:
-    """Return tuple of (median face center X as ratio in [0..1] or None, detection rate [0..1]).
 
-    Uses Haar cascades (fast, works offline). Picks the largest detected face per frame.
-    """
-
-    if cv2 is None:
-        return None, 0.0
-
-    cascades = _get_cascades()
-    if not cascades:
-        LOG.warning("No opencv Haar cascades found; smart crop disabled")
+    if not HAS_CV_AND_MP:
         return None, 0.0
 
     cap = cv2.VideoCapture(str(video_path))
@@ -72,47 +40,39 @@ def detect_face_center_ratio(
         return None, 0.0
 
     ratios: list[float] = []
-    try:
-        width = float(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-        if width <= 0:
-            return None, 0.0
 
-        for t in sample_times_s:
-            cap.set(cv2.CAP_PROP_POS_MSEC, float(t) * 1000.0)
-            ok, frame = cap.read()
-            if not ok or frame is None:
-                continue
+    with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as face_detection:
+        try:
+            width = float(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+            if width <= 0:
+                return None, 0.0
 
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            for t in sample_times_s:
+                cap.set(cv2.CAP_PROP_POS_MSEC, float(t) * 1000.0)
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    continue
 
-            found_face = None
-            for cascade in cascades:
-                faces = cascade.detectMultiScale(
-                    gray,
-                    scaleFactor=1.05,  # Slightly more precise than 1.1
-                    minNeighbors=5,
-                    minSize=(settings.min_face_size, settings.min_face_size),
-                )
-                if faces is not None and len(faces) > 0:
-                    # Pick the largest face by area
-                    found_face = max(faces, key=lambda r: int(r[2]) * int(r[3]))
-                    break
+                # MediaPipe needs RGB
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = face_detection.process(rgb_frame)
 
-            if found_face is not None:
-                x, _, w, _ = found_face
-                center_x = float(x) + float(w) / 2.0
-                ratios.append(max(0.0, min(1.0, center_x / width)))
-
-    finally:
-        cap.release()
+                if results.detections:
+                    # Get the largest face by bounding box area
+                    best_detection = max(
+                        results.detections,
+                        key=lambda d: d.location_data.relative_bounding_box.width * d.location_data.relative_bounding_box.height
+                    )
+                    bbox = best_detection.location_data.relative_bounding_box
+                    center_x = bbox.xmin + (bbox.width / 2.0)
+                    ratios.append(max(0.0, min(1.0, center_x)))
+        finally:
+            cap.release()
 
     rate = len(ratios) / len(sample_times_s) if sample_times_s else 0.0
-
     if not ratios:
-        LOG.debug("Face detection: 0/%d frames had faces", len(sample_times_s))
         return None, rate
 
-    LOG.debug("Face detection: %d/%d frames had faces", len(ratios), len(sample_times_s))
     ratios.sort()
     return ratios[len(ratios) // 2], rate
 
