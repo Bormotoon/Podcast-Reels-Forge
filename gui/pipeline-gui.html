@@ -87,9 +87,7 @@
     .nav-rail-item svg { width: 24px; height: 24px; transition: 0.2s; }
     .nav-rail-item span { font-size: 10px; font-weight: 500; letter-spacing: 0.02em; }
     .nav-rail-item:hover { background: rgba(208,188,255,0.08); }
-    .nav-rail-item.active {
-      color: var(--md-sys-color-on-secondary-container);
-    }
+    .nav-rail-item.active { color: var(--md-sys-color-on-secondary-container); }
     .nav-rail-item.active::before {
       content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 32px;
       background: var(--md-sys-color-secondary-container); border-radius: 16px; z-index: -1;
@@ -111,9 +109,27 @@
     .tab-page.active { display: block; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 
-    .page-header { margin-bottom: 28px; }
-    .page-header h2 { margin: 0 0 4px; font-size: 28px; font-weight: 400; letter-spacing: -0.01em; }
-    .page-header p { margin: 0; color: var(--md-sys-color-outline); font-size: 14px; }
+    .page-header { margin-bottom: 28px; display: flex; justify-content: space-between; align-items: flex-start; }
+    .page-header-text h2 { margin: 0 0 4px; font-size: 28px; font-weight: 400; letter-spacing: -0.01em; }
+    .page-header-text p { margin: 0; color: var(--md-sys-color-outline); font-size: 14px; }
+
+    /* ===== LANGUAGE TOGGLE ===== */
+    .lang-toggle {
+      display: inline-flex; border: 1px solid var(--md-sys-color-outline); border-radius: 20px;
+      overflow: hidden; height: 36px; flex-shrink: 0; margin-top: 4px;
+    }
+    .lang-toggle-btn {
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 14px; border: none; cursor: pointer; position: relative;
+      background: transparent; font-family: inherit; font-size: 12px; font-weight: 600;
+      color: var(--md-sys-color-on-surface-variant); transition: 0.2s var(--ease-standard);
+      letter-spacing: 0.05em;
+    }
+    .lang-toggle-btn:not(:last-child) { border-right: 1px solid var(--md-sys-color-outline); }
+    .lang-toggle-btn:hover { background: rgba(208,188,255,0.06); }
+    .lang-toggle-btn.active {
+      background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
+    }
 
     /* ===== CARDS / SECTIONS ===== */
     .card {
@@ -173,7 +189,6 @@
       background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px;
     }
     select option { background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-background); }
-
     textarea { resize: vertical; min-height: 80px; font-family: inherit; line-height: 1.5; }
 
     /* ===== SLIDERS ===== */
@@ -378,9 +393,7 @@
     .bottom-bar-left { display: flex; align-items: center; gap: 16px; }
     .bottom-bar-center { display: flex; align-items: center; gap: 8px; flex: 1; justify-content: center; }
     .bottom-bar-right { display: flex; align-items: center; gap: 12px; }
-    .pipeline-overview {
-      display: flex; align-items: center; gap: 4px;
-    }
+    .pipeline-overview { display: flex; align-items: center; gap: 4px; }
     .pipeline-overview-dot {
       width: 8px; height: 8px; border-radius: 50%; background: var(--md-sys-color-outline-variant);
       transition: 0.3s;
@@ -403,22 +416,6 @@
     .fab:hover { box-shadow: var(--md-elevation-3); transform: scale(1.05); }
     .fab:active { transform: scale(0.95); }
     .fab svg { width: 24px; height: 24px; }
-
-    /* ===== DIALOG / MODAL ===== */
-    .modal-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200;
-      display: none; align-items: center; justify-content: center;
-      animation: fadeIn 0.2s;
-    }
-    .modal-overlay.open { display: flex; }
-    .modal {
-      background: var(--md-sys-color-surface-container-high); border-radius: 28px;
-      padding: 24px; min-width: 400px; max-width: 600px; max-height: 80vh;
-      box-shadow: var(--md-elevation-3); overflow-y: auto;
-      animation: slideUpFade 0.3s var(--ease-emphasized);
-    }
-    .modal h3 { margin: 0 0 16px; font-size: 20px; font-weight: 500; }
-    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
 
     /* ===== TOOLTIP ===== */
     [data-tooltip] { position: relative; }
@@ -452,36 +449,36 @@
     <nav class="nav-rail">
       <div class="nav-rail-brand">PF</div>
 
-      <button class="nav-rail-item active" data-tab="dashboard" data-tooltip="Dashboard">
+      <button class="nav-rail-item active" data-tab="dashboard" data-tooltip-i18n="nav_dashboard">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
-        <span>Home</span>
+        <span data-i18n="nav_home">Главная</span>
       </button>
-      <button class="nav-rail-item" data-tab="transcribe" data-tooltip="Transcribe">
+      <button class="nav-rail-item" data-tab="transcribe" data-tooltip-i18n="nav_transcribe">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-        <span>Transcribe</span>
+        <span data-i18n="nav_transcribe">Транскрибация</span>
       </button>
-      <button class="nav-rail-item" data-tab="analyze" data-tooltip="Analyze">
+      <button class="nav-rail-item" data-tab="analyze" data-tooltip-i18n="nav_analyze">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <span>Analyze</span>
+        <span data-i18n="nav_analyze">Анализ</span>
       </button>
-      <button class="nav-rail-item" data-tab="cut" data-tooltip="Cut & Export">
+      <button class="nav-rail-item" data-tab="cut" data-tooltip-i18n="nav_cut">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
-        <span>Cut</span>
+        <span data-i18n="nav_cut">Нарезка</span>
       </button>
-      <button class="nav-rail-item" data-tab="subtitles" data-tooltip="Subtitles">
+      <button class="nav-rail-item" data-tab="subtitles" data-tooltip-i18n="nav_subtitles">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
-        <span>Subs</span>
+        <span data-i18n="nav_subs">Субтитры</span>
       </button>
 
       <div class="nav-rail-divider"></div>
 
-      <button class="nav-rail-item" data-tab="settings" data-tooltip="Settings">
+      <button class="nav-rail-item" data-tab="settings" data-tooltip-i18n="nav_settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        <span>Config</span>
+        <span data-i18n="nav_settings">Настройки</span>
       </button>
-      <button class="nav-rail-item" data-tab="logs" data-tooltip="Logs">
+      <button class="nav-rail-item" data-tab="logs" data-tooltip-i18n="nav_logs">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-        <span>Logs</span>
+        <span data-i18n="nav_logs">Логи</span>
       </button>
     </nav>
 
@@ -491,103 +488,105 @@
       <!-- ========== DASHBOARD ========== -->
       <div class="tab-page active" id="tab-dashboard">
         <div class="page-header">
-          <h2>Dashboard</h2>
-          <p>Manage your pipeline queue and monitor progress</p>
+          <div class="page-header-text">
+            <h2 data-i18n="dash_title">Панель управления</h2>
+            <p data-i18n="dash_desc">Управление очередью пайплайна и мониторинг прогресса</p>
+          </div>
+          <div class="lang-toggle">
+            <button class="lang-toggle-btn" data-lang="en">ENG</button>
+            <button class="lang-toggle-btn active" data-lang="ru">RUS</button>
+          </div>
         </div>
 
-        <!-- Pipeline Visual -->
         <div class="card">
           <div class="card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-            Pipeline Status
+            <span data-i18n="dash_pipeline_status">Статус пайплайна</span>
           </div>
           <div class="pipeline-visual" id="pipelineVisual">
             <div class="pipeline-stage" data-stage="transcribe">
               <div class="pipeline-stage-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></div>
-              <div class="pipeline-stage-label">Transcribe</div>
+              <div class="pipeline-stage-label" data-i18n="stage_transcribe">Транскрибация</div>
             </div>
             <div class="pipeline-connector"></div>
             <div class="pipeline-stage" data-stage="diarize">
               <div class="pipeline-stage-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
-              <div class="pipeline-stage-label">Diarize</div>
+              <div class="pipeline-stage-label" data-i18n="stage_diarize">Диаризация</div>
             </div>
             <div class="pipeline-connector"></div>
             <div class="pipeline-stage" data-stage="analyze">
               <div class="pipeline-stage-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
-              <div class="pipeline-stage-label">Analyze</div>
+              <div class="pipeline-stage-label" data-i18n="stage_analyze">Анализ LLM</div>
             </div>
             <div class="pipeline-connector"></div>
             <div class="pipeline-stage" data-stage="cut">
               <div class="pipeline-stage-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/></svg></div>
-              <div class="pipeline-stage-label">Cut & Export</div>
+              <div class="pipeline-stage-label" data-i18n="stage_cut">Нарезка</div>
             </div>
             <div class="pipeline-connector"></div>
             <div class="pipeline-stage" data-stage="subtitles">
               <div class="pipeline-stage-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></div>
-              <div class="pipeline-stage-label">Subtitles</div>
+              <div class="pipeline-stage-label" data-i18n="stage_subtitles">Субтитры</div>
             </div>
           </div>
         </div>
 
-        <!-- Stats -->
         <div class="grid-4" style="margin-bottom: 16px;">
           <div class="stat-card">
             <div class="stat-value" id="statQueue">0</div>
-            <div class="stat-label">In Queue</div>
+            <div class="stat-label" data-i18n="stat_queue">В очереди</div>
           </div>
           <div class="stat-card">
             <div class="stat-value" id="statReels">0</div>
-            <div class="stat-label">Reels Created</div>
+            <div class="stat-label" data-i18n="stat_reels">Рилсов создано</div>
           </div>
           <div class="stat-card">
             <div class="stat-value" id="statDuration">0m</div>
-            <div class="stat-label">Total Duration</div>
+            <div class="stat-label" data-i18n="stat_duration">Общая длительность</div>
           </div>
           <div class="stat-card">
             <div class="stat-value" id="statGPU">--</div>
-            <div class="stat-label">GPU VRAM</div>
+            <div class="stat-label" data-i18n="stat_gpu">GPU VRAM</div>
           </div>
         </div>
 
-        <!-- Upload -->
         <div class="card">
           <div class="card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            Add to Queue
+            <span data-i18n="dash_add_queue">Добавить в очередь</span>
           </div>
           <label class="file-drop" id="fileDrop">
             <input type="file" id="fileInput" accept="video/*,audio/*" multiple>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-            <p>Drop video/audio files here or click to browse</p>
-            <small>Supports MP4, MKV, MOV, AVI, MP3</small>
+            <p data-i18n="dash_drop">Перетащите видео/аудио файлы сюда или нажмите для выбора</p>
+            <small data-i18n="dash_formats">Поддерживаются: MP4, MKV, MOV, AVI, MP3</small>
           </label>
           <div style="display: flex; gap: 8px; margin-top: 12px;">
             <button class="btn btn-filled" id="btnRunPipeline">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-              Run Full Pipeline
+              <span data-i18n="dash_run">Запустить пайплайн</span>
             </button>
             <button class="btn btn-tonal" id="btnAutotune">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4"/></svg>
-              Autotune
+              <span data-i18n="dash_autotune">Автоподбор</span>
             </button>
             <button class="btn btn-outlined" id="btnOpenStyleEditor">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
-              Style Editor
+              <span data-i18n="dash_style_editor">Редактор стилей</span>
             </button>
           </div>
         </div>
 
-        <!-- Queue -->
         <div class="card">
           <div class="card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-            Processing Queue
+            <span data-i18n="dash_queue">Очередь обработки</span>
           </div>
           <div class="queue-list" id="queueList">
             <div class="empty-state" id="queueEmpty">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-              <h3>Queue is empty</h3>
-              <p>Upload video files to start processing</p>
+              <h3 data-i18n="dash_empty_title">Очередь пуста</h3>
+              <p data-i18n="dash_empty_desc">Загрузите видеофайлы для начала обработки</p>
             </div>
           </div>
         </div>
@@ -596,37 +595,43 @@
       <!-- ========== TRANSCRIBE ========== -->
       <div class="tab-page" id="tab-transcribe">
         <div class="page-header">
-          <h2>Transcription</h2>
-          <p>Configure Whisper model and transcription parameters</p>
+          <div class="page-header-text">
+            <h2 data-i18n="trans_title">Транскрибация</h2>
+            <p data-i18n="trans_desc">Настройка модели Whisper и параметров транскрибации</p>
+          </div>
+          <div class="lang-toggle">
+            <button class="lang-toggle-btn" data-lang="en">ENG</button>
+            <button class="lang-toggle-btn active" data-lang="ru">RUS</button>
+          </div>
         </div>
 
         <div class="grid-2">
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
-              Model & Device
+              <span data-i18n="trans_model_device">Модель и устройство</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Whisper Model</label>
+              <label data-i18n="trans_whisper_model">Модель Whisper</label>
               <select id="cfgTranscribeModel">
-                <option value="large-v3">large-v3 (best quality)</option>
+                <option value="large-v3">large-v3 (лучшее качество)</option>
                 <option value="large-v2">large-v2</option>
                 <option value="medium">medium</option>
                 <option value="small">small</option>
-                <option value="base">base (fastest)</option>
+                <option value="base">base (самая быстрая)</option>
               </select>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Device</label>
+              <label data-i18n="trans_device">Устройство</label>
               <div class="chip-group">
-                <button class="chip active" data-field="cfgTranscribeDevice" data-value="auto">Auto</button>
+                <button class="chip active" data-field="cfgTranscribeDevice" data-value="auto" data-i18n="chip_auto">Авто</button>
                 <button class="chip" data-field="cfgTranscribeDevice" data-value="cuda">CUDA GPU</button>
                 <button class="chip" data-field="cfgTranscribeDevice" data-value="cpu">CPU</button>
               </div>
               <input type="hidden" id="cfgTranscribeDevice" value="auto">
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Compute Type</label>
+              <label data-i18n="trans_compute_type">Тип вычислений</label>
               <select id="cfgTranscribeComputeType">
                 <option value="auto">Auto</option>
                 <option value="float32">float32</option>
@@ -637,10 +642,10 @@
               </select>
             </div>
             <div class="field">
-              <label>Language</label>
+              <label data-i18n="trans_language">Язык</label>
               <select id="cfgTranscribeLanguage">
-                <option value="auto">Auto-detect</option>
-                <option value="ru">Russian</option>
+                <option value="auto" data-i18n="opt_auto_detect">Автоопределение</option>
+                <option value="ru">Русский</option>
                 <option value="en">English</option>
               </select>
             </div>
@@ -649,30 +654,30 @@
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              Mode & Quality
+              <span data-i18n="trans_mode_quality">Режим и качество</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Transcription Mode</label>
+              <label data-i18n="trans_mode">Режим транскрибации</label>
               <div class="chip-group">
-                <button class="chip active" data-field="cfgTranscribeMode" data-value="fast">Fast (batched)</button>
-                <button class="chip" data-field="cfgTranscribeMode" data-value="quality">Quality (sequential)</button>
+                <button class="chip active" data-field="cfgTranscribeMode" data-value="fast" data-i18n="trans_fast">Быстрый (пакетный)</button>
+                <button class="chip" data-field="cfgTranscribeMode" data-value="quality" data-i18n="trans_quality">Качественный (последовательный)</button>
               </div>
               <input type="hidden" id="cfgTranscribeMode" value="fast">
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Beam Size <span class="value" id="v-cfgTranscribeBeam">5</span></label>
+              <label><span data-i18n="trans_beam">Размер луча</span> <span class="value" id="v-cfgTranscribeBeam">5</span></label>
               <input type="range" id="cfgTranscribeBeam" min="1" max="20" step="1" value="5">
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Batch Size (GPU) <span class="value" id="v-cfgTranscribeBatch">16</span></label>
+              <label><span data-i18n="trans_batch">Размер пакета (GPU)</span> <span class="value" id="v-cfgTranscribeBatch">16</span></label>
               <input type="range" id="cfgTranscribeBatch" min="1" max="64" step="1" value="16">
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Best Of <span class="value" id="v-cfgTranscribeBestOf">1</span></label>
+              <label><span data-i18n="trans_best_of">Лучший из</span> <span class="value" id="v-cfgTranscribeBestOf">1</span></label>
               <input type="range" id="cfgTranscribeBestOf" min="1" max="10" step="1" value="1">
             </div>
             <div class="field">
-              <label>Quality Beam Size <span class="value" id="v-cfgTranscribeQBeam">10</span></label>
+              <label><span data-i18n="trans_qbeam">Лучший луч для качества</span> <span class="value" id="v-cfgTranscribeQBeam">10</span></label>
               <input type="range" id="cfgTranscribeQBeam" min="1" max="20" step="1" value="10">
             </div>
           </div>
@@ -681,35 +686,35 @@
         <div class="card">
           <div class="card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            Anti-Hallucination & Domain
+            <span data-i18n="trans_antihall">Анти-галлюцинации и домен</span>
           </div>
           <div class="grid-2">
             <div class="field">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Condition on Previous Text</div>
-                  <div class="m3-switch-desc">Prevents hallucination loops on silence</div>
+                  <div class="m3-switch-text" data-i18n="trans_condition_text">Условие по предыдущему тексту</div>
+                  <div class="m3-switch-desc" data-i18n="trans_condition_desc">Предотвращает петли галлюцинаций на тишине</div>
                 </div>
                 <input type="checkbox" id="cfgTranscribeCondition">
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
               </label>
             </div>
             <div class="field">
-              <label>Repetition Penalty <span class="value" id="v-cfgTranscribeRepPenalty">1.1</span></label>
+              <label><span data-i18n="trans_rep_penalty">Штраф за повтор</span> <span class="value" id="v-cfgTranscribeRepPenalty">1.1</span></label>
               <input type="range" id="cfgTranscribeRepPenalty" min="1.0" max="2.0" step="0.05" value="1.1">
             </div>
             <div class="field">
-              <label>No-Repeat N-gram Size <span class="value" id="v-cfgTranscribeNoRepeat">3</span></label>
+              <label><span data-i18n="trans_no_repeat">Размер n-граммы без повтора</span> <span class="value" id="v-cfgTranscribeNoRepeat">3</span></label>
               <input type="range" id="cfgTranscribeNoRepeat" min="0" max="10" step="1" value="3">
             </div>
             <div class="field">
-              <label>Patience <span class="value" id="v-cfgTranscribePatience">1.0</span></label>
+              <label><span data-i18n="trans_patience">Терпение</span> <span class="value" id="v-cfgTranscribePatience">1.0</span></label>
               <input type="range" id="cfgTranscribePatience" min="1.0" max="3.0" step="0.1" value="1.0">
             </div>
           </div>
           <div class="field" style="margin-top: 16px;">
-            <label>Initial Prompt (domain context)</label>
-            <textarea id="cfgTranscribePrompt" placeholder="Optional domain hint to bias vocabulary. Example: Podcast about technology and startups."></textarea>
+            <label data-i18n="trans_prompt">Начальный промпт (контекст домена)</label>
+            <textarea id="cfgTranscribePrompt" data-i18n-placeholder="trans_prompt_ph" placeholder="Подсказка для лексики. Пример: Подкаст о технологиях и стартапах."></textarea>
           </div>
         </div>
       </div>
@@ -717,32 +722,38 @@
       <!-- ========== ANALYZE ========== -->
       <div class="tab-page" id="tab-analyze">
         <div class="page-header">
-          <h2>Analysis</h2>
-          <p>LLM-based viral moment detection and scoring</p>
+          <div class="page-header-text">
+            <h2 data-i18n="an_title">Анализ</h2>
+            <p data-i18n="an_desc">LLM-поиск вирусных моментов и оценка</p>
+          </div>
+          <div class="lang-toggle">
+            <button class="lang-toggle-btn" data-lang="en">ENG</button>
+            <button class="lang-toggle-btn active" data-lang="ru">RUS</button>
+          </div>
         </div>
 
         <div class="grid-2">
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-              LLM Service
+              <span data-i18n="an_service">LLM-сервис</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Service URL</label>
+              <label data-i18n="an_url">URL сервиса</label>
               <input type="text" id="cfgAnalyzeUrl" value="http://127.0.0.1:11440/completion">
             </div>
             <div class="field" style="margin-bottom: 16px;">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Auto-start llama-server</div>
-                  <div class="m3-switch-desc">Start local server automatically if not running</div>
+                  <div class="m3-switch-text" data-i18n="an_autostart">Авто-запуск llama-server</div>
+                  <div class="m3-switch-desc" data-i18n="an_autostart_desc">Запустить локальный сервер если не запущен</div>
                 </div>
                 <input type="checkbox" id="cfgAnalyzeAutoStart" checked>
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
               </label>
             </div>
             <div class="field">
-              <label>Model Path</label>
+              <label data-i18n="an_model_path">Путь к модели</label>
               <input type="text" id="cfgAnalyzeModelPath" value="/opt/llamacpp/models/gemma4-26b.gguf">
             </div>
           </div>
@@ -750,10 +761,10 @@
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-              Model Roles
+              <span data-i18n="an_roles">Роли моделей</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Scout (fast scan)</label>
+              <label data-i18n="an_scout">Разведчик (быстрый поиск)</label>
               <select id="cfgAnalyzeScout">
                 <option value="gemma4:26b">gemma4:26b</option>
                 <option value="gemma4">gemma4</option>
@@ -761,7 +772,7 @@
               </select>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Cleanup / Refine</label>
+              <label data-i18n="an_cleanup">Очистка / Уточнение</label>
               <select id="cfgAnalyzeCleanup">
                 <option value="gemma4:26b">gemma4:26b</option>
                 <option value="gemma4">gemma4</option>
@@ -769,7 +780,7 @@
               </select>
             </div>
             <div class="field">
-              <label>Judge / Metadata</label>
+              <label data-i18n="an_judge">Судья / Метаданные</label>
               <select id="cfgAnalyzeJudge">
                 <option value="gemma4:26b">gemma4:26b</option>
                 <option value="gemma4">gemma4</option>
@@ -783,22 +794,22 @@
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              Inference Parameters
+              <span data-i18n="an_params">Параметры инференса</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Temperature <span class="value" id="v-cfgAnalyzeTemp">0.2</span></label>
+              <label><span data-i18n="an_temp">Температура</span> <span class="value" id="v-cfgAnalyzeTemp">0.2</span></label>
               <input type="range" id="cfgAnalyzeTemp" min="0.0" max="1.0" step="0.05" value="0.2">
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Timeout (sec) <span class="value" id="v-cfgAnalyzeTimeout">600</span></label>
+              <label><span data-i18n="an_timeout">Таймаут (сек)</span> <span class="value" id="v-cfgAnalyzeTimeout">600</span></label>
               <input type="range" id="cfgAnalyzeTimeout" min="60" max="1800" step="30" value="600">
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Chunk Seconds <span class="value" id="v-cfgAnalyzeChunk">900</span></label>
+              <label><span data-i18n="an_chunk">Длительность чанка (сек)</span> <span class="value" id="v-cfgAnalyzeChunk">900</span></label>
               <input type="range" id="cfgAnalyzeChunk" min="300" max="3600" step="60" value="900">
             </div>
             <div class="field">
-              <label>Max Chars per Chunk <span class="value" id="v-cfgAnalyzeMaxChars">7000</span></label>
+              <label><span data-i18n="an_max_chars">Макс. символов на чанк</span> <span class="value" id="v-cfgAnalyzeMaxChars">7000</span></label>
               <input type="range" id="cfgAnalyzeMaxChars" min="2000" max="12000" step="500" value="7000">
             </div>
           </div>
@@ -806,28 +817,28 @@
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              Watchdog & Fallback
+              <span data-i18n="an_watchdog">Watchdog и фоллбэк</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Watchdog enabled</div>
-                  <div class="m3-switch-desc">Detect stalling and restart inference</div>
+                  <div class="m3-switch-text" data-i18n="an_wd_enabled">Watchdog включён</div>
+                  <div class="m3-switch-desc" data-i18n="an_wd_desc">Обнаружение зависаний и перезапуск</div>
                 </div>
                 <input type="checkbox" id="cfgAnalyzeWatchdog" checked>
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
               </label>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>First Token Timeout <span class="value" id="v-cfgAnalyzeFirstToken">90</span>s</label>
+              <label><span data-i18n="an_wd_first">Таймаут первого токена</span> <span class="value" id="v-cfgAnalyzeFirstToken">90</span>с</label>
               <input type="range" id="cfgAnalyzeFirstToken" min="30" max="300" step="10" value="90">
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Stall Timeout <span class="value" id="v-cfgAnalyzeStall">120</span>s</label>
+              <label><span data-i18n="an_wd_stall">Таймаут зависания</span> <span class="value" id="v-cfgAnalyzeStall">120</span>с</label>
               <input type="range" id="cfgAnalyzeStall" min="30" max="600" step="10" value="120">
             </div>
             <div class="field">
-              <label>Max Retries <span class="value" id="v-cfgAnalyzeRetries">4</span></label>
+              <label><span data-i18n="an_wd_retries">Макс. попыток</span> <span class="value" id="v-cfgAnalyzeRetries">4</span></label>
               <input type="range" id="cfgAnalyzeRetries" min="1" max="10" step="1" value="4">
             </div>
           </div>
@@ -836,24 +847,24 @@
         <div class="card">
           <div class="card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            Prompts & Language
+            <span data-i18n="an_prompts">Промпты и язык</span>
           </div>
           <div class="grid-2">
             <div class="field">
-              <label>Prompt Language</label>
+              <label data-i18n="an_prompt_lang">Язык промптов</label>
               <div class="chip-group">
-                <button class="chip active" data-field="cfgAnalyzeLang" data-value="auto">Auto</button>
-                <button class="chip" data-field="cfgAnalyzeLang" data-value="ru">Russian</button>
+                <button class="chip active" data-field="cfgAnalyzeLang" data-value="auto" data-i18n="chip_auto">Авто</button>
+                <button class="chip" data-field="cfgAnalyzeLang" data-value="ru">Русский</button>
                 <button class="chip" data-field="cfgAnalyzeLang" data-value="en">English</button>
               </div>
               <input type="hidden" id="cfgAnalyzeLang" value="auto">
             </div>
             <div class="field">
-              <label>Prompt Variant</label>
+              <label data-i18n="an_variant">Вариант промпта</label>
               <div class="chip-group">
-                <button class="chip active" data-field="cfgAnalyzeVariant" data-value="default">Default</button>
-                <button class="chip" data-field="cfgAnalyzeVariant" data-value="a">Variant A</button>
-                <button class="chip" data-field="cfgAnalyzeVariant" data-value="b">Variant B</button>
+                <button class="chip active" data-field="cfgAnalyzeVariant" data-value="default" data-i18n="an_default">По умолчанию</button>
+                <button class="chip" data-field="cfgAnalyzeVariant" data-value="a">Вариант A</button>
+                <button class="chip" data-field="cfgAnalyzeVariant" data-value="b">Вариант B</button>
               </div>
               <input type="hidden" id="cfgAnalyzeVariant" value="default">
             </div>
@@ -864,36 +875,42 @@
       <!-- ========== CUT & EXPORT ========== -->
       <div class="tab-page" id="tab-cut">
         <div class="page-header">
-          <h2>Cut & Export</h2>
-          <p>Video processing, quality filters, and export formats</p>
+          <div class="page-header-text">
+            <h2 data-i18n="cut_title">Нарезка и экспорт</h2>
+            <p data-i18n="cut_desc">Обработка видео, фильтры качества и форматы экспорта</p>
+          </div>
+          <div class="lang-toggle">
+            <button class="lang-toggle-btn" data-lang="en">ENG</button>
+            <button class="lang-toggle-btn active" data-lang="ru">RUS</button>
+          </div>
         </div>
 
         <div class="grid-2">
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-              Encoding
+              <span data-i18n="cut_encoding">Кодирование</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Use NVENC (GPU encoding)</div>
-                  <div class="m3-switch-desc">Faster encoding via NVIDIA GPU</div>
+                  <div class="m3-switch-text" data-i18n="cut_nvenc">Использовать NVENC (GPU)</div>
+                  <div class="m3-switch-desc" data-i18n="cut_nvenc_desc">Быстрое кодирование через NVIDIA GPU</div>
                 </div>
                 <input type="checkbox" id="cfgCutNvenc" checked>
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
               </label>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Video Bitrate</label>
+              <label data-i18n="cut_vbitrate">Видео битрейт</label>
               <input type="text" id="cfgCutVBitrate" value="8M">
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Audio Bitrate</label>
+              <label data-i18n="cut_abitrate">Аудио битрейт</label>
               <input type="text" id="cfgCutABitrate" value="192k">
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Software Preset (libx264 fallback)</label>
+              <label data-i18n="cut_preset">Пресет (libx264 фоллбэк)</label>
               <select id="cfgCutPreset">
                 <option value="ultrafast">ultrafast</option>
                 <option value="superfast">superfast</option>
@@ -910,15 +927,15 @@
                 <input type="range" id="cfgCutNvencCq" min="15" max="30" step="1" value="21">
               </div>
               <div class="field">
-                <label>NVENC Preset</label>
+                <label data-i18n="cut_nvenc_preset">NVENC пресет</label>
                 <select id="cfgCutNvencPreset">
-                  <option value="p1">p1 (fastest)</option>
+                  <option value="p1">p1 (быстрее)</option>
                   <option value="p2">p2</option>
                   <option value="p3">p3</option>
                   <option value="p4">p4</option>
-                  <option value="p5" selected>p5 (balanced)</option>
+                  <option value="p5" selected>p5 (сбалансирован)</option>
                   <option value="p6">p6</option>
-                  <option value="p7">p7 (best)</option>
+                  <option value="p7">p7 (лучшее)</option>
                 </select>
               </div>
             </div>
@@ -927,22 +944,22 @@
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              Quality Filters
+              <span data-i18n="cut_filters">Фильтры качества</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Min Viral Score <span class="value" id="v-cfgCutMinScore">7</span></label>
+              <label><span data-i18n="cut_min_score">Мин. вирусная оценка</span> <span class="value" id="v-cfgCutMinScore">7</span></label>
               <input type="range" id="cfgCutMinScore" min="1" max="10" step="1" value="7">
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Min Duration (sec) <span class="value" id="v-cfgCutMinDur">15</span></label>
+              <label><span data-i18n="cut_min_dur">Мин. длительность (сек)</span> <span class="value" id="v-cfgCutMinDur">15</span></label>
               <input type="range" id="cfgCutMinDur" min="5" max="60" step="1" value="15">
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Max Duration (sec) <span class="value" id="v-cfgCutMaxDur">180</span></label>
+              <label><span data-i18n="cut_max_dur">Макс. длительность (сек)</span> <span class="value" id="v-cfgCutMaxDur">180</span></label>
               <input type="range" id="cfgCutMaxDur" min="30" max="600" step="10" value="180">
             </div>
             <div class="field">
-              <label>Min Face Ratio <span class="value" id="v-cfgCutFaceRatio">0.30</span></label>
+              <label><span data-i18n="cut_face_ratio">Мин. доля лица</span> <span class="value" id="v-cfgCutFaceRatio">0.30</span></label>
               <input type="range" id="cfgCutFaceRatio" min="0" max="1" step="0.05" value="0.3">
             </div>
           </div>
@@ -952,13 +969,13 @@
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
-              Crop & Face Detection
+              <span data-i18n="cut_crop">Кроп и детекция лица</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Vertical Crop</div>
-                  <div class="m3-switch-desc">Crop horizontal video to 9:16</div>
+                  <div class="m3-switch-text" data-i18n="cut_vertical">Вертикальный кроп</div>
+                  <div class="m3-switch-desc" data-i18n="cut_vertical_desc">Обрезка горизонтального видео до 9:16</div>
                 </div>
                 <input type="checkbox" id="cfgCutVertical" checked>
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
@@ -967,19 +984,19 @@
             <div class="field" style="margin-bottom: 16px;">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Smart Crop (Face Tracking)</div>
-                  <div class="m3-switch-desc">Follow speaker's face in the frame</div>
+                  <div class="m3-switch-text" data-i18n="cut_smart">Умный кроп (трекинг лица)</div>
+                  <div class="m3-switch-desc" data-i18n="cut_smart_desc">Следить за лицом спикера в кадре</div>
                 </div>
                 <input type="checkbox" id="cfgCutSmartCrop" checked>
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
               </label>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Face Samples <span class="value" id="v-cfgCutFaceSamples">9</span></label>
+              <label><span data-i18n="cut_face_samples">Сэмплы лица</span> <span class="value" id="v-cfgCutFaceSamples">9</span></label>
               <input type="range" id="cfgCutFaceSamples" min="1" max="20" step="1" value="9">
             </div>
             <div class="field">
-              <label>Face Min Size (px) <span class="value" id="v-cfgCutFaceMinSize">72</span></label>
+              <label><span data-i18n="cut_face_min">Мин. размер лица (px)</span> <span class="value" id="v-cfgCutFaceMinSize">72</span></label>
               <input type="range" id="cfgCutFaceMinSize" min="20" max="200" step="4" value="72">
             </div>
           </div>
@@ -987,13 +1004,13 @@
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Export Formats
+              <span data-i18n="cut_export">Форматы экспорта</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Export WebM</div>
-                  <div class="m3-switch-desc">Additional WebM format output</div>
+                  <div class="m3-switch-text" data-i18n="cut_webm">Экспорт WebM</div>
+                  <div class="m3-switch-desc" data-i18n="cut_webm_desc">Дополнительный формат WebM</div>
                 </div>
                 <input type="checkbox" id="cfgCutWebm">
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
@@ -1002,8 +1019,8 @@
             <div class="field" style="margin-bottom: 16px;">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Export GIF</div>
-                  <div class="m3-switch-desc">Animated GIF preview</div>
+                  <div class="m3-switch-text" data-i18n="cut_gif">Экспорт GIF</div>
+                  <div class="m3-switch-desc" data-i18n="cut_gif_desc">Анимированный GIF-превью</div>
                 </div>
                 <input type="checkbox" id="cfgCutGif">
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
@@ -1012,8 +1029,8 @@
             <div class="field">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Audio Only</div>
-                  <div class="m3-switch-desc">Export MP3 audio track</div>
+                  <div class="m3-switch-text" data-i18n="cut_audio_only">Только аудио</div>
+                  <div class="m3-switch-desc" data-i18n="cut_audio_only_desc">Экспорт MP3 аудиодорожки</div>
                 </div>
                 <input type="checkbox" id="cfgCutAudio">
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
@@ -1025,15 +1042,15 @@
         <div class="card">
           <div class="card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y2="21" x2="7" y2="1"/><line x1="17" y2="21" x2="17" y2="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/></svg>
-            Processing Queue
+            <span data-i18n="cut_processing">Параметры обработки</span>
           </div>
           <div class="grid-2">
             <div class="field">
-              <label>Parallel Threads <span class="value" id="v-cfgCutThreads">4</span></label>
+              <label><span data-i18n="cut_threads">Параллельные потоки</span> <span class="value" id="v-cfgCutThreads">4</span></label>
               <input type="range" id="cfgCutThreads" min="1" max="16" step="1" value="4">
             </div>
             <div class="field">
-              <label>Reel Padding (sec) <span class="value" id="v-cfgCutPadding">5</span></label>
+              <label><span data-i18n="cut_padding">Паддинг рилсов (сек)</span> <span class="value" id="v-cfgCutPadding">5</span></label>
               <input type="range" id="cfgCutPadding" min="0" max="15" step="1" value="5">
             </div>
           </div>
@@ -1043,36 +1060,42 @@
       <!-- ========== SUBTITLES ========== -->
       <div class="tab-page" id="tab-subtitles">
         <div class="page-header">
-          <h2>Subtitles</h2>
-          <p>Burn subtitles into reels with ASS styling</p>
+          <div class="page-header-text">
+            <h2 data-i18n="sub_title">Субтитры</h2>
+            <p data-i18n="sub_desc">Прошивка субтитров в рилсы с ASS-стилизацией</p>
+          </div>
+          <div class="lang-toggle">
+            <button class="lang-toggle-btn" data-lang="en">ENG</button>
+            <button class="lang-toggle-btn active" data-lang="ru">RUS</button>
+          </div>
         </div>
 
         <div class="grid-2">
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
-              Subtitle Settings
+              <span data-i18n="sub_settings">Настройки субтитров</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Burn Subtitles</div>
-                  <div class="m3-switch-desc">Render subtitles directly into video</div>
+                  <div class="m3-switch-text" data-i18n="sub_burn">Прошить субтитры</div>
+                  <div class="m3-switch-desc" data-i18n="sub_burn_desc">Рендерить субтитры прямо в видео</div>
                 </div>
                 <input type="checkbox" id="cfgSubsEnabled" checked>
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
               </label>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Font</label>
+              <label data-i18n="sub_font">Шрифт</label>
               <input type="text" id="cfgSubsFont" value="assets/fonts/bignoodletoooblique.ttf">
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>ASS Style File</label>
+              <label data-i18n="sub_ass">Файл ASS-стиля</label>
               <input type="text" id="cfgSubsAss" value="assets/subtitles/forge_subtitles.ass">
             </div>
             <div class="field">
-              <label>Font Size (px) <span class="value" id="v-cfgSubsFontSize">36</span></label>
+              <label><span data-i18n="sub_font_size">Размер шрифта (px)</span> <span class="value" id="v-cfgSubsFontSize">36</span></label>
               <input type="range" id="cfgSubsFontSize" min="16" max="120" step="1" value="36">
             </div>
           </div>
@@ -1080,13 +1103,13 @@
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
-              Layout & Animation
+              <span data-i18n="sub_layout">Раскладка и анимация</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Wrap Words</div>
-                  <div class="m3-switch-desc">Wrap long lines across multiple rows</div>
+                  <div class="m3-switch-text" data-i18n="sub_wrap">Перенос слов</div>
+                  <div class="m3-switch-desc" data-i18n="sub_wrap_desc">Переносить длинные строки на несколько рядов</div>
                 </div>
                 <input type="checkbox" id="cfgSubsWrap" checked>
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
@@ -1094,30 +1117,30 @@
             </div>
             <div class="grid-2" style="margin-bottom: 16px;">
               <div class="field">
-                <label>Max Lines <span class="value" id="v-cfgSubsMaxLines">2</span></label>
+                <label><span data-i18n="sub_max_lines">Макс. строк</span> <span class="value" id="v-cfgSubsMaxLines">2</span></label>
                 <input type="range" id="cfgSubsMaxLines" min="1" max="4" step="1" value="2">
               </div>
               <div class="field">
-                <label>Max Width Ratio <span class="value" id="v-cfgSubsMaxWidth">0.65</span></label>
+                <label><span data-i18n="sub_max_width">Макс. ширина (доля)</span> <span class="value" id="v-cfgSubsMaxWidth">0.65</span></label>
                 <input type="range" id="cfgSubsMaxWidth" min="0.3" max="1.0" step="0.05" value="0.65">
               </div>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Vertical Align</label>
+              <label data-i18n="sub_valign">Вертикальное выравнивание</label>
               <div class="chip-group">
-                <button class="chip" data-field="cfgSubsVAlign" data-value="top">Top</button>
-                <button class="chip" data-field="cfgSubsVAlign" data-value="center">Center</button>
-                <button class="chip active" data-field="cfgSubsVAlign" data-value="bottom">Bottom</button>
+                <button class="chip" data-field="cfgSubsVAlign" data-value="top" data-i18n="sub_top">Сверху</button>
+                <button class="chip" data-field="cfgSubsVAlign" data-value="center" data-i18n="sub_center">По центру</button>
+                <button class="chip active" data-field="cfgSubsVAlign" data-value="bottom" data-i18n="sub_bottom">Снизу</button>
               </div>
               <input type="hidden" id="cfgSubsVAlign" value="bottom">
             </div>
             <div class="grid-2">
               <div class="field">
-                <label>Fade In (sec) <span class="value" id="v-cfgSubsFadeIn">0.18</span></label>
+                <label><span data-i18n="sub_fade_in">Появление (сек)</span> <span class="value" id="v-cfgSubsFadeIn">0.18</span></label>
                 <input type="range" id="cfgSubsFadeIn" min="0" max="1.0" step="0.02" value="0.18">
               </div>
               <div class="field">
-                <label>Fade Out (sec) <span class="value" id="v-cfgSubsFadeOut">0.12</span></label>
+                <label><span data-i18n="sub_fade_out">Исчезновение (сек)</span> <span class="value" id="v-cfgSubsFadeOut">0.12</span></label>
                 <input type="range" id="cfgSubsFadeOut" min="0" max="1.0" step="0.02" value="0.12">
               </div>
             </div>
@@ -1128,22 +1151,28 @@
       <!-- ========== SETTINGS ========== -->
       <div class="tab-page" id="tab-settings">
         <div class="page-header">
-          <h2>Settings</h2>
-          <p>General configuration, paths, and system options</p>
+          <div class="page-header-text">
+            <h2 data-i18n="set_title">Настройки</h2>
+            <p data-i18n="set_desc">Общая конфигурация, пути и системные параметры</p>
+          </div>
+          <div class="lang-toggle">
+            <button class="lang-toggle-btn" data-lang="en">ENG</button>
+            <button class="lang-toggle-btn active" data-lang="ru">RUS</button>
+          </div>
         </div>
 
         <div class="grid-2">
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-              Paths
+              <span data-i18n="set_paths">Пути</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label>Input Directory</label>
+              <label data-i18n="set_input_dir">Директория ввода</label>
               <input type="text" id="cfgSettingsInputDir" value="input">
             </div>
             <div class="field">
-              <label>Output Directory</label>
+              <label data-i18n="set_output_dir">Директория вывода</label>
               <input type="text" id="cfgSettingsOutputDir" value="output">
             </div>
           </div>
@@ -1151,13 +1180,13 @@
           <div class="card">
             <div class="card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              Cache & Diarization
+              <span data-i18n="set_cache_diar">Кэш и диаризация</span>
             </div>
             <div class="field" style="margin-bottom: 16px;">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Cache Enabled</div>
-                  <div class="m3-switch-desc">Skip existing output files</div>
+                  <div class="m3-switch-text" data-i18n="set_cache">Кэш включён</div>
+                  <div class="m3-switch-desc" data-i18n="set_cache_desc">Пропускать существующие файлы вывода</div>
                 </div>
                 <input type="checkbox" id="cfgSettingsCache" checked>
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
@@ -1166,8 +1195,8 @@
             <div class="field" style="margin-bottom: 16px;">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Validate JSON</div>
-                  <div class="m3-switch-desc">Verify output JSON integrity</div>
+                  <div class="m3-switch-text" data-i18n="set_validate">Валидация JSON</div>
+                  <div class="m3-switch-desc" data-i18n="set_validate_desc">Проверять целостность JSON-вывода</div>
                 </div>
                 <input type="checkbox" id="cfgSettingsValidateJson" checked>
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
@@ -1176,15 +1205,15 @@
             <div class="field" style="margin-bottom: 16px;">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Diarization (Speaker ID)</div>
-                  <div class="m3-switch-desc">Identify speakers in the audio</div>
+                  <div class="m3-switch-text" data-i18n="set_diar">Диаризация (ID спикеров)</div>
+                  <div class="m3-switch-desc" data-i18n="set_diar_desc">Определять спикеров в аудио</div>
                 </div>
                 <input type="checkbox" id="cfgSettingsDiarization">
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
               </label>
             </div>
             <div class="field">
-              <label>Diarization Model</label>
+              <label data-i18n="set_diar_model">Модель диаризации</label>
               <input type="text" id="cfgSettingsDiarModel" value="pyannote/speaker-diarization">
             </div>
           </div>
@@ -1193,14 +1222,14 @@
         <div class="card">
           <div class="card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
-            CLI Options
+            <span data-i18n="set_cli">Параметры CLI</span>
           </div>
           <div class="grid-3">
             <div class="field">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Quiet Mode</div>
-                  <div class="m3-switch-desc">Suppress non-error output</div>
+                  <div class="m3-switch-text" data-i18n="set_quiet">Тихий режим</div>
+                  <div class="m3-switch-desc" data-i18n="set_quiet_desc">Подавлять вывод не ошибок</div>
                 </div>
                 <input type="checkbox" id="cfgSettingsQuiet">
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
@@ -1209,8 +1238,8 @@
             <div class="field">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Verbose Mode</div>
-                  <div class="m3-switch-desc">Show detailed logs</div>
+                  <div class="m3-switch-text" data-i18n="set_verbose">Подробный режим</div>
+                  <div class="m3-switch-desc" data-i18n="set_verbose_desc">Показывать подробные логи</div>
                 </div>
                 <input type="checkbox" id="cfgSettingsVerbose">
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
@@ -1219,8 +1248,8 @@
             <div class="field">
               <label class="m3-switch">
                 <div>
-                  <div class="m3-switch-text">Skip Existing</div>
-                  <div class="m3-switch-desc">Don't reprocess completed stages</div>
+                  <div class="m3-switch-text" data-i18n="set_skip">Пропускать завершённые</div>
+                  <div class="m3-switch-desc" data-i18n="set_skip_desc">Не перезапускать завершённые стадии</div>
                 </div>
                 <input type="checkbox" id="cfgSettingsSkipExisting" checked>
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
@@ -1232,7 +1261,7 @@
         <div class="card">
           <div class="card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-            Generated config.yaml Preview
+            <span data-i18n="set_preview">Предпросмотр config.yaml</span>
           </div>
           <div style="background: var(--md-sys-color-surface-container-highest); border-radius: 12px; padding: 16px; border: 1px solid var(--md-sys-color-outline-variant);">
             <textarea id="configPreview" style="font-family: var(--font-code); font-size: 11px; min-height: 200px; background: transparent; color: var(--md-sys-color-secondary); border: none; padding: 0; resize: vertical; width: 100%;" readonly></textarea>
@@ -1240,9 +1269,9 @@
           <div style="display: flex; gap: 8px; margin-top: 12px;">
             <button class="btn btn-filled" id="btnExportConfig">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Export config.yaml
+              <span data-i18n="set_export">Экспорт config.yaml</span>
             </button>
-            <button class="btn btn-tonal" id="btnResetConfig">Reset to Defaults</button>
+            <button class="btn btn-tonal" id="btnResetConfig" data-i18n="set_reset">Сбросить к умолчаниям</button>
           </div>
         </div>
       </div>
@@ -1250,23 +1279,29 @@
       <!-- ========== LOGS ========== -->
       <div class="tab-page" id="tab-logs">
         <div class="page-header">
-          <h2>Pipeline Logs</h2>
-          <p>Real-time output from pipeline stages</p>
+          <div class="page-header-text">
+            <h2 data-i18n="log_title">Логи пайплайна</h2>
+            <p data-i18n="log_desc">Вывод в реальном времени от стадий пайплайна</p>
+          </div>
+          <div class="lang-toggle">
+            <button class="lang-toggle-btn" data-lang="en">ENG</button>
+            <button class="lang-toggle-btn active" data-lang="ru">RUS</button>
+          </div>
         </div>
 
         <div class="card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
             <div class="card-title" style="margin: 0;">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-              Console Output
+              <span data-i18n="log_console">Консольный вывод</span>
             </div>
             <div class="btn-group">
-              <button class="btn btn-text" id="btnClearLogs">Clear</button>
-              <button class="btn btn-text" id="btnCopyLogs">Copy</button>
+              <button class="btn btn-text" id="btnClearLogs" data-i18n="log_clear">Очистить</button>
+              <button class="btn btn-text" id="btnCopyLogs" data-i18n="log_copy">Копировать</button>
             </div>
           </div>
           <div class="log-panel" id="logPanel">
-            <div class="log-line"><span class="ts">[--:--:--]</span> Waiting for pipeline to start...</div>
+            <div class="log-line"><span class="ts">[--:--:--]</span> <span data-i18n="log_waiting">Ожидание запуска пайплайна...</span></div>
           </div>
         </div>
       </div>
@@ -1275,7 +1310,7 @@
     <!-- BOTTOM BAR -->
     <footer class="bottom-bar">
       <div class="bottom-bar-left">
-        <span class="bottom-status" id="bottomStatus">Ready</span>
+        <span class="bottom-status" id="bottomStatus" data-i18n="bottom_ready">Готов</span>
       </div>
       <div class="bottom-bar-center">
         <div class="pipeline-overview" id="pipelineOverview">
@@ -1293,96 +1328,353 @@
   </div>
 
   <!-- FAB: Run Pipeline -->
-  <button class="fab" id="fabRun" data-tooltip="Run Pipeline">
+  <button class="fab" id="fabRun" data-tooltip-i18n="fab_run">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
   </button>
 
   <script>
     /* ===================================================================
        Podcast Reels Forge — Pipeline GUI
-       Material Design 3.0 • Dark Theme • Single-file application
+       Material Design 3.0 • Dark Theme • i18n (ru/en)
        =================================================================== */
 
-    const STORAGE_KEY = 'forge.pipeline_gui.v1';
-
-    // ---- Default configuration (mirrors config.yaml) ----
-    const DEFAULTS = {
-      // Transcription
-      transcribeModel: 'large-v3',
-      transcribeDevice: 'auto',
-      transcribeComputeType: 'auto',
-      transcribeLanguage: 'auto',
-      transcribeMode: 'fast',
-      transcribeBeam: 5,
-      transcribeBatch: 16,
-      transcribeBestOf: 1,
-      transcribeQBeam: 10,
-      transcribeCondition: false,
-      transcribeRepPenalty: 1.1,
-      transcribeNoRepeat: 3,
-      transcribePatience: 1.0,
-      transcribePrompt: '',
-      // Analysis
-      analyzeUrl: 'http://127.0.0.1:11440/completion',
-      analyzeAutoStart: true,
-      analyzeModelPath: '/opt/llamacpp/models/gemma4-26b.gguf',
-      analyzeScout: 'gemma4:26b',
-      analyzeCleanup: 'gemma4:26b',
-      analyzeJudge: 'gemma4:26b',
-      analyzeTemp: 0.2,
-      analyzeTimeout: 600,
-      analyzeChunk: 900,
-      analyzeMaxChars: 7000,
-      analyzeWatchdog: true,
-      analyzeFirstToken: 90,
-      analyzeStall: 120,
-      analyzeRetries: 4,
-      analyzeLang: 'auto',
-      analyzeVariant: 'default',
-      // Cut & Export
-      cutNvenc: true,
-      cutVBitrate: '8M',
-      cutABitrate: '192k',
-      cutPreset: 'fast',
-      cutNvencCq: 21,
-      cutNvencPreset: 'p5',
-      cutMinScore: 7,
-      cutMinDur: 15,
-      cutMaxDur: 180,
-      cutFaceRatio: 0.3,
-      cutVertical: true,
-      cutSmartCrop: true,
-      cutFaceSamples: 9,
-      cutFaceMinSize: 72,
-      cutWebm: false,
-      cutGif: false,
-      cutAudio: false,
-      cutThreads: 4,
-      cutPadding: 5,
-      // Subtitles
-      subsEnabled: true,
-      subsFont: 'assets/fonts/bignoodletoooblique.ttf',
-      subsAss: 'assets/subtitles/forge_subtitles.ass',
-      subsFontSize: 36,
-      subsWrap: true,
-      subsMaxLines: 2,
-      subsMaxWidth: 0.65,
-      subsVAlign: 'bottom',
-      subsFadeIn: 0.18,
-      subsFadeOut: 0.12,
-      // Settings
-      settingsInputDir: 'input',
-      settingsOutputDir: 'output',
-      settingsCache: true,
-      settingsValidateJson: true,
-      settingsDiarization: false,
-      settingsDiarModel: 'pyannote/speaker-diarization',
-      settingsQuiet: false,
-      settingsVerbose: false,
-      settingsSkipExisting: true,
+    // =====================================================================
+    //  INTERNATIONALIZATION (i18n)
+    // =====================================================================
+    const I18N = {
+      ru: {
+        // Nav
+        nav_home: 'Главная', nav_transcribe: 'Транскрибация', nav_analyze: 'Анализ',
+        nav_cut: 'Нарезка', nav_subtitles: 'Субтитры', nav_settings: 'Настройки', nav_logs: 'Логи',
+        // Dashboard
+        dash_title: 'Панель управления', dash_desc: 'Управление очередью пайплайна и мониторинг прогресса',
+        dash_pipeline_status: 'Статус пайплайна',
+        stage_transcribe: 'Транскрибация', stage_diarize: 'Диаризация', stage_analyze: 'Анализ LLM',
+        stage_cut: 'Нарезка', stage_subtitles: 'Субтитры',
+        stat_queue: 'В очереди', stat_reels: 'Рилсов создано', stat_duration: 'Общая длительность', stat_gpu: 'GPU VRAM',
+        dash_add_queue: 'Добавить в очередь',
+        dash_drop: 'Перетащите видео/аудио файлы сюда или нажмите для выбора',
+        dash_formats: 'Поддерживаются: MP4, MKV, MOV, AVI, MP3',
+        dash_run: 'Запустить пайплайн', dash_autotune: 'Автоподбор', dash_style_editor: 'Редактор стилей',
+        dash_queue: 'Очередь обработки',
+        dash_empty_title: 'Очередь пуста', dash_empty_desc: 'Загрузите видеофайлы для начала обработки',
+        // Transcribe
+        trans_title: 'Транскрибация', trans_desc: 'Настройка модели Whisper и параметров транскрибации',
+        trans_model_device: 'Модель и устройство', trans_whisper_model: 'Модель Whisper',
+        trans_device: 'Устройство', trans_compute_type: 'Тип вычислений', trans_language: 'Язык',
+        trans_mode_quality: 'Режим и качество', trans_mode: 'Режим транскрибации',
+        trans_fast: 'Быстрый (пакетный)', trans_quality: 'Качественный (последовательный)',
+        trans_beam: 'Размер луча', trans_batch: 'Размер пакета (GPU)',
+        trans_best_of: 'Лучший из', trans_qbeam: 'Лучший луч для качества',
+        trans_antihall: 'Анти-галлюцинации и домен',
+        trans_condition_text: 'Условие по предыдущему тексту',
+        trans_condition_desc: 'Предотвращает петли галлюцинаций на тишине',
+        trans_rep_penalty: 'Штраф за повтор', trans_no_repeat: 'Размер n-граммы без повтора',
+        trans_patience: 'Терпение',
+        trans_prompt: 'Начальный промпт (контекст домена)',
+        trans_prompt_ph: 'Подсказка для лексики. Пример: Подкаст о технологиях и стартапах.',
+        opt_auto_detect: 'Автоопределение',
+        // Analyze
+        an_title: 'Анализ', an_desc: 'LLM-поиск вирусных моментов и оценка',
+        an_service: 'LLM-сервис', an_url: 'URL сервиса',
+        an_autostart: 'Авто-запуск llama-server',
+        an_autostart_desc: 'Запустить локальный сервер если не запущен',
+        an_model_path: 'Путь к модели',
+        an_roles: 'Роли моделей',
+        an_scout: 'Разведчик (быстрый поиск)', an_cleanup: 'Очистка / Уточнение',
+        an_judge: 'Судья / Метаданные',
+        an_params: 'Параметры инференса', an_temp: 'Температура',
+        an_timeout: 'Таймаут (сек)', an_chunk: 'Длительность чанка (сек)',
+        an_max_chars: 'Макс. символов на чанк',
+        an_watchdog: 'Watchdog и фоллбэк',
+        an_wd_enabled: 'Watchdog включён', an_wd_desc: 'Обнаружение зависаний и перезапуск',
+        an_wd_first: 'Таймаут первого токена', an_wd_stall: 'Таймаут зависания',
+        an_wd_retries: 'Макс. попыток',
+        an_prompts: 'Промпты и язык', an_prompt_lang: 'Язык промптов',
+        an_variant: 'Вариант промпта', an_default: 'По умолчанию',
+        // Cut
+        cut_title: 'Нарезка и экспорт', cut_desc: 'Обработка видео, фильтры качества и форматы экспорта',
+        cut_encoding: 'Кодирование',
+        cut_nvenc: 'Использовать NVENC (GPU)',
+        cut_nvenc_desc: 'Быстрое кодирование через NVIDIA GPU',
+        cut_vbitrate: 'Видео битрейт', cut_abitrate: 'Аудио битрейт',
+        cut_preset: 'Пресет (libx264 фоллбэк)', cut_nvenc_preset: 'NVENC пресет',
+        cut_filters: 'Фильтры качества',
+        cut_min_score: 'Мин. вирусная оценка', cut_min_dur: 'Мин. длительность (сек)',
+        cut_max_dur: 'Макс. длительность (сек)', cut_face_ratio: 'Мин. доля лица',
+        cut_crop: 'Кроп и детекция лица',
+        cut_vertical: 'Вертикальный кроп',
+        cut_vertical_desc: 'Обрезка горизонтального видео до 9:16',
+        cut_smart: 'Умный кроп (трекинг лица)',
+        cut_smart_desc: 'Следить за лицом спикера в кадре',
+        cut_face_samples: 'Сэмплы лица', cut_face_min: 'Мин. размер лица (px)',
+        cut_export: 'Форматы экспорта',
+        cut_webm: 'Экспорт WebM', cut_webm_desc: 'Дополнительный формат WebM',
+        cut_gif: 'Экспорт GIF', cut_gif_desc: 'Анимированный GIF-превью',
+        cut_audio_only: 'Только аудио', cut_audio_only_desc: 'Экспорт MP3 аудиодорожки',
+        cut_processing: 'Параметры обработки',
+        cut_threads: 'Параллельные потоки', cut_padding: 'Паддинг рилсов (сек)',
+        // Subtitles
+        sub_title: 'Субтитры', sub_desc: 'Прошивка субтитров в рилсы с ASS-стилизацией',
+        sub_settings: 'Настройки субтитров',
+        sub_burn: 'Прошить субтитры', sub_burn_desc: 'Рендерить субтитры прямо в видео',
+        sub_font: 'Шрифт', sub_ass: 'Файл ASS-стиля',
+        sub_font_size: 'Размер шрифта (px)',
+        sub_layout: 'Раскладка и анимация',
+        sub_wrap: 'Перенос слов', sub_wrap_desc: 'Переносить длинные строки на несколько рядов',
+        sub_max_lines: 'Макс. строк', sub_max_width: 'Макс. ширина (доля)',
+        sub_valign: 'Вертикальное выравнивание',
+        sub_top: 'Сверху', sub_center: 'По центру', sub_bottom: 'Снизу',
+        sub_fade_in: 'Появление (сек)', sub_fade_out: 'Исчезновение (сек)',
+        // Settings
+        set_title: 'Настройки', set_desc: 'Общая конфигурация, пути и системные параметры',
+        set_paths: 'Пути', set_input_dir: 'Директория ввода', set_output_dir: 'Директория вывода',
+        set_cache_diar: 'Кэш и диаризация',
+        set_cache: 'Кэш включён', set_cache_desc: 'Пропускать существующие файлы вывода',
+        set_validate: 'Валидация JSON', set_validate_desc: 'Проверять целостность JSON-вывода',
+        set_diar: 'Диаризация (ID спикеров)', set_diar_desc: 'Определять спикеров в аудио',
+        set_diar_model: 'Модель диаризации',
+        set_cli: 'Параметры CLI',
+        set_quiet: 'Тихий режим', set_quiet_desc: 'Подавлять вывод не ошибок',
+        set_verbose: 'Подробный режим', set_verbose_desc: 'Показывать подробные логи',
+        set_skip: 'Пропускать завершённые', set_skip_desc: 'Не перезапускать завершённые стадии',
+        set_preview: 'Предпросмотр config.yaml',
+        set_export: 'Экспорт config.yaml', set_reset: 'Сбросить к умолчаниям',
+        // Logs
+        log_title: 'Логи пайплайна', log_desc: 'Вывод в реальном времени от стадий пайплайна',
+        log_console: 'Консольный вывод', log_clear: 'Очистить', log_copy: 'Копировать',
+        log_waiting: 'Ожидание запуска пайплайна...',
+        // Chips
+        chip_auto: 'Авто',
+        // Bottom
+        bottom_ready: 'Готов', bottom_running: 'Пайплайн работает...',
+        bottom_complete: 'Пайплайн завершён', bottom_error: 'Произошла ошибка',
+        // Log messages
+        log_loaded: 'GUI пайплайна загружен',
+        log_config_loaded: 'Конфигурация загружена из localStorage',
+        log_queue_empty: 'Очередь пуста. Сначала добавьте видеофайлы.',
+        log_no_files: 'Нет файлов в очереди. Сначала добавьте видеофайлы.',
+        log_logs_cleared: 'Логи очищены',
+        log_logs_copied: 'Логи скопированы в буфер обмена',
+        log_config_exported: 'config.yaml экспортирован',
+        log_config_reset: 'Конфигурация сброшена к умолчаниям',
+        log_autotune_start: '[autotune] обнаружение конфигурации системы...',
+        log_autotune_gpu: '[autotune] GPU:',
+        log_autotune_nowebgpu: '[autotune] WebGPU адаптер недоступен',
+        log_autotune_cpu: '[autotune] CPU ядра:',
+        log_autotune_done: '[autotune] готово',
+        log_forge_processing: '[forge] обработка:',
+        log_stage_start: 'старт',
+        log_stage_done: 'готово',
+        log_stage_error: 'ошибка: имитация сбоя',
+        log_forge_done: '[forge] готово:',
+        log_forge_all_done: '[forge] все файлы обработаны',
+        log_error_occurred: 'Произошла ошибка',
+        log_pipeline_complete: 'Пайплайн завершён',
+        // FAB tooltip
+        fab_run: 'Запустить пайплайн',
+      },
+      en: {
+        nav_home: 'Home', nav_transcribe: 'Transcribe', nav_analyze: 'Analyze',
+        nav_cut: 'Cut', nav_subtitles: 'Subtitles', nav_settings: 'Settings', nav_logs: 'Logs',
+        dash_title: 'Dashboard', dash_desc: 'Manage your pipeline queue and monitor progress',
+        dash_pipeline_status: 'Pipeline Status',
+        stage_transcribe: 'Transcribe', stage_diarize: 'Diarize', stage_analyze: 'LLM Analyze',
+        stage_cut: 'Cut & Export', stage_subtitles: 'Subtitles',
+        stat_queue: 'In Queue', stat_reels: 'Reels Created', stat_duration: 'Total Duration', stat_gpu: 'GPU VRAM',
+        dash_add_queue: 'Add to Queue',
+        dash_drop: 'Drop video/audio files here or click to browse',
+        dash_formats: 'Supports MP4, MKV, MOV, AVI, MP3',
+        dash_run: 'Run Full Pipeline', dash_autotune: 'Autotune', dash_style_editor: 'Style Editor',
+        dash_queue: 'Processing Queue',
+        dash_empty_title: 'Queue is empty', dash_empty_desc: 'Upload video files to start processing',
+        trans_title: 'Transcription', trans_desc: 'Configure Whisper model and transcription parameters',
+        trans_model_device: 'Model & Device', trans_whisper_model: 'Whisper Model',
+        trans_device: 'Device', trans_compute_type: 'Compute Type', trans_language: 'Language',
+        trans_mode_quality: 'Mode & Quality', trans_mode: 'Transcription Mode',
+        trans_fast: 'Fast (batched)', trans_quality: 'Quality (sequential)',
+        trans_beam: 'Beam Size', trans_batch: 'Batch Size (GPU)',
+        trans_best_of: 'Best Of', trans_qbeam: 'Quality Beam Size',
+        trans_antihall: 'Anti-Hallucination & Domain',
+        trans_condition_text: 'Condition on Previous Text',
+        trans_condition_desc: 'Prevents hallucination loops on silence',
+        trans_rep_penalty: 'Repetition Penalty', trans_no_repeat: 'No-Repeat N-gram Size',
+        trans_patience: 'Patience',
+        trans_prompt: 'Initial Prompt (domain context)',
+        trans_prompt_ph: 'Optional domain hint to bias vocabulary. Example: Podcast about technology and startups.',
+        opt_auto_detect: 'Auto-detect',
+        an_title: 'Analysis', an_desc: 'LLM-based viral moment detection and scoring',
+        an_service: 'LLM Service', an_url: 'Service URL',
+        an_autostart: 'Auto-start llama-server',
+        an_autostart_desc: 'Start local server automatically if not running',
+        an_model_path: 'Model Path',
+        an_roles: 'Model Roles',
+        an_scout: 'Scout (fast scan)', an_cleanup: 'Cleanup / Refine',
+        an_judge: 'Judge / Metadata',
+        an_params: 'Inference Parameters', an_temp: 'Temperature',
+        an_timeout: 'Timeout (sec)', an_chunk: 'Chunk Seconds',
+        an_max_chars: 'Max Chars per Chunk',
+        an_watchdog: 'Watchdog & Fallback',
+        an_wd_enabled: 'Watchdog enabled', an_wd_desc: 'Detect stalling and restart inference',
+        an_wd_first: 'First Token Timeout', an_wd_stall: 'Stall Timeout',
+        an_wd_retries: 'Max Retries',
+        an_prompts: 'Prompts & Language', an_prompt_lang: 'Prompt Language',
+        an_variant: 'Prompt Variant', an_default: 'Default',
+        cut_title: 'Cut & Export', cut_desc: 'Video processing, quality filters, and export formats',
+        cut_encoding: 'Encoding',
+        cut_nvenc: 'Use NVENC (GPU encoding)',
+        cut_nvenc_desc: 'Faster encoding via NVIDIA GPU',
+        cut_vbitrate: 'Video Bitrate', cut_abitrate: 'Audio Bitrate',
+        cut_preset: 'Software Preset (libx264 fallback)', cut_nvenc_preset: 'NVENC Preset',
+        cut_filters: 'Quality Filters',
+        cut_min_score: 'Min Viral Score', cut_min_dur: 'Min Duration (sec)',
+        cut_max_dur: 'Max Duration (sec)', cut_face_ratio: 'Min Face Ratio',
+        cut_crop: 'Crop & Face Detection',
+        cut_vertical: 'Vertical Crop',
+        cut_vertical_desc: 'Crop horizontal video to 9:16',
+        cut_smart: 'Smart Crop (Face Tracking)',
+        cut_smart_desc: 'Follow speaker\'s face in the frame',
+        cut_face_samples: 'Face Samples', cut_face_min: 'Face Min Size (px)',
+        cut_export: 'Export Formats',
+        cut_webm: 'Export WebM', cut_webm_desc: 'Additional WebM format output',
+        cut_gif: 'Export GIF', cut_gif_desc: 'Animated GIF preview',
+        cut_audio_only: 'Audio Only', cut_audio_only_desc: 'Export MP3 audio track',
+        cut_processing: 'Processing Queue',
+        cut_threads: 'Parallel Threads', cut_padding: 'Reel Padding (sec)',
+        sub_title: 'Subtitles', sub_desc: 'Burn subtitles into reels with ASS styling',
+        sub_settings: 'Subtitle Settings',
+        sub_burn: 'Burn Subtitles', sub_burn_desc: 'Render subtitles directly into video',
+        sub_font: 'Font', sub_ass: 'ASS Style File',
+        sub_font_size: 'Font Size (px)',
+        sub_layout: 'Layout & Animation',
+        sub_wrap: 'Wrap Words', sub_wrap_desc: 'Wrap long lines across multiple rows',
+        sub_max_lines: 'Max Lines', sub_max_width: 'Max Width Ratio',
+        sub_valign: 'Vertical Align',
+        sub_top: 'Top', sub_center: 'Center', sub_bottom: 'Bottom',
+        sub_fade_in: 'Fade In (sec)', sub_fade_out: 'Fade Out (sec)',
+        set_title: 'Settings', set_desc: 'General configuration, paths, and system options',
+        set_paths: 'Paths', set_input_dir: 'Input Directory', set_output_dir: 'Output Directory',
+        set_cache_diar: 'Cache & Diarization',
+        set_cache: 'Cache Enabled', set_cache_desc: 'Skip existing output files',
+        set_validate: 'Validate JSON', set_validate_desc: 'Verify output JSON integrity',
+        set_diar: 'Diarization (Speaker ID)', set_diar_desc: 'Identify speakers in the audio',
+        set_diar_model: 'Diarization Model',
+        set_cli: 'CLI Options',
+        set_quiet: 'Quiet Mode', set_quiet_desc: 'Suppress non-error output',
+        set_verbose: 'Verbose Mode', set_verbose_desc: 'Show detailed logs',
+        set_skip: 'Skip Existing', set_skip_desc: 'Don\'t reprocess completed stages',
+        set_preview: 'Generated config.yaml Preview',
+        set_export: 'Export config.yaml', set_reset: 'Reset to Defaults',
+        log_title: 'Pipeline Logs', log_desc: 'Real-time output from pipeline stages',
+        log_console: 'Console Output', log_clear: 'Clear', log_copy: 'Copy',
+        log_waiting: 'Waiting for pipeline to start...',
+        chip_auto: 'Auto',
+        bottom_ready: 'Ready', bottom_running: 'Pipeline running...',
+        bottom_complete: 'Pipeline complete', bottom_error: 'Error occurred',
+        log_loaded: 'Pipeline GUI loaded',
+        log_config_loaded: 'Config loaded from localStorage',
+        log_queue_empty: 'Queue is empty. Add video files first.',
+        log_no_files: 'No files in queue. Add video files first.',
+        log_logs_cleared: 'Logs cleared',
+        log_logs_copied: 'Logs copied to clipboard',
+        log_config_exported: 'config.yaml exported',
+        log_config_reset: 'Configuration reset to defaults',
+        log_autotune_start: '[autotune] detecting system configuration...',
+        log_autotune_gpu: '[autotune] GPU:',
+        log_autotune_nowebgpu: '[autotune] No WebGPU adapter (running in worker?)',
+        log_autotune_cpu: '[autotune] CPU cores:',
+        log_autotune_done: '[autotune] done',
+        log_forge_processing: '[forge] processing:',
+        log_stage_start: 'start',
+        log_stage_done: 'done',
+        log_stage_error: 'error: simulated failure',
+        log_forge_done: '[forge] done:',
+        log_forge_all_done: '[forge] all files processed',
+        log_error_occurred: 'Error occurred',
+        log_pipeline_complete: 'Pipeline complete',
+        fab_run: 'Run Pipeline',
+      }
     };
 
-    // ---- State ----
+    let currentLang = localStorage.getItem('forge.lang') || 'ru';
+
+    function t(key) {
+      return (I18N[currentLang] && I18N[currentLang][key]) || (I18N.ru[key]) || key;
+    }
+
+    function applyLang(lang) {
+      currentLang = lang;
+      localStorage.setItem('forge.lang', lang);
+      document.documentElement.lang = lang;
+
+      // Update all data-i18n elements
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        el.textContent = t(el.dataset.i18n);
+      });
+
+      // Update placeholders
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        el.placeholder = t(el.dataset.i18nPlaceholder);
+      });
+
+      // Update tooltips
+      document.querySelectorAll('[data-tooltip-i18n]').forEach(el => {
+        el.dataset.tooltip = t(el.dataset.tooltipI18n);
+      });
+
+      // Update lang toggle buttons
+      document.querySelectorAll('.lang-toggle-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.lang === lang);
+      });
+
+      // Update <title>
+      document.title = lang === 'ru'
+        ? 'Podcast Reels Forge — GUI пайплайна'
+        : 'Podcast Reels Forge — Pipeline GUI';
+
+      // Re-render dynamic elements
+      renderQueue();
+      updateBottomStatus();
+    }
+
+    // Language toggle click handlers
+    document.addEventListener('click', e => {
+      const btn = e.target.closest('.lang-toggle-btn');
+      if (btn) applyLang(btn.dataset.lang);
+    });
+
+    // =====================================================================
+    //  CONFIGURATION STATE
+    // =====================================================================
+    const STORAGE_KEY = 'forge.pipeline_gui.v1';
+
+    const DEFAULTS = {
+      transcribeModel: 'large-v3', transcribeDevice: 'auto', transcribeComputeType: 'auto',
+      transcribeLanguage: 'auto', transcribeMode: 'fast', transcribeBeam: 5,
+      transcribeBatch: 16, transcribeBestOf: 1, transcribeQBeam: 10,
+      transcribeCondition: false, transcribeRepPenalty: 1.1, transcribeNoRepeat: 3,
+      transcribePatience: 1.0, transcribePrompt: '',
+      analyzeUrl: 'http://127.0.0.1:11440/completion', analyzeAutoStart: true,
+      analyzeModelPath: '/opt/llamacpp/models/gemma4-26b.gguf',
+      analyzeScout: 'gemma4:26b', analyzeCleanup: 'gemma4:26b', analyzeJudge: 'gemma4:26b',
+      analyzeTemp: 0.2, analyzeTimeout: 600, analyzeChunk: 900, analyzeMaxChars: 7000,
+      analyzeWatchdog: true, analyzeFirstToken: 90, analyzeStall: 120, analyzeRetries: 4,
+      analyzeLang: 'auto', analyzeVariant: 'default',
+      cutNvenc: true, cutVBitrate: '8M', cutABitrate: '192k', cutPreset: 'fast',
+      cutNvencCq: 21, cutNvencPreset: 'p5', cutMinScore: 7, cutMinDur: 15,
+      cutMaxDur: 180, cutFaceRatio: 0.3, cutVertical: true, cutSmartCrop: true,
+      cutFaceSamples: 9, cutFaceMinSize: 72, cutWebm: false, cutGif: false,
+      cutAudio: false, cutThreads: 4, cutPadding: 5,
+      subsEnabled: true, subsFont: 'assets/fonts/bignoodletoooblique.ttf',
+      subsAss: 'assets/subtitles/forge_subtitles.ass', subsFontSize: 36,
+      subsWrap: true, subsMaxLines: 2, subsMaxWidth: 0.65, subsVAlign: 'bottom',
+      subsFadeIn: 0.18, subsFadeOut: 0.12,
+      settingsInputDir: 'input', settingsOutputDir: 'output',
+      settingsCache: true, settingsValidateJson: true, settingsDiarization: false,
+      settingsDiarModel: 'pyannote/speaker-diarization',
+      settingsQuiet: false, settingsVerbose: false, settingsSkipExisting: true,
+    };
+
     const state = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') };
     let queue = [];
     let pipelineRunning = false;
@@ -1392,11 +1684,10 @@
     // ---- Navigation ----
     document.querySelectorAll('.nav-rail-item').forEach(btn => {
       btn.addEventListener('click', () => {
-        const tab = btn.dataset.tab;
         document.querySelectorAll('.nav-rail-item').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
-        document.getElementById('tab-' + tab).classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
         document.getElementById('mainContent').scrollTop = 0;
       });
     });
@@ -1405,11 +1696,10 @@
     document.querySelectorAll('.chip[data-field]').forEach(chip => {
       chip.addEventListener('click', () => {
         const field = chip.dataset.field;
-        const value = chip.dataset.value;
         document.querySelectorAll(`.chip[data-field="${field}"]`).forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
-        document.getElementById(field).value = value;
-        state[field.replace('cfg', '')] = value;
+        document.getElementById(field).value = chip.dataset.value;
+        state[field.replace('cfg', '')] = chip.dataset.value;
         saveState();
       });
     });
@@ -1422,8 +1712,6 @@
         if (el.type === 'checkbox') el.checked = state[key];
         else if (el.type === 'range') { el.value = state[key]; updateSliderValue(el); }
         else el.value = state[key];
-
-        // Sync chip groups
         document.querySelectorAll(`.chip[data-field="cfg${key.charAt(0).toUpperCase() + key.slice(1)}"]`).forEach(c => {
           c.classList.toggle('active', c.dataset.value === String(state[key]));
         });
@@ -1436,11 +1724,9 @@
       if (valEl) valEl.textContent = el.value;
     }
 
-    // Bind all inputs
     document.querySelectorAll('input[type="range"]').forEach(el => {
       el.addEventListener('input', () => {
-        const key = el.id.replace('cfg', '');
-        state[key.charAt(0).toLowerCase() + key.slice(1)] = parseFloat(el.value);
+        state[el.id.replace('cfg', '').replace(/^./, c => c.toLowerCase())] = parseFloat(el.value);
         updateSliderValue(el);
         saveState();
         updateConfigPreview();
@@ -1450,8 +1736,7 @@
     document.querySelectorAll('input[type="text"], input[type="number"], textarea, select').forEach(el => {
       if (el.id && el.id.startsWith('cfg')) {
         el.addEventListener('input', () => {
-          const key = el.id.replace('cfg', '');
-          state[key.charAt(0).toLowerCase() + key.slice(1)] = el.value;
+          state[el.id.replace('cfg', '').replace(/^./, c => c.toLowerCase())] = el.value;
           saveState();
           updateConfigPreview();
         });
@@ -1461,45 +1746,28 @@
     document.querySelectorAll('input[type="checkbox"]').forEach(el => {
       if (el.id && el.id.startsWith('cfg')) {
         el.addEventListener('change', () => {
-          const key = el.id.replace('cfg', '');
-          state[key.charAt(0).toLowerCase() + key.slice(1)] = el.checked;
+          state[el.id.replace('cfg', '').replace(/^./, c => c.toLowerCase())] = el.checked;
           saveState();
           updateConfigPreview();
         });
       }
     });
 
-    function saveState() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    }
+    function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
 
     // ---- File drop zone ----
     const fileDrop = document.getElementById('fileDrop');
     const fileInput = document.getElementById('fileInput');
-
     fileDrop.addEventListener('dragover', e => { e.preventDefault(); fileDrop.classList.add('dragover'); });
     fileDrop.addEventListener('dragleave', () => fileDrop.classList.remove('dragover'));
-    fileDrop.addEventListener('drop', e => {
-      e.preventDefault();
-      fileDrop.classList.remove('dragover');
-      addFilesToQueue(e.dataTransfer.files);
-    });
-    fileInput.addEventListener('change', () => {
-      addFilesToQueue(fileInput.files);
-      fileInput.value = '';
-    });
+    fileDrop.addEventListener('drop', e => { e.preventDefault(); fileDrop.classList.remove('dragover'); addFilesToQueue(e.dataTransfer.files); });
+    fileInput.addEventListener('change', () => { addFilesToQueue(fileInput.files); fileInput.value = ''; });
 
     function addFilesToQueue(files) {
       for (const file of files) {
         const ext = file.name.split('.').pop().toLowerCase();
         if (['mp4','mkv','mov','avi','mp3','wav','flac','ogg'].includes(ext)) {
-          queue.push({
-            id: Date.now() + Math.random(),
-            name: file.name,
-            size: file.size,
-            status: 'pending',
-            file: file,
-          });
+          queue.push({ id: Date.now() + Math.random(), name: file.name, size: file.size, status: 'pending', file });
         }
       }
       renderQueue();
@@ -1515,46 +1783,24 @@
     function renderQueue() {
       const list = document.getElementById('queueList');
       const empty = document.getElementById('queueEmpty');
-
-      if (queue.length === 0) {
-        empty.style.display = 'block';
-        list.querySelectorAll('.queue-item').forEach(el => el.remove());
-        return;
-      }
-
+      if (queue.length === 0) { empty.style.display = 'block'; list.querySelectorAll('.queue-item').forEach(el => el.remove()); return; }
       empty.style.display = 'none';
-      // Remove old items
       list.querySelectorAll('.queue-item').forEach(el => el.remove());
-
+      const statusLabels = { pending: t('stat_queue').toUpperCase(), running: t('bottom_running').toUpperCase().slice(0,8), done: 'DONE', error: 'ERROR' };
       queue.forEach(item => {
         const el = document.createElement('div');
         el.className = 'queue-item';
         el.innerHTML = `
-          <div class="queue-item-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-          </div>
-          <div>
-            <div class="queue-item-name">${item.name}</div>
-            <div class="queue-item-meta">${formatSize(item.size)}</div>
-          </div>
-          <span class="queue-item-status status-${item.status}">${item.status.toUpperCase()}</span>
-          <button class="btn btn-text" onclick="removeFromQueue('${item.id}')" style="min-width:auto; padding: 0 8px;">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        `;
+          <div class="queue-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg></div>
+          <div><div class="queue-item-name">${item.name}</div><div class="queue-item-meta">${formatSize(item.size)}</div></div>
+          <span class="queue-item-status status-${item.status}">${statusLabels[item.status] || item.status.toUpperCase()}</span>
+          <button class="btn btn-text" onclick="removeFromQueue('${item.id}')" style="min-width:auto; padding:0 8px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`;
         list.appendChild(el);
       });
     }
 
-    window.removeFromQueue = function(id) {
-      queue = queue.filter(item => String(item.id) !== String(id));
-      renderQueue();
-      updateStats();
-    };
-
-    function updateStats() {
-      document.getElementById('statQueue').textContent = queue.length;
-    }
+    window.removeFromQueue = function(id) { queue = queue.filter(i => String(i.id) !== String(id)); renderQueue(); updateStats(); };
+    function updateStats() { document.getElementById('statQueue').textContent = queue.length; }
 
     // ---- Pipeline Visual ----
     function setPipelineStage(stage, status) {
@@ -1562,55 +1808,24 @@
       const overview = document.getElementById('pipelineOverview');
       const stages = ['transcribe', 'diarize', 'analyze', 'cut', 'subtitles'];
       const idx = stages.indexOf(stage);
-
       if (status === 'active') {
         currentStage = stage;
-        // Mark all before as done
         stages.forEach((s, i) => {
           const el = visual.querySelector(`[data-stage="${s}"]`);
           const conn = visual.querySelectorAll('.pipeline-connector')[i];
-          if (i < idx) {
-            el.className = 'pipeline-stage done';
-            if (conn) conn.className = 'pipeline-connector done';
-          } else if (i === idx) {
-            el.className = 'pipeline-stage active';
-            if (conn) conn.className = 'pipeline-connector active';
-          } else {
-            el.className = 'pipeline-stage';
-            if (conn) conn.className = 'pipeline-connector';
-          }
+          if (i < idx) { el.className = 'pipeline-stage done'; if (conn) conn.className = 'pipeline-connector done'; }
+          else if (i === idx) { el.className = 'pipeline-stage active'; if (conn) conn.className = 'pipeline-connector active'; }
+          else { el.className = 'pipeline-stage'; if (conn) conn.className = 'pipeline-connector'; }
         });
       } else if (status === 'done') {
-        stages.forEach((s, i) => {
-          if (i <= idx) {
-            const el = visual.querySelector(`[data-stage="${s}"]`);
-            el.className = 'pipeline-stage done';
-            const conn = visual.querySelectorAll('.pipeline-connector')[i];
-            if (conn) conn.className = 'pipeline-connector done';
-          }
-        });
+        stages.forEach((s, i) => { if (i <= idx) { visual.querySelector(`[data-stage="${s}"]`).className = 'pipeline-stage done'; const c = visual.querySelectorAll('.pipeline-connector')[i]; if (c) c.className = 'pipeline-connector done'; } });
       } else if (status === 'error') {
-        const el = visual.querySelector(`[data-stage="${stage}"]`);
-        el.className = 'pipeline-stage error';
+        visual.querySelector(`[data-stage="${stage}"]`).className = 'pipeline-stage error';
       }
-
-      // Overview dots
       overview.querySelectorAll('.pipeline-overview-dot').forEach(dot => {
-        const s = dot.dataset.stage;
-        const si = stages.indexOf(s);
-        if (si < idx) dot.className = 'pipeline-overview-dot done';
-        else if (si === idx && status === 'active') dot.className = 'pipeline-overview-dot active';
-        else if (si === idx && status === 'done') dot.className = 'pipeline-overview-dot done';
-        else if (si === idx && status === 'error') dot.className = 'pipeline-overview-dot error';
-        else dot.className = 'pipeline-overview-dot';
+        const si = stages.indexOf(dot.dataset.stage);
+        dot.className = 'pipeline-overview-dot' + (si < idx ? ' done' : si === idx ? ' ' + status : '');
       });
-    }
-
-    function resetPipelineVisual() {
-      document.querySelectorAll('.pipeline-stage').forEach(el => el.className = 'pipeline-stage');
-      document.querySelectorAll('.pipeline-connector').forEach(el => el.className = 'pipeline-connector');
-      document.querySelectorAll('.pipeline-overview-dot').forEach(el => el.className = 'pipeline-overview-dot');
-      currentStage = null;
     }
 
     // ---- Logging ----
@@ -1625,16 +1840,14 @@
       panel.scrollTop = panel.scrollHeight;
     }
 
-    document.getElementById('btnClearLogs').addEventListener('click', () => {
-      logLines = [];
-      document.getElementById('logPanel').innerHTML = '';
-      addLog('Logs cleared', 'info');
-    });
+    function updateBottomStatus() {
+      const el = document.getElementById('bottomStatus');
+      if (pipelineRunning) el.textContent = t('bottom_running');
+      else el.textContent = t('bottom_ready');
+    }
 
-    document.getElementById('btnCopyLogs').addEventListener('click', () => {
-      const text = logLines.map(l => `[${l.ts}] ${l.msg}`).join('\n');
-      navigator.clipboard.writeText(text).then(() => addLog('Logs copied to clipboard', 'info'));
-    });
+    document.getElementById('btnClearLogs').addEventListener('click', () => { logLines = []; document.getElementById('logPanel').innerHTML = ''; addLog(t('log_logs_cleared'), 'info'); });
+    document.getElementById('btnCopyLogs').addEventListener('click', () => { navigator.clipboard.writeText(logLines.map(l => `[${l.ts}] ${l.msg}`).join('\n')).then(() => addLog(t('log_logs_copied'), 'info')); });
 
     // ---- Config Export ----
     function generateConfig() {
@@ -1644,15 +1857,12 @@
 paths:
   input_dir: "${state.settingsInputDir}"
   output_dir: "${state.settingsOutputDir}"
-
 cli:
   quiet: ${state.settingsQuiet}
   verbose: ${state.settingsVerbose}
-
 cache:
   enabled: ${state.settingsCache}
   validate_json: ${state.settingsValidateJson}
-
 transcription:
   model: "${state.transcribeModel}"
   device: "${state.transcribeDevice}"
@@ -1668,7 +1878,6 @@ transcription:
   mode: "${state.transcribeMode}"
   quality_beam_size: ${state.transcribeQBeam}
   initial_prompt: "${state.transcribePrompt}"
-
 llama_cpp:
   url: "${state.analyzeUrl}"
   service:
@@ -1694,11 +1903,9 @@ llama_cpp:
     first_token_timeout: ${state.analyzeFirstToken}
     stall_timeout: ${state.analyzeStall}
     max_retries: ${state.analyzeRetries}
-
 prompts:
   language: "${state.analyzeLang}"
   variant: "${state.analyzeVariant}"
-
 processing:
   quality_filters:
     min_score: ${state.cutMinScore}
@@ -1706,12 +1913,10 @@ processing:
     max_duration: ${state.cutMaxDur}
     face_min_ratio: ${state.cutFaceRatio}
   reel_padding: ${state.cutPadding}
-
 exports:
   webm: ${state.cutWebm}
   gif: ${state.cutGif}
   audio_only: ${state.cutAudio}
-
 subtitles:
   enabled: ${state.subsEnabled}
   font: "${state.subsFont}"
@@ -1723,7 +1928,6 @@ subtitles:
   vertical_align: "${state.subsVAlign}"
   fade_in_duration: ${state.subsFadeIn}
   fade_out_duration: ${state.subsFadeOut}
-
 video:
   threads: ${state.cutThreads}
   vertical_crop: ${state.cutVertical}
@@ -1736,32 +1940,23 @@ video:
   nvenc_preset: "${state.cutNvencPreset}"
   face_samples: ${state.cutFaceSamples}
   face_min_size: ${state.cutFaceMinSize}
-
 diarization:
   enabled: ${state.settingsDiarization}
   model: "${state.settingsDiarModel}"
 `;
     }
 
-    function updateConfigPreview() {
-      const el = document.getElementById('configPreview');
-      if (el) el.value = generateConfig();
-    }
+    function updateConfigPreview() { const el = document.getElementById('configPreview'); if (el) el.value = generateConfig(); }
 
     document.getElementById('btnExportConfig').addEventListener('click', () => {
       const blob = new Blob([generateConfig()], { type: 'text/yaml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = 'config.yaml'; a.click();
-      URL.revokeObjectURL(url);
-      addLog('config.yaml exported', 'success');
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'config.yaml'; a.click();
+      addLog(t('log_config_exported'), 'success');
     });
 
     document.getElementById('btnResetConfig').addEventListener('click', () => {
-      Object.assign(state, DEFAULTS);
-      localStorage.removeItem(STORAGE_KEY);
-      syncFromState();
-      addLog('Configuration reset to defaults', 'info');
+      Object.assign(state, DEFAULTS); localStorage.removeItem(STORAGE_KEY); syncFromState();
+      addLog(t('log_config_reset'), 'info');
     });
 
     // ---- Simulated Pipeline ----
@@ -1770,89 +1965,62 @@ diarization:
 
     async function runPipeline() {
       if (pipelineRunning) return;
-      if (queue.length === 0) {
-        addLog('No files in queue. Add video files first.', 'warn');
-        return;
-      }
-
-      pipelineRunning = true;
-      btnRun.disabled = true;
-      fabRun.disabled = true;
-
+      if (queue.length === 0) { addLog(t('log_no_files'), 'warn'); return; }
+      pipelineRunning = true; btnRun.disabled = true; fabRun.disabled = true;
       const stages = ['transcribe', 'analyze', 'cut'];
       if (state.settingsDiarization) stages.splice(1, 0, 'diarize');
       if (state.subsEnabled) stages.push('subtitles');
-
-      document.getElementById('bottomStatus').textContent = 'Pipeline running...';
+      document.getElementById('bottomStatus').textContent = t('bottom_running');
 
       for (const item of queue) {
         if (item.status === 'done') continue;
-        item.status = 'running';
-        renderQueue();
-        addLog(`[forge] processing: ${item.name}`, 'info');
+        item.status = 'running'; renderQueue();
+        addLog(`${t('log_forge_processing')} ${item.name}`, 'info');
 
         for (const stage of stages) {
           setPipelineStage(stage, 'active');
-          addLog(`[${stage}] start`, 'info');
+          addLog(`[${stage}] ${t('log_stage_start')}`, 'info');
           document.getElementById('bottomStatus').textContent = `${stage}: ${item.name}`;
-
-          // Simulate work
           await new Promise(r => setTimeout(r, 800 + Math.random() * 1200));
-
-          // 10% chance of error for demo
           if (Math.random() < 0.1) {
             setPipelineStage(stage, 'error');
-            addLog(`[${stage}] error: simulated failure`, 'error');
-            item.status = 'error';
-            renderQueue();
-            pipelineRunning = false;
-            btnRun.disabled = false;
-            fabRun.disabled = false;
-            document.getElementById('bottomStatus').textContent = 'Error occurred';
+            addLog(`[${stage}] ${t('log_stage_error')}`, 'error');
+            item.status = 'error'; renderQueue();
+            pipelineRunning = false; btnRun.disabled = false; fabRun.disabled = false;
+            document.getElementById('bottomStatus').textContent = t('bottom_error');
             return;
           }
-
           setPipelineStage(stage, 'done');
-          addLog(`[${stage}] done`, 'success');
+          addLog(`[${stage}] ${t('log_stage_done')}`, 'success');
         }
-
-        item.status = 'done';
-        renderQueue();
-        addLog(`[forge] done: ${item.name}`, 'success');
+        item.status = 'done'; renderQueue();
+        addLog(`${t('log_forge_done')} ${item.name}`, 'success');
       }
-
-      pipelineRunning = false;
-      btnRun.disabled = false;
-      fabRun.disabled = false;
-      document.getElementById('bottomStatus').textContent = 'Pipeline complete';
+      pipelineRunning = false; btnRun.disabled = false; fabRun.disabled = false;
+      document.getElementById('bottomStatus').textContent = t('bottom_complete');
       document.getElementById('statReels').textContent = queue.filter(i => i.status === 'done').length;
-      addLog('[forge] all files processed', 'success');
+      addLog(t('log_forge_all_done'), 'success');
     }
 
     btnRun.addEventListener('click', runPipeline);
     fabRun.addEventListener('click', runPipeline);
 
     document.getElementById('btnAutotune').addEventListener('click', () => {
-      addLog('[autotune] detecting system configuration...', 'info');
-      // Detect GPU
+      addLog(t('log_autotune_start'), 'info');
       const gpuInfo = document.getElementById('gpuInfo');
       if (navigator.gpu) {
         navigator.gpu.requestAdapter().then(adapter => {
           gpuInfo.textContent = `GPU: ${adapter.name || 'detected'}`;
-          addLog(`[autotune] GPU: ${adapter.name || 'detected'}`, 'success');
-        }).catch(() => {
-          gpuInfo.textContent = 'GPU: not available';
-          addLog('[autotune] No WebGPU adapter (running in worker?)', 'warn');
-        });
+          addLog(`${t('log_autotune_gpu')} ${adapter.name || 'detected'}`, 'success');
+        }).catch(() => { gpuInfo.textContent = 'GPU: --'; addLog(t('log_autotune_nowebgpu'), 'warn'); });
       }
-      // Auto-set based on CPU cores
       const cores = navigator.hardwareConcurrency || 4;
       const threads = Math.max(1, Math.min(8, Math.floor(cores / 2)));
       document.getElementById('cfgCutThreads').value = threads;
       state.cutThreads = threads;
       updateSliderValue(document.getElementById('cfgCutThreads'));
-      addLog(`[autotune] CPU cores: ${cores}, video threads: ${threads}`, 'info');
-      addLog('[autotune] done', 'success');
+      addLog(`${t('log_autotune_cpu')} ${cores}, threads: ${threads}`, 'info');
+      addLog(t('log_autotune_done'), 'success');
       saveState();
     });
 
@@ -1861,10 +2029,11 @@ diarization:
     });
 
     // ---- Init ----
+    applyLang(currentLang);
     syncFromState();
     updateStats();
-    addLog('Pipeline GUI loaded', 'info');
-    addLog(`Config loaded from localStorage (${Object.keys(state).length} keys)`, 'info');
+    addLog(t('log_loaded'), 'info');
+    addLog(`${t('log_config_loaded')} (${Object.keys(state).length})`, 'info');
   </script>
 </body>
 </html>
