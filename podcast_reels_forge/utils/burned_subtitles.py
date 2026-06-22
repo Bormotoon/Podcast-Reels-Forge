@@ -17,19 +17,29 @@ LOG = logging.getLogger(__name__)
 
 DEFAULT_SUBTITLE_FONT = Path("assets/fonts/bignoodletoooblique.ttf")
 DEFAULT_SUBTITLE_CSS_TEMPLATE = Path("assets/subtitles/forge_subtitles.css")
-DEFAULT_FONT_SIZE_PX = 44
+DEFAULT_FONT_SIZE_PX = 36
 DEFAULT_MAX_LINES = 2
-DEFAULT_MAX_WIDTH_RATIO = 0.9
+DEFAULT_MAX_WIDTH_RATIO = 0.65
 DEFAULT_WRAP_WORDS = True
 DEFAULT_VERTICAL_ALIGN = "bottom"
 DEFAULT_VERTICAL_OFFSET = 0.0
 DEFAULT_WORD_X_SPACE = 6
 DEFAULT_WORD_Y_SPACE = 8
 DEFAULT_TEXT_OVERFLOW_STRATEGY = "exceed_width"
-DEFAULT_SEGMENT_CHARS_PER_LINE = 14
-DEFAULT_SEGMENT_MIN_CHARS = 8
 DEFAULT_AVOID_ENDING_WITH_SHORT_WORD_CHARS = 2
 _PYCAPS_TEMPLATE_DIRNAME = ".pycaps_template"
+
+# BBC/Netflix subtitle guidelines (https://www.bbc.co.uk/accessibility/forproducts/guides/subtitles):
+# - 25 chars/line for 9:16 vertical (equivalent to 37 chars in 75% 16:9)
+# - Max 2 lines (landscape) / 3 lines (vertical 9:16)
+# - 160-180 WPM → 0.33-0.375s per word
+# - Min 0.3s per word → 4 words = 1.2s minimum
+# - Min 1s gap between subtitles (preferably 1.5s)
+# - Max 1.5s anticipation or lag behind speech
+DEFAULT_CHARS_PER_LINE = 25
+DEFAULT_MIN_DURATION_S = 1.5
+DEFAULT_MAX_DURATION_S = 7.0
+DEFAULT_GAP_BETWEEN_SUBTITLES_S = 0.15
 
 
 @dataclass(frozen=True)
@@ -57,6 +67,10 @@ class SubtitleRenderSettings:
     wrap_words: bool = DEFAULT_WRAP_WORDS
     vertical_align: str = DEFAULT_VERTICAL_ALIGN
     vertical_offset: float = DEFAULT_VERTICAL_OFFSET
+    word_x_space: int = DEFAULT_WORD_X_SPACE
+    word_y_space: int = DEFAULT_WORD_Y_SPACE
+    fade_in_duration: float = 0.18
+    fade_out_duration: float = 0.12
 
 
 def subtitle_settings_from_conf(
@@ -113,6 +127,28 @@ def subtitle_settings_from_conf(
             subtitles_conf.get("vertical_offset"),
             default=DEFAULT_VERTICAL_OFFSET,
             minimum=-1.0,
+            maximum=1.0,
+        ),
+        word_x_space=_coerce_int(
+            subtitles_conf.get("word_x_space"),
+            default=DEFAULT_WORD_X_SPACE,
+            minimum=0,
+        ),
+        word_y_space=_coerce_int(
+            subtitles_conf.get("word_y_space"),
+            default=DEFAULT_WORD_Y_SPACE,
+            minimum=0,
+        ),
+        fade_in_duration=_coerce_float(
+            subtitles_conf.get("fade_in_duration"),
+            default=0.18,
+            minimum=0.01,
+            maximum=1.0,
+        ),
+        fade_out_duration=_coerce_float(
+            subtitles_conf.get("fade_out_duration"),
+            default=0.12,
+            minimum=0.01,
             maximum=1.0,
         ),
     )
@@ -372,8 +408,8 @@ def _build_template_config(settings: SubtitleRenderSettings) -> dict[str, Any]:
         "css": "styles.css",
         "resources": "resources",
         "layout": {
-            "x_words_space": DEFAULT_WORD_X_SPACE,
-            "y_words_space": DEFAULT_WORD_Y_SPACE,
+            "x_words_space": settings.word_x_space,
+            "y_words_space": settings.word_y_space,
             "max_width_ratio": settings.max_width_ratio,
             "max_number_of_lines": max_number_of_lines,
             "min_number_of_lines": 1,
@@ -388,13 +424,13 @@ def _build_template_config(settings: SubtitleRenderSettings) -> dict[str, Any]:
                 "type": "fade_in",
                 "when": "narration-starts",
                 "what": "segment",
-                "duration": 0.18,
+                "duration": settings.fade_in_duration,
             },
             {
                 "type": "fade_out",
                 "when": "narration-ends",
                 "what": "segment",
-                "duration": 0.12,
+                "duration": settings.fade_out_duration,
             },
         ],
     }
@@ -520,60 +556,306 @@ def _prepare_subtitle_segments(
     *,
     settings: SubtitleRenderSettings,
 ) -> list[SubtitleSegment]:
+    """Prepare subtitle segments for rendering following BBC/Netflix guidelines.
+
+    Pipeline:
+    1. Merge consecutive short segments into readable blocks
+    2. Split blocks that exceed max_chars per line
+    3. Remove overlapping blocks
+    4. Enforce min/max duration and gap between subtitles
+    5. Remove overlaps again (enforce may have created new ones)
+    """
+    if not segments:
+        return []
+
+    lines = settings.max_lines if settings.wrap_words else 1
+    max_chars_per_line = DEFAULT_CHARS_PER_LINE
+    max_chars = max(12, lines * max_chars_per_line)
+    min_chars = max(8, max_chars // 3)
+
+    # Step 1: Merge consecutive short segments into blocks
+    merged = _merge_consecutive_segments(
+        list(segments),
+        max_duration=DEFAULT_MAX_DURATION_S,
+        max_chars=max_chars,
+    )
+
+    # Step 2: Split oversized blocks (respecting sentence boundaries)
     prepared: list[SubtitleSegment] = []
-    max_chars, min_chars = _subtitle_chunk_limits(settings)
-    for seg in segments:
+    for seg in merged:
         prepared.extend(
-            _split_subtitle_segment(
+            _split_long_segment(
                 seg,
                 max_chars=max_chars,
                 min_chars=min_chars,
-                avoid_finishing_with_short_word_chars=DEFAULT_AVOID_ENDING_WITH_SHORT_WORD_CHARS,
             ),
         )
+
+    # Step 3: Remove any overlapping blocks
+    prepared = _remove_overlaps(prepared)
+
+    # Step 4: Enforce minimum duration and gap (after overlap removal)
+    prepared = _enforce_timing_constraints(prepared)
+
+    # Step 5: Remove overlaps again (enforce may have created new ones)
+    prepared = _remove_overlaps(prepared)
+
     return prepared
 
 
-def _subtitle_chunk_limits(settings: SubtitleRenderSettings) -> tuple[int, int]:
-    lines = settings.max_lines if settings.wrap_words else 1
-    max_chars = max(12, int(lines) * DEFAULT_SEGMENT_CHARS_PER_LINE)
-    min_chars = min(max_chars, max(DEFAULT_SEGMENT_MIN_CHARS, max_chars // 2))
-    return max_chars, min_chars
+def _merge_consecutive_segments(
+    segments: list[SubtitleSegment],
+    *,
+    max_duration: float,
+    max_chars: int,
+) -> list[SubtitleSegment]:
+    """Merge consecutive short segments into single subtitle blocks."""
+    if not segments:
+        return []
+
+    merged: list[SubtitleSegment] = []
+    current_text_parts: list[str] = []
+    current_start: float | None = None
+    current_end: float = 0.0
+
+    def flush() -> None:
+        if current_text_parts and current_start is not None:
+            merged.append(
+                SubtitleSegment(
+                    start=round(current_start, 3),
+                    end=round(current_end, 3),
+                    text=" ".join(current_text_parts),
+                )
+            )
+
+    for seg in segments:
+        text = seg.text.strip()
+        if not text:
+            continue
+
+        combined_text = " ".join(current_text_parts + [text]) if current_text_parts else text
+        combined_duration = seg.end - (current_start if current_start is not None else seg.start)
+        has_sentence_end = bool(_SENTENCE_END_RE.search(text))
+
+        should_flush = False
+        if current_start is not None:
+            gap = seg.start - current_end
+            if gap > 0.5:
+                should_flush = True
+            elif combined_duration > max_duration:
+                should_flush = True
+            elif len(combined_text) > max_chars:
+                should_flush = True
+            elif has_sentence_end and len(combined_text) >= max_chars // 2:
+                should_flush = True
+
+        if should_flush:
+            flush()
+            current_text_parts = []
+            current_start = None
+
+        if current_start is None:
+            current_start = seg.start
+        current_text_parts.append(text)
+        current_end = seg.end
+
+    flush()
+    return merged
 
 
-def _split_subtitle_segment(
+def _remove_overlaps(segments: list[SubtitleSegment]) -> list[SubtitleSegment]:
+    """Remove overlapping blocks by pushing later blocks forward."""
+    if not segments:
+        return []
+
+    result: list[SubtitleSegment] = []
+    for seg in segments:
+        if not result:
+            result.append(seg)
+            continue
+        prev = result[-1]
+        if seg.start < prev.end:
+            new_start = prev.end + 0.05
+            duration = seg.end - seg.start
+            seg = SubtitleSegment(
+                start=round(new_start, 3),
+                end=round(new_start + duration, 3),
+                text=seg.text,
+            )
+        result.append(seg)
+    return result
+
+
+def _enforce_timing_constraints(
+    segments: list[SubtitleSegment],
+) -> list[SubtitleSegment]:
+    """Enforce minimum duration and gap between subtitle blocks."""
+    if not segments:
+        return []
+
+    result: list[SubtitleSegment] = []
+
+    for seg in segments:
+        duration = seg.end - seg.start
+
+        if duration < DEFAULT_MIN_DURATION_S:
+            seg = SubtitleSegment(
+                start=seg.start,
+                end=round(seg.start + DEFAULT_MIN_DURATION_S, 3),
+                text=seg.text,
+            )
+
+        if duration > DEFAULT_MAX_DURATION_S:
+            seg = SubtitleSegment(
+                start=seg.start,
+                end=round(seg.start + DEFAULT_MAX_DURATION_S, 3),
+                text=seg.text,
+            )
+
+        if result:
+            prev = result[-1]
+            gap = seg.start - prev.end
+            if gap < DEFAULT_GAP_BETWEEN_SUBTITLES_S:
+                new_prev_end = seg.start - DEFAULT_GAP_BETWEEN_SUBTITLES_S
+                if new_prev_end > prev.start and (new_prev_end - prev.start) >= DEFAULT_MIN_DURATION_S:
+                    result[-1] = SubtitleSegment(
+                        start=prev.start,
+                        end=round(new_prev_end, 3),
+                        text=prev.text,
+                    )
+
+        result.append(seg)
+
+    return result
+
+
+import re as _re
+
+_SENTENCE_END_RE = _re.compile(r"[.!?…]\s*$")
+
+_NO_LINE_END = frozenset({
+    "в", "на", "по", "из", "за", "к", "у", "о", "об", "от", "до", "со", "ко",
+    "а", "и", "но", "ни", "да", "нет", "не", "то", "ли", "бы", "же", "вот",
+    "ну", "или", "что", "как", "где", "когда", "чтобы", "пока", "тоже", "уже",
+    "ещё", "еще", "просто", "только", "ведь", "если", "либо", "однако", "потом",
+    "тогда", "сейчас", "потому", "раз", "хотя", "чтоб", "будто", "даже",
+    "вообще", "именно", "конечно", "пожалуй", "пожалуйста",
+    "сразу", "типа", "кроме", "после", "перед", "между", "через", "около",
+})
+
+_COMMA_AFTER = _re.compile(r"[,;:—–]\s*$")
+
+
+def _split_long_segment(
     segment: SubtitleSegment,
     *,
     max_chars: int,
     min_chars: int,
-    avoid_finishing_with_short_word_chars: int,
 ) -> list[SubtitleSegment]:
+    """Split a segment that exceeds max_chars into readable sub-segments."""
+    text = segment.text.strip()
+    if len(text) <= max_chars:
+        return [segment]
+
     words = _build_timed_words(segment)
     if len(words) <= 1:
         return [segment]
 
-    out: list[SubtitleSegment] = []
+    chunks: list[SubtitleSegment] = []
     word_index = 0
+
     while word_index < len(words):
-        word_end_index = _find_subtitle_chunk_end(
+        chunk_end = _find_split_point(
             words,
             start_index=word_index,
             max_chars=max_chars,
             min_chars=min_chars,
-            avoid_finishing_with_short_word_chars=avoid_finishing_with_short_word_chars,
         )
-        chunk_words = words[word_index:word_end_index]
+        chunk_words = words[word_index:chunk_end]
         if not chunk_words:
             break
-        out.append(
+        chunks.append(
             SubtitleSegment(
                 start=round(chunk_words[0].start, 3),
                 end=round(chunk_words[-1].end, 3),
-                text=" ".join(word.text for word in chunk_words).strip(),
-            ),
+                text=" ".join(w.text for w in chunk_words).strip(),
+            )
         )
-        word_index = word_end_index
-    return out or [segment]
+        word_index = chunk_end
+
+    return chunks or [segment]
+
+
+def _find_split_point(
+    words: Sequence[_TimedSubtitleWord],
+    *,
+    start_index: int,
+    max_chars: int,
+    min_chars: int,
+) -> int:
+    """Find the best word index to split a subtitle block."""
+    current_index = start_index
+    chars_count = 0
+    total_words = len(words)
+
+    best_sentence_end: int | None = None
+    best_comma_end: int | None = None
+    best_before_preposition: int | None = None
+    best_normal: int | None = None
+
+    while current_index < total_words:
+        word_text = words[current_index].text
+        word_len = len(word_text)
+
+        if chars_count + word_len > max_chars:
+            break
+
+        chars_count += word_len
+        current_index += 1
+
+        if current_index < total_words:
+            chars_count += 1
+
+        words_so_far = current_index - start_index
+        if words_so_far < 2:
+            continue
+
+        if _SENTENCE_END_RE.search(word_text):
+            best_sentence_end = current_index
+
+        if _COMMA_AFTER.search(word_text):
+            best_comma_end = current_index
+
+        if current_index < total_words:
+            next_lower = words[current_index].text.lower().strip(".,!?…;:")
+            if next_lower in _NO_LINE_END:
+                best_before_preposition = current_index
+
+        if current_index < total_words:
+            this_lower = word_text.lower().strip(".,!?…;:")
+            remaining_chars = sum(len(w.text) for w in words[current_index:])
+            if this_lower not in _NO_LINE_END:
+                best_normal = current_index
+            elif remaining_chars > min_chars:
+                best_normal = current_index
+
+    if best_sentence_end is not None:
+        return best_sentence_end
+    if best_comma_end is not None:
+        return best_comma_end
+    if best_before_preposition is not None:
+        return best_before_preposition
+    if best_normal is not None:
+        return best_normal
+
+    if current_index == start_index:
+        current_index += 1
+
+    remaining = sum(len(w.text) for w in words[current_index:])
+    if 0 < remaining < min_chars:
+        return total_words
+
+    return current_index
 
 
 def _build_timed_words(segment: SubtitleSegment) -> list[_TimedSubtitleWord]:
@@ -605,40 +887,6 @@ def _build_timed_words(segment: SubtitleSegment) -> list[_TimedSubtitleWord]:
             ),
         )
     return timed_words
-
-
-def _find_subtitle_chunk_end(
-    words: Sequence[_TimedSubtitleWord],
-    *,
-    start_index: int,
-    max_chars: int,
-    min_chars: int,
-    avoid_finishing_with_short_word_chars: int,
-) -> int:
-    current_index = start_index
-    chars_count = 0
-
-    while current_index < len(words):
-        word_len = len(words[current_index].text)
-        if chars_count + word_len > max_chars:
-            break
-        chars_count += word_len
-        current_index += 1
-
-    if current_index == start_index:
-        current_index += 1
-
-    while (
-        current_index < len(words)
-        and len(words[current_index - 1].text) < avoid_finishing_with_short_word_chars
-    ):
-        current_index += 1
-
-    remaining_chars = sum(len(word.text) for word in words[current_index:])
-    if remaining_chars < min_chars:
-        return len(words)
-
-    return current_index
 
 
 def _font_format_for_suffix(suffix: str) -> str:
