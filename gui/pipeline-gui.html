@@ -1,0 +1,1870 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Podcast Reels Forge — Pipeline GUI</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --md-sys-color-background: #141218;
+      --md-sys-color-on-background: #e6e0e9;
+      --md-sys-color-surface: #141218;
+      --md-sys-color-surface-container-low: #1d1b20;
+      --md-sys-color-surface-container: #211f26;
+      --md-sys-color-surface-container-high: #2b2930;
+      --md-sys-color-surface-container-highest: #36343b;
+      --md-sys-color-primary: #d0bcff;
+      --md-sys-color-on-primary: #381e72;
+      --md-sys-color-primary-container: #4f378b;
+      --md-sys-color-on-primary-container: #eaddff;
+      --md-sys-color-secondary: #ccc2dc;
+      --md-sys-color-on-secondary: #332d41;
+      --md-sys-color-secondary-container: #4a4458;
+      --md-sys-color-on-secondary-container: #e8def8;
+      --md-sys-color-tertiary: #efb8c8;
+      --md-sys-color-on-tertiary: #492532;
+      --md-sys-color-tertiary-container: #633b48;
+      --md-sys-color-on-tertiary-container: #ffd8e4;
+      --md-sys-color-error: #f2b8b5;
+      --md-sys-color-on-error: #601410;
+      --md-sys-color-error-container: #8c1d18;
+      --md-sys-color-success: #a8dab5;
+      --md-sys-color-success-container: #1b5e20;
+      --md-sys-color-outline: #938f99;
+      --md-sys-color-outline-variant: #49454f;
+      --md-elevation-1: 0px 1px 3px 1px rgba(0,0,0,.15), 0px 1px 2px 0px rgba(0,0,0,.30);
+      --md-elevation-2: 0px 2px 6px 2px rgba(0,0,0,.15), 0px 1px 2px 0px rgba(0,0,0,.30);
+      --md-elevation-3: 0px 4px 8px 3px rgba(0,0,0,.15), 0px 1px 3px 0px rgba(0,0,0,.30);
+      --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+      --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+      --brand-color: #d0bcff;
+      --font-code: 'Roboto Mono', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; min-height: 100vh; overflow: hidden; }
+    body {
+      font-family: 'Roboto', system-ui, sans-serif;
+      color: var(--md-sys-color-on-background);
+      background: var(--md-sys-color-background);
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: 80px 1fr;
+      grid-template-rows: 1fr 56px;
+      height: 100vh;
+    }
+
+    /* ===== NAVIGATION RAIL ===== */
+    .nav-rail {
+      grid-row: 1 / -1;
+      background: var(--md-sys-color-surface-container-low);
+      border-right: 1px solid var(--md-sys-color-outline-variant);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 0;
+      gap: 4px;
+      z-index: 100;
+    }
+    .nav-rail-brand {
+      width: 48px; height: 48px; border-radius: 16px;
+      background: var(--md-sys-color-primary-container);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 16px;
+      color: var(--md-sys-color-on-primary-container);
+      font-weight: 700; font-size: 18px;
+    }
+    .nav-rail-item {
+      width: 56px; height: 56px; border-radius: 16px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 4px; cursor: pointer; position: relative;
+      background: transparent; border: none; color: var(--md-sys-color-on-surface-variant);
+      transition: all 0.2s var(--ease-standard);
+    }
+    .nav-rail-item svg { width: 24px; height: 24px; transition: 0.2s; }
+    .nav-rail-item span { font-size: 10px; font-weight: 500; letter-spacing: 0.02em; }
+    .nav-rail-item:hover { background: rgba(208,188,255,0.08); }
+    .nav-rail-item.active {
+      color: var(--md-sys-color-on-secondary-container);
+    }
+    .nav-rail-item.active::before {
+      content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 32px;
+      background: var(--md-sys-color-secondary-container); border-radius: 16px; z-index: -1;
+    }
+    .nav-rail-item.active svg { color: var(--md-sys-color-on-secondary-container); }
+    .nav-rail-divider { width: 32px; height: 1px; background: var(--md-sys-color-outline-variant); margin: 8px 0; }
+
+    /* ===== MAIN CONTENT ===== */
+    .main-content {
+      overflow-y: auto; overflow-x: hidden;
+      padding: 24px 32px;
+      scroll-behavior: smooth;
+    }
+    .main-content::-webkit-scrollbar { width: 6px; }
+    .main-content::-webkit-scrollbar-track { background: transparent; }
+    .main-content::-webkit-scrollbar-thumb { background: var(--md-sys-color-outline-variant); border-radius: 3px; }
+
+    .tab-page { display: none; animation: fadeIn 0.3s var(--ease-standard); }
+    .tab-page.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+    .page-header { margin-bottom: 28px; }
+    .page-header h2 { margin: 0 0 4px; font-size: 28px; font-weight: 400; letter-spacing: -0.01em; }
+    .page-header p { margin: 0; color: var(--md-sys-color-outline); font-size: 14px; }
+
+    /* ===== CARDS / SECTIONS ===== */
+    .card {
+      padding: 24px; border-radius: 24px;
+      background: var(--md-sys-color-surface-container);
+      border: 1px solid transparent;
+      transition: box-shadow 0.3s var(--ease-standard), transform 0.2s;
+      animation: slideUpFade 0.5s var(--ease-emphasized) backwards;
+      margin-bottom: 16px;
+    }
+    .card:hover { box-shadow: var(--md-elevation-1); }
+    .card-title {
+      font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--md-sys-color-primary); margin: 0 0 16px; font-weight: 500;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .card-title svg { width: 18px; height: 18px; }
+
+    @keyframes slideUpFade {
+      from { opacity: 0; transform: translateY(30px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .card:nth-child(1) { animation-delay: 0.05s; }
+    .card:nth-child(2) { animation-delay: 0.10s; }
+    .card:nth-child(3) { animation-delay: 0.15s; }
+    .card:nth-child(4) { animation-delay: 0.20s; }
+    .card:nth-child(5) { animation-delay: 0.25s; }
+
+    /* ===== GRID LAYOUTS ===== */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; }
+    .span-full { grid-column: 1 / -1; }
+
+    /* ===== FORM FIELDS ===== */
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label {
+      font-size: 12px; color: var(--md-sys-color-on-surface-variant); font-weight: 500;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .field .value {
+      color: var(--md-sys-color-primary); background: var(--md-sys-color-surface-container-highest);
+      padding: 2px 8px; border-radius: 12px; font-variant-numeric: tabular-nums; font-size: 11px;
+    }
+
+    input[type="text"], input[type="number"], textarea, select {
+      width: 100%; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 12px;
+      background: transparent; color: var(--md-sys-color-on-background);
+      padding: 12px 16px; font-size: 14px; outline: none;
+      transition: all 0.2s var(--ease-standard); font-family: inherit;
+    }
+    input[type="text"]:focus, input[type="number"]:focus, textarea:focus, select:focus {
+      border-color: var(--md-sys-color-primary); border-width: 2px; padding: 11px 15px;
+    }
+    select { cursor: pointer; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23938f99'%3E%3Cpath d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px;
+    }
+    select option { background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-background); }
+
+    textarea { resize: vertical; min-height: 80px; font-family: inherit; line-height: 1.5; }
+
+    /* ===== SLIDERS ===== */
+    input[type="range"] {
+      -webkit-appearance: none; width: 100%; height: 40px; background: transparent;
+      cursor: pointer; outline: none; margin: 0;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      width: 100%; height: 8px; background: var(--md-sys-color-surface-container-highest);
+      border-radius: 4px; transition: 0.2s;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; height: 20px; width: 20px; border-radius: 50%;
+      background: var(--md-sys-color-primary); margin-top: -6px;
+      box-shadow: 0 0 0 0 rgba(208,188,255,0); transition: 0.2s var(--ease-standard);
+    }
+    input[type="range"]:hover::-webkit-slider-thumb { box-shadow: 0 0 0 10px rgba(208,188,255,0.12); transform: scale(1.1); }
+    input[type="range"]:active::-webkit-slider-thumb { box-shadow: 0 0 0 14px rgba(208,188,255,0.20); transform: scale(1.2); }
+
+    /* ===== SWITCHES ===== */
+    .m3-switch {
+      display: flex; align-items: center; justify-content: space-between;
+      width: 100%; cursor: pointer; padding: 8px 0;
+    }
+    .m3-switch input { display: none; }
+    .m3-switch-track {
+      width: 52px; height: 32px; border-radius: 16px; border: 2px solid var(--md-sys-color-outline);
+      background: var(--md-sys-color-surface-container-highest); position: relative;
+      transition: 0.3s var(--ease-standard); flex-shrink: 0;
+    }
+    .m3-switch-thumb {
+      width: 16px; height: 16px; border-radius: 50%; background: var(--md-sys-color-outline);
+      position: absolute; top: 6px; left: 6px; transition: 0.3s var(--ease-standard);
+    }
+    .m3-switch:hover .m3-switch-thumb { box-shadow: 0 0 0 10px rgba(230,224,233,0.08); }
+    .m3-switch input:checked + .m3-switch-track { background: var(--md-sys-color-primary); border-color: var(--md-sys-color-primary); }
+    .m3-switch input:checked + .m3-switch-track .m3-switch-thumb {
+      background: var(--md-sys-color-on-primary); width: 24px; height: 24px; top: 2px; left: 24px;
+    }
+    .m3-switch-text { font-weight: 500; font-size: 14px; color: var(--md-sys-color-on-background); }
+    .m3-switch-desc { font-size: 12px; color: var(--md-sys-color-outline); margin-top: 2px; }
+
+    /* ===== CHIPS ===== */
+    .chip-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    .chip {
+      position: relative; overflow: hidden;
+      font-size: 13px; font-weight: 500; padding: 0 16px; height: 32px; border-radius: 8px;
+      background: transparent; border: 1px solid var(--md-sys-color-outline);
+      color: var(--md-sys-color-on-surface-variant); cursor: pointer;
+      transition: all 0.2s var(--ease-standard);
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .chip::after { content: ''; position: absolute; inset: 0; background: currentColor; opacity: 0; transition: opacity 0.2s; }
+    .chip:hover::after { opacity: 0.08; }
+    .chip.active {
+      background: var(--md-sys-color-secondary-container); border-color: transparent;
+      color: var(--md-sys-color-on-secondary-container);
+    }
+    .chip svg { width: 16px; height: 16px; }
+
+    /* ===== BUTTONS ===== */
+    .btn {
+      position: relative; overflow: hidden;
+      border: none; border-radius: 20px; height: 40px; font-size: 14px; font-weight: 500;
+      cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+      gap: 8px; transition: transform 0.1s, box-shadow 0.2s, background 0.2s;
+      font-family: inherit; padding: 0 24px;
+    }
+    .btn:active { transform: scale(0.96); }
+    .btn svg { width: 18px; height: 18px; }
+    .btn-filled { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+    .btn-filled:hover { box-shadow: var(--md-elevation-1); }
+    .btn-tonal { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+    .btn-tonal:hover { box-shadow: var(--md-elevation-1); }
+    .btn-outlined { background: transparent; border: 1px solid var(--md-sys-color-outline); color: var(--md-sys-color-primary); }
+    .btn-outlined:hover { background: rgba(208,188,255,0.08); }
+    .btn-text { background: transparent; color: var(--md-sys-color-primary); padding: 0 12px; }
+    .btn-text:hover { background: rgba(208,188,255,0.08); }
+    .btn-danger { background: var(--md-sys-color-error-container); color: var(--md-sys-color-error); }
+    .btn-success { background: var(--md-sys-color-success-container); color: var(--md-sys-color-success); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+    .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* ===== FILE UPLOAD ===== */
+    .file-drop {
+      position: relative; overflow: hidden;
+      border: 2px dashed var(--md-sys-color-outline); border-radius: 16px;
+      padding: 32px; text-align: center; cursor: pointer;
+      background: transparent; transition: 0.3s; color: var(--md-sys-color-on-surface-variant);
+    }
+    .file-drop:hover { border-color: var(--md-sys-color-primary); background: rgba(208,188,255,0.04); color: var(--md-sys-color-primary); }
+    .file-drop.dragover { border-color: var(--md-sys-color-primary); background: rgba(208,188,255,0.08); }
+    .file-drop svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.6; }
+    .file-drop p { margin: 0; font-size: 14px; font-weight: 500; }
+    .file-drop small { font-size: 12px; color: var(--md-sys-color-outline); }
+    .file-drop input { display: none; }
+
+    /* ===== QUEUE LIST ===== */
+    .queue-list { display: flex; flex-direction: column; gap: 8px; }
+    .queue-item {
+      display: grid; grid-template-columns: 40px 1fr auto auto auto; gap: 12px;
+      align-items: center; padding: 12px 16px; border-radius: 16px;
+      background: var(--md-sys-color-surface-container-low);
+      transition: background 0.2s;
+    }
+    .queue-item:hover { background: var(--md-sys-color-surface-container-high); }
+    .queue-item-icon {
+      width: 40px; height: 40px; border-radius: 12px;
+      background: var(--md-sys-color-primary-container);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--md-sys-color-on-primary-container);
+    }
+    .queue-item-icon svg { width: 20px; height: 20px; }
+    .queue-item-name { font-size: 14px; font-weight: 500; }
+    .queue-item-meta { font-size: 12px; color: var(--md-sys-color-outline); }
+    .queue-item-status {
+      font-size: 11px; font-weight: 500; padding: 4px 12px; border-radius: 8px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .status-pending { background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-outline); }
+    .status-running { background: rgba(208,188,255,0.15); color: var(--md-sys-color-primary); }
+    .status-done { background: var(--md-sys-color-success-container); color: var(--md-sys-color-success); }
+    .status-error { background: var(--md-sys-color-error-container); color: var(--md-sys-color-error); }
+
+    /* ===== PROGRESS BAR ===== */
+    .progress-bar { width: 100%; height: 4px; background: var(--md-sys-color-surface-container-highest); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+    .progress-bar-fill { height: 100%; background: var(--md-sys-color-primary); border-radius: 2px; transition: width 0.5s var(--ease-standard); }
+
+    /* ===== STAGE PIPELINE VISUAL ===== */
+    .pipeline-visual {
+      display: flex; align-items: center; gap: 0; padding: 20px 0; overflow-x: auto;
+    }
+    .pipeline-stage {
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      min-width: 120px; position: relative;
+    }
+    .pipeline-stage-dot {
+      width: 48px; height: 48px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--md-sys-color-surface-container-highest);
+      border: 2px solid var(--md-sys-color-outline-variant);
+      color: var(--md-sys-color-outline); transition: all 0.3s;
+    }
+    .pipeline-stage-dot svg { width: 22px; height: 22px; }
+    .pipeline-stage.active .pipeline-stage-dot {
+      background: var(--md-sys-color-primary); border-color: var(--md-sys-color-primary);
+      color: var(--md-sys-color-on-primary);
+      box-shadow: 0 0 20px rgba(208,188,255,0.3);
+    }
+    .pipeline-stage.done .pipeline-stage-dot {
+      background: var(--md-sys-color-success-container); border-color: var(--md-sys-color-success);
+      color: var(--md-sys-color-success);
+    }
+    .pipeline-stage.error .pipeline-stage-dot {
+      background: var(--md-sys-color-error-container); border-color: var(--md-sys-color-error);
+      color: var(--md-sys-color-error);
+    }
+    .pipeline-stage-label { font-size: 11px; font-weight: 500; text-align: center; color: var(--md-sys-color-outline); }
+    .pipeline-stage.active .pipeline-stage-label { color: var(--md-sys-color-primary); }
+    .pipeline-stage.done .pipeline-stage-label { color: var(--md-sys-color-success); }
+    .pipeline-connector {
+      width: 40px; height: 2px; background: var(--md-sys-color-outline-variant);
+      margin-top: -20px; flex-shrink: 0;
+    }
+    .pipeline-connector.done { background: var(--md-sys-color-success); }
+    .pipeline-connector.active { background: var(--md-sys-color-primary); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* ===== LOG PANEL ===== */
+    .log-panel {
+      background: var(--md-sys-color-surface-container-low);
+      border-radius: 16px; padding: 16px; max-height: 300px; overflow-y: auto;
+      font-family: var(--font-code); font-size: 12px; line-height: 1.6;
+      color: var(--md-sys-color-outline);
+    }
+    .log-panel::-webkit-scrollbar { width: 4px; }
+    .log-panel::-webkit-scrollbar-thumb { background: var(--md-sys-color-outline-variant); border-radius: 2px; }
+    .log-line { white-space: pre-wrap; word-break: break-all; }
+    .log-line.info { color: var(--md-sys-color-primary); }
+    .log-line.success { color: var(--md-sys-color-success); }
+    .log-line.error { color: var(--md-sys-color-error); }
+    .log-line.warn { color: #ffd54a; }
+    .log-line .ts { color: var(--md-sys-color-outline-variant); margin-right: 8px; }
+
+    /* ===== STAT CARDS ===== */
+    .stat-card {
+      padding: 20px; border-radius: 20px;
+      background: var(--md-sys-color-surface-container);
+      text-align: center;
+    }
+    .stat-card .stat-value { font-size: 32px; font-weight: 700; color: var(--md-sys-color-primary); }
+    .stat-card .stat-label { font-size: 12px; color: var(--md-sys-color-outline); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* ===== BOTTOM BAR ===== */
+    .bottom-bar {
+      grid-column: 1 / -1;
+      background: var(--md-sys-color-surface-container-low);
+      border-top: 1px solid var(--md-sys-color-outline-variant);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 24px; gap: 16px;
+    }
+    .bottom-bar-left { display: flex; align-items: center; gap: 16px; }
+    .bottom-bar-center { display: flex; align-items: center; gap: 8px; flex: 1; justify-content: center; }
+    .bottom-bar-right { display: flex; align-items: center; gap: 12px; }
+    .pipeline-overview {
+      display: flex; align-items: center; gap: 4px;
+    }
+    .pipeline-overview-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--md-sys-color-outline-variant);
+      transition: 0.3s;
+    }
+    .pipeline-overview-dot.done { background: var(--md-sys-color-success); }
+    .pipeline-overview-dot.active { background: var(--md-sys-color-primary); animation: pulse 1.5s infinite; }
+    .pipeline-overview-dot.error { background: var(--md-sys-color-error); }
+    .bottom-status { font-size: 12px; color: var(--md-sys-color-outline); }
+    .gpu-info { font-size: 11px; color: var(--md-sys-color-outline); font-family: var(--font-code); }
+
+    /* ===== FAB ===== */
+    .fab {
+      position: fixed; bottom: 80px; right: 32px;
+      width: 56px; height: 56px; border-radius: 16px;
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      box-shadow: var(--md-elevation-3); transition: 0.3s var(--ease-standard); z-index: 50;
+    }
+    .fab:hover { box-shadow: var(--md-elevation-3); transform: scale(1.05); }
+    .fab:active { transform: scale(0.95); }
+    .fab svg { width: 24px; height: 24px; }
+
+    /* ===== DIALOG / MODAL ===== */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200;
+      display: none; align-items: center; justify-content: center;
+      animation: fadeIn 0.2s;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--md-sys-color-surface-container-high); border-radius: 28px;
+      padding: 24px; min-width: 400px; max-width: 600px; max-height: 80vh;
+      box-shadow: var(--md-elevation-3); overflow-y: auto;
+      animation: slideUpFade 0.3s var(--ease-emphasized);
+    }
+    .modal h3 { margin: 0 0 16px; font-size: 20px; font-weight: 500; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+
+    /* ===== TOOLTIP ===== */
+    [data-tooltip] { position: relative; }
+    [data-tooltip]:hover::after {
+      content: attr(data-tooltip); position: absolute; bottom: calc(100% + 8px); left: 50%;
+      transform: translateX(-50%); padding: 6px 12px; border-radius: 8px;
+      background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-background);
+      font-size: 12px; white-space: nowrap; z-index: 300;
+      box-shadow: var(--md-elevation-2);
+    }
+
+    /* ===== EMPTY STATE ===== */
+    .empty-state {
+      text-align: center; padding: 60px 20px; color: var(--md-sys-color-outline);
+    }
+    .empty-state svg { width: 80px; height: 80px; margin-bottom: 16px; opacity: 0.3; }
+    .empty-state h3 { margin: 0 0 8px; font-size: 18px; font-weight: 400; color: var(--md-sys-color-on-surface-variant); }
+    .empty-state p { margin: 0; font-size: 14px; }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 900px) {
+      .app-shell { grid-template-columns: 1fr; }
+      .nav-rail { display: none; }
+      .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <!-- NAVIGATION RAIL -->
+    <nav class="nav-rail">
+      <div class="nav-rail-brand">PF</div>
+
+      <button class="nav-rail-item active" data-tab="dashboard" data-tooltip="Dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        <span>Home</span>
+      </button>
+      <button class="nav-rail-item" data-tab="transcribe" data-tooltip="Transcribe">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        <span>Transcribe</span>
+      </button>
+      <button class="nav-rail-item" data-tab="analyze" data-tooltip="Analyze">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span>Analyze</span>
+      </button>
+      <button class="nav-rail-item" data-tab="cut" data-tooltip="Cut & Export">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+        <span>Cut</span>
+      </button>
+      <button class="nav-rail-item" data-tab="subtitles" data-tooltip="Subtitles">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+        <span>Subs</span>
+      </button>
+
+      <div class="nav-rail-divider"></div>
+
+      <button class="nav-rail-item" data-tab="settings" data-tooltip="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Config</span>
+      </button>
+      <button class="nav-rail-item" data-tab="logs" data-tooltip="Logs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <span>Logs</span>
+      </button>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content" id="mainContent">
+
+      <!-- ========== DASHBOARD ========== -->
+      <div class="tab-page active" id="tab-dashboard">
+        <div class="page-header">
+          <h2>Dashboard</h2>
+          <p>Manage your pipeline queue and monitor progress</p>
+        </div>
+
+        <!-- Pipeline Visual -->
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Pipeline Status
+          </div>
+          <div class="pipeline-visual" id="pipelineVisual">
+            <div class="pipeline-stage" data-stage="transcribe">
+              <div class="pipeline-stage-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></div>
+              <div class="pipeline-stage-label">Transcribe</div>
+            </div>
+            <div class="pipeline-connector"></div>
+            <div class="pipeline-stage" data-stage="diarize">
+              <div class="pipeline-stage-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+              <div class="pipeline-stage-label">Diarize</div>
+            </div>
+            <div class="pipeline-connector"></div>
+            <div class="pipeline-stage" data-stage="analyze">
+              <div class="pipeline-stage-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
+              <div class="pipeline-stage-label">Analyze</div>
+            </div>
+            <div class="pipeline-connector"></div>
+            <div class="pipeline-stage" data-stage="cut">
+              <div class="pipeline-stage-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/></svg></div>
+              <div class="pipeline-stage-label">Cut & Export</div>
+            </div>
+            <div class="pipeline-connector"></div>
+            <div class="pipeline-stage" data-stage="subtitles">
+              <div class="pipeline-stage-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg></div>
+              <div class="pipeline-stage-label">Subtitles</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="grid-4" style="margin-bottom: 16px;">
+          <div class="stat-card">
+            <div class="stat-value" id="statQueue">0</div>
+            <div class="stat-label">In Queue</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="statReels">0</div>
+            <div class="stat-label">Reels Created</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="statDuration">0m</div>
+            <div class="stat-label">Total Duration</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="statGPU">--</div>
+            <div class="stat-label">GPU VRAM</div>
+          </div>
+        </div>
+
+        <!-- Upload -->
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Add to Queue
+          </div>
+          <label class="file-drop" id="fileDrop">
+            <input type="file" id="fileInput" accept="video/*,audio/*" multiple>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            <p>Drop video/audio files here or click to browse</p>
+            <small>Supports MP4, MKV, MOV, AVI, MP3</small>
+          </label>
+          <div style="display: flex; gap: 8px; margin-top: 12px;">
+            <button class="btn btn-filled" id="btnRunPipeline">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Run Full Pipeline
+            </button>
+            <button class="btn btn-tonal" id="btnAutotune">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4"/></svg>
+              Autotune
+            </button>
+            <button class="btn btn-outlined" id="btnOpenStyleEditor">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+              Style Editor
+            </button>
+          </div>
+        </div>
+
+        <!-- Queue -->
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            Processing Queue
+          </div>
+          <div class="queue-list" id="queueList">
+            <div class="empty-state" id="queueEmpty">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+              <h3>Queue is empty</h3>
+              <p>Upload video files to start processing</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== TRANSCRIBE ========== -->
+      <div class="tab-page" id="tab-transcribe">
+        <div class="page-header">
+          <h2>Transcription</h2>
+          <p>Configure Whisper model and transcription parameters</p>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+              Model & Device
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Whisper Model</label>
+              <select id="cfgTranscribeModel">
+                <option value="large-v3">large-v3 (best quality)</option>
+                <option value="large-v2">large-v2</option>
+                <option value="medium">medium</option>
+                <option value="small">small</option>
+                <option value="base">base (fastest)</option>
+              </select>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Device</label>
+              <div class="chip-group">
+                <button class="chip active" data-field="cfgTranscribeDevice" data-value="auto">Auto</button>
+                <button class="chip" data-field="cfgTranscribeDevice" data-value="cuda">CUDA GPU</button>
+                <button class="chip" data-field="cfgTranscribeDevice" data-value="cpu">CPU</button>
+              </div>
+              <input type="hidden" id="cfgTranscribeDevice" value="auto">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Compute Type</label>
+              <select id="cfgTranscribeComputeType">
+                <option value="auto">Auto</option>
+                <option value="float32">float32</option>
+                <option value="float16">float16</option>
+                <option value="int8">int8</option>
+                <option value="int8_float16">int8_float16</option>
+                <option value="int8_float32">int8_float32</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Language</label>
+              <select id="cfgTranscribeLanguage">
+                <option value="auto">Auto-detect</option>
+                <option value="ru">Russian</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              Mode & Quality
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Transcription Mode</label>
+              <div class="chip-group">
+                <button class="chip active" data-field="cfgTranscribeMode" data-value="fast">Fast (batched)</button>
+                <button class="chip" data-field="cfgTranscribeMode" data-value="quality">Quality (sequential)</button>
+              </div>
+              <input type="hidden" id="cfgTranscribeMode" value="fast">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Beam Size <span class="value" id="v-cfgTranscribeBeam">5</span></label>
+              <input type="range" id="cfgTranscribeBeam" min="1" max="20" step="1" value="5">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Batch Size (GPU) <span class="value" id="v-cfgTranscribeBatch">16</span></label>
+              <input type="range" id="cfgTranscribeBatch" min="1" max="64" step="1" value="16">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Best Of <span class="value" id="v-cfgTranscribeBestOf">1</span></label>
+              <input type="range" id="cfgTranscribeBestOf" min="1" max="10" step="1" value="1">
+            </div>
+            <div class="field">
+              <label>Quality Beam Size <span class="value" id="v-cfgTranscribeQBeam">10</span></label>
+              <input type="range" id="cfgTranscribeQBeam" min="1" max="20" step="1" value="10">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Anti-Hallucination & Domain
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Condition on Previous Text</div>
+                  <div class="m3-switch-desc">Prevents hallucination loops on silence</div>
+                </div>
+                <input type="checkbox" id="cfgTranscribeCondition">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field">
+              <label>Repetition Penalty <span class="value" id="v-cfgTranscribeRepPenalty">1.1</span></label>
+              <input type="range" id="cfgTranscribeRepPenalty" min="1.0" max="2.0" step="0.05" value="1.1">
+            </div>
+            <div class="field">
+              <label>No-Repeat N-gram Size <span class="value" id="v-cfgTranscribeNoRepeat">3</span></label>
+              <input type="range" id="cfgTranscribeNoRepeat" min="0" max="10" step="1" value="3">
+            </div>
+            <div class="field">
+              <label>Patience <span class="value" id="v-cfgTranscribePatience">1.0</span></label>
+              <input type="range" id="cfgTranscribePatience" min="1.0" max="3.0" step="0.1" value="1.0">
+            </div>
+          </div>
+          <div class="field" style="margin-top: 16px;">
+            <label>Initial Prompt (domain context)</label>
+            <textarea id="cfgTranscribePrompt" placeholder="Optional domain hint to bias vocabulary. Example: Podcast about technology and startups."></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== ANALYZE ========== -->
+      <div class="tab-page" id="tab-analyze">
+        <div class="page-header">
+          <h2>Analysis</h2>
+          <p>LLM-based viral moment detection and scoring</p>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              LLM Service
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Service URL</label>
+              <input type="text" id="cfgAnalyzeUrl" value="http://127.0.0.1:11440/completion">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Auto-start llama-server</div>
+                  <div class="m3-switch-desc">Start local server automatically if not running</div>
+                </div>
+                <input type="checkbox" id="cfgAnalyzeAutoStart" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field">
+              <label>Model Path</label>
+              <input type="text" id="cfgAnalyzeModelPath" value="/opt/llamacpp/models/gemma4-26b.gguf">
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              Model Roles
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Scout (fast scan)</label>
+              <select id="cfgAnalyzeScout">
+                <option value="gemma4:26b">gemma4:26b</option>
+                <option value="gemma4">gemma4</option>
+                <option value="gemma4:12b">gemma4:12b</option>
+              </select>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Cleanup / Refine</label>
+              <select id="cfgAnalyzeCleanup">
+                <option value="gemma4:26b">gemma4:26b</option>
+                <option value="gemma4">gemma4</option>
+                <option value="gemma4:12b">gemma4:12b</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Judge / Metadata</label>
+              <select id="cfgAnalyzeJudge">
+                <option value="gemma4:26b">gemma4:26b</option>
+                <option value="gemma4">gemma4</option>
+                <option value="gemma4:12b">gemma4:12b</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              Inference Parameters
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Temperature <span class="value" id="v-cfgAnalyzeTemp">0.2</span></label>
+              <input type="range" id="cfgAnalyzeTemp" min="0.0" max="1.0" step="0.05" value="0.2">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Timeout (sec) <span class="value" id="v-cfgAnalyzeTimeout">600</span></label>
+              <input type="range" id="cfgAnalyzeTimeout" min="60" max="1800" step="30" value="600">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Chunk Seconds <span class="value" id="v-cfgAnalyzeChunk">900</span></label>
+              <input type="range" id="cfgAnalyzeChunk" min="300" max="3600" step="60" value="900">
+            </div>
+            <div class="field">
+              <label>Max Chars per Chunk <span class="value" id="v-cfgAnalyzeMaxChars">7000</span></label>
+              <input type="range" id="cfgAnalyzeMaxChars" min="2000" max="12000" step="500" value="7000">
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              Watchdog & Fallback
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Watchdog enabled</div>
+                  <div class="m3-switch-desc">Detect stalling and restart inference</div>
+                </div>
+                <input type="checkbox" id="cfgAnalyzeWatchdog" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>First Token Timeout <span class="value" id="v-cfgAnalyzeFirstToken">90</span>s</label>
+              <input type="range" id="cfgAnalyzeFirstToken" min="30" max="300" step="10" value="90">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Stall Timeout <span class="value" id="v-cfgAnalyzeStall">120</span>s</label>
+              <input type="range" id="cfgAnalyzeStall" min="30" max="600" step="10" value="120">
+            </div>
+            <div class="field">
+              <label>Max Retries <span class="value" id="v-cfgAnalyzeRetries">4</span></label>
+              <input type="range" id="cfgAnalyzeRetries" min="1" max="10" step="1" value="4">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Prompts & Language
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label>Prompt Language</label>
+              <div class="chip-group">
+                <button class="chip active" data-field="cfgAnalyzeLang" data-value="auto">Auto</button>
+                <button class="chip" data-field="cfgAnalyzeLang" data-value="ru">Russian</button>
+                <button class="chip" data-field="cfgAnalyzeLang" data-value="en">English</button>
+              </div>
+              <input type="hidden" id="cfgAnalyzeLang" value="auto">
+            </div>
+            <div class="field">
+              <label>Prompt Variant</label>
+              <div class="chip-group">
+                <button class="chip active" data-field="cfgAnalyzeVariant" data-value="default">Default</button>
+                <button class="chip" data-field="cfgAnalyzeVariant" data-value="a">Variant A</button>
+                <button class="chip" data-field="cfgAnalyzeVariant" data-value="b">Variant B</button>
+              </div>
+              <input type="hidden" id="cfgAnalyzeVariant" value="default">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== CUT & EXPORT ========== -->
+      <div class="tab-page" id="tab-cut">
+        <div class="page-header">
+          <h2>Cut & Export</h2>
+          <p>Video processing, quality filters, and export formats</p>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+              Encoding
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Use NVENC (GPU encoding)</div>
+                  <div class="m3-switch-desc">Faster encoding via NVIDIA GPU</div>
+                </div>
+                <input type="checkbox" id="cfgCutNvenc" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Video Bitrate</label>
+              <input type="text" id="cfgCutVBitrate" value="8M">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Audio Bitrate</label>
+              <input type="text" id="cfgCutABitrate" value="192k">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Software Preset (libx264 fallback)</label>
+              <select id="cfgCutPreset">
+                <option value="ultrafast">ultrafast</option>
+                <option value="superfast">superfast</option>
+                <option value="veryfast">veryfast</option>
+                <option value="faster">faster</option>
+                <option value="fast" selected>fast</option>
+                <option value="medium">medium</option>
+                <option value="slow">slow</option>
+              </select>
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label>NVENC CQ <span class="value" id="v-cfgCutNvencCq">21</span></label>
+                <input type="range" id="cfgCutNvencCq" min="15" max="30" step="1" value="21">
+              </div>
+              <div class="field">
+                <label>NVENC Preset</label>
+                <select id="cfgCutNvencPreset">
+                  <option value="p1">p1 (fastest)</option>
+                  <option value="p2">p2</option>
+                  <option value="p3">p3</option>
+                  <option value="p4">p4</option>
+                  <option value="p5" selected>p5 (balanced)</option>
+                  <option value="p6">p6</option>
+                  <option value="p7">p7 (best)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              Quality Filters
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Min Viral Score <span class="value" id="v-cfgCutMinScore">7</span></label>
+              <input type="range" id="cfgCutMinScore" min="1" max="10" step="1" value="7">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Min Duration (sec) <span class="value" id="v-cfgCutMinDur">15</span></label>
+              <input type="range" id="cfgCutMinDur" min="5" max="60" step="1" value="15">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Max Duration (sec) <span class="value" id="v-cfgCutMaxDur">180</span></label>
+              <input type="range" id="cfgCutMaxDur" min="30" max="600" step="10" value="180">
+            </div>
+            <div class="field">
+              <label>Min Face Ratio <span class="value" id="v-cfgCutFaceRatio">0.30</span></label>
+              <input type="range" id="cfgCutFaceRatio" min="0" max="1" step="0.05" value="0.3">
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+              Crop & Face Detection
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Vertical Crop</div>
+                  <div class="m3-switch-desc">Crop horizontal video to 9:16</div>
+                </div>
+                <input type="checkbox" id="cfgCutVertical" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Smart Crop (Face Tracking)</div>
+                  <div class="m3-switch-desc">Follow speaker's face in the frame</div>
+                </div>
+                <input type="checkbox" id="cfgCutSmartCrop" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Face Samples <span class="value" id="v-cfgCutFaceSamples">9</span></label>
+              <input type="range" id="cfgCutFaceSamples" min="1" max="20" step="1" value="9">
+            </div>
+            <div class="field">
+              <label>Face Min Size (px) <span class="value" id="v-cfgCutFaceMinSize">72</span></label>
+              <input type="range" id="cfgCutFaceMinSize" min="20" max="200" step="4" value="72">
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export Formats
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Export WebM</div>
+                  <div class="m3-switch-desc">Additional WebM format output</div>
+                </div>
+                <input type="checkbox" id="cfgCutWebm">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Export GIF</div>
+                  <div class="m3-switch-desc">Animated GIF preview</div>
+                </div>
+                <input type="checkbox" id="cfgCutGif">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Audio Only</div>
+                  <div class="m3-switch-desc">Export MP3 audio track</div>
+                </div>
+                <input type="checkbox" id="cfgCutAudio">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y2="21" x2="7" y2="1"/><line x1="17" y2="21" x2="17" y2="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/></svg>
+            Processing Queue
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label>Parallel Threads <span class="value" id="v-cfgCutThreads">4</span></label>
+              <input type="range" id="cfgCutThreads" min="1" max="16" step="1" value="4">
+            </div>
+            <div class="field">
+              <label>Reel Padding (sec) <span class="value" id="v-cfgCutPadding">5</span></label>
+              <input type="range" id="cfgCutPadding" min="0" max="15" step="1" value="5">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== SUBTITLES ========== -->
+      <div class="tab-page" id="tab-subtitles">
+        <div class="page-header">
+          <h2>Subtitles</h2>
+          <p>Burn subtitles into reels with ASS styling</p>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+              Subtitle Settings
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Burn Subtitles</div>
+                  <div class="m3-switch-desc">Render subtitles directly into video</div>
+                </div>
+                <input type="checkbox" id="cfgSubsEnabled" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Font</label>
+              <input type="text" id="cfgSubsFont" value="assets/fonts/bignoodletoooblique.ttf">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>ASS Style File</label>
+              <input type="text" id="cfgSubsAss" value="assets/subtitles/forge_subtitles.ass">
+            </div>
+            <div class="field">
+              <label>Font Size (px) <span class="value" id="v-cfgSubsFontSize">36</span></label>
+              <input type="range" id="cfgSubsFontSize" min="16" max="120" step="1" value="36">
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+              Layout & Animation
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Wrap Words</div>
+                  <div class="m3-switch-desc">Wrap long lines across multiple rows</div>
+                </div>
+                <input type="checkbox" id="cfgSubsWrap" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="grid-2" style="margin-bottom: 16px;">
+              <div class="field">
+                <label>Max Lines <span class="value" id="v-cfgSubsMaxLines">2</span></label>
+                <input type="range" id="cfgSubsMaxLines" min="1" max="4" step="1" value="2">
+              </div>
+              <div class="field">
+                <label>Max Width Ratio <span class="value" id="v-cfgSubsMaxWidth">0.65</span></label>
+                <input type="range" id="cfgSubsMaxWidth" min="0.3" max="1.0" step="0.05" value="0.65">
+              </div>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Vertical Align</label>
+              <div class="chip-group">
+                <button class="chip" data-field="cfgSubsVAlign" data-value="top">Top</button>
+                <button class="chip" data-field="cfgSubsVAlign" data-value="center">Center</button>
+                <button class="chip active" data-field="cfgSubsVAlign" data-value="bottom">Bottom</button>
+              </div>
+              <input type="hidden" id="cfgSubsVAlign" value="bottom">
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label>Fade In (sec) <span class="value" id="v-cfgSubsFadeIn">0.18</span></label>
+                <input type="range" id="cfgSubsFadeIn" min="0" max="1.0" step="0.02" value="0.18">
+              </div>
+              <div class="field">
+                <label>Fade Out (sec) <span class="value" id="v-cfgSubsFadeOut">0.12</span></label>
+                <input type="range" id="cfgSubsFadeOut" min="0" max="1.0" step="0.02" value="0.12">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== SETTINGS ========== -->
+      <div class="tab-page" id="tab-settings">
+        <div class="page-header">
+          <h2>Settings</h2>
+          <p>General configuration, paths, and system options</p>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              Paths
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label>Input Directory</label>
+              <input type="text" id="cfgSettingsInputDir" value="input">
+            </div>
+            <div class="field">
+              <label>Output Directory</label>
+              <input type="text" id="cfgSettingsOutputDir" value="output">
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              Cache & Diarization
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Cache Enabled</div>
+                  <div class="m3-switch-desc">Skip existing output files</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsCache" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Validate JSON</div>
+                  <div class="m3-switch-desc">Verify output JSON integrity</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsValidateJson" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Diarization (Speaker ID)</div>
+                  <div class="m3-switch-desc">Identify speakers in the audio</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsDiarization">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field">
+              <label>Diarization Model</label>
+              <input type="text" id="cfgSettingsDiarModel" value="pyannote/speaker-diarization">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+            CLI Options
+          </div>
+          <div class="grid-3">
+            <div class="field">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Quiet Mode</div>
+                  <div class="m3-switch-desc">Suppress non-error output</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsQuiet">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Verbose Mode</div>
+                  <div class="m3-switch-desc">Show detailed logs</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsVerbose">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text">Skip Existing</div>
+                  <div class="m3-switch-desc">Don't reprocess completed stages</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsSkipExisting" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            Generated config.yaml Preview
+          </div>
+          <div style="background: var(--md-sys-color-surface-container-highest); border-radius: 12px; padding: 16px; border: 1px solid var(--md-sys-color-outline-variant);">
+            <textarea id="configPreview" style="font-family: var(--font-code); font-size: 11px; min-height: 200px; background: transparent; color: var(--md-sys-color-secondary); border: none; padding: 0; resize: vertical; width: 100%;" readonly></textarea>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 12px;">
+            <button class="btn btn-filled" id="btnExportConfig">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export config.yaml
+            </button>
+            <button class="btn btn-tonal" id="btnResetConfig">Reset to Defaults</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== LOGS ========== -->
+      <div class="tab-page" id="tab-logs">
+        <div class="page-header">
+          <h2>Pipeline Logs</h2>
+          <p>Real-time output from pipeline stages</p>
+        </div>
+
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div class="card-title" style="margin: 0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              Console Output
+            </div>
+            <div class="btn-group">
+              <button class="btn btn-text" id="btnClearLogs">Clear</button>
+              <button class="btn btn-text" id="btnCopyLogs">Copy</button>
+            </div>
+          </div>
+          <div class="log-panel" id="logPanel">
+            <div class="log-line"><span class="ts">[--:--:--]</span> Waiting for pipeline to start...</div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- BOTTOM BAR -->
+    <footer class="bottom-bar">
+      <div class="bottom-bar-left">
+        <span class="bottom-status" id="bottomStatus">Ready</span>
+      </div>
+      <div class="bottom-bar-center">
+        <div class="pipeline-overview" id="pipelineOverview">
+          <div class="pipeline-overview-dot" data-stage="transcribe"></div>
+          <div class="pipeline-overview-dot" data-stage="diarize"></div>
+          <div class="pipeline-overview-dot" data-stage="analyze"></div>
+          <div class="pipeline-overview-dot" data-stage="cut"></div>
+          <div class="pipeline-overview-dot" data-stage="subtitles"></div>
+        </div>
+      </div>
+      <div class="bottom-bar-right">
+        <span class="gpu-info" id="gpuInfo">GPU: --</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- FAB: Run Pipeline -->
+  <button class="fab" id="fabRun" data-tooltip="Run Pipeline">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+  </button>
+
+  <script>
+    /* ===================================================================
+       Podcast Reels Forge — Pipeline GUI
+       Material Design 3.0 • Dark Theme • Single-file application
+       =================================================================== */
+
+    const STORAGE_KEY = 'forge.pipeline_gui.v1';
+
+    // ---- Default configuration (mirrors config.yaml) ----
+    const DEFAULTS = {
+      // Transcription
+      transcribeModel: 'large-v3',
+      transcribeDevice: 'auto',
+      transcribeComputeType: 'auto',
+      transcribeLanguage: 'auto',
+      transcribeMode: 'fast',
+      transcribeBeam: 5,
+      transcribeBatch: 16,
+      transcribeBestOf: 1,
+      transcribeQBeam: 10,
+      transcribeCondition: false,
+      transcribeRepPenalty: 1.1,
+      transcribeNoRepeat: 3,
+      transcribePatience: 1.0,
+      transcribePrompt: '',
+      // Analysis
+      analyzeUrl: 'http://127.0.0.1:11440/completion',
+      analyzeAutoStart: true,
+      analyzeModelPath: '/opt/llamacpp/models/gemma4-26b.gguf',
+      analyzeScout: 'gemma4:26b',
+      analyzeCleanup: 'gemma4:26b',
+      analyzeJudge: 'gemma4:26b',
+      analyzeTemp: 0.2,
+      analyzeTimeout: 600,
+      analyzeChunk: 900,
+      analyzeMaxChars: 7000,
+      analyzeWatchdog: true,
+      analyzeFirstToken: 90,
+      analyzeStall: 120,
+      analyzeRetries: 4,
+      analyzeLang: 'auto',
+      analyzeVariant: 'default',
+      // Cut & Export
+      cutNvenc: true,
+      cutVBitrate: '8M',
+      cutABitrate: '192k',
+      cutPreset: 'fast',
+      cutNvencCq: 21,
+      cutNvencPreset: 'p5',
+      cutMinScore: 7,
+      cutMinDur: 15,
+      cutMaxDur: 180,
+      cutFaceRatio: 0.3,
+      cutVertical: true,
+      cutSmartCrop: true,
+      cutFaceSamples: 9,
+      cutFaceMinSize: 72,
+      cutWebm: false,
+      cutGif: false,
+      cutAudio: false,
+      cutThreads: 4,
+      cutPadding: 5,
+      // Subtitles
+      subsEnabled: true,
+      subsFont: 'assets/fonts/bignoodletoooblique.ttf',
+      subsAss: 'assets/subtitles/forge_subtitles.ass',
+      subsFontSize: 36,
+      subsWrap: true,
+      subsMaxLines: 2,
+      subsMaxWidth: 0.65,
+      subsVAlign: 'bottom',
+      subsFadeIn: 0.18,
+      subsFadeOut: 0.12,
+      // Settings
+      settingsInputDir: 'input',
+      settingsOutputDir: 'output',
+      settingsCache: true,
+      settingsValidateJson: true,
+      settingsDiarization: false,
+      settingsDiarModel: 'pyannote/speaker-diarization',
+      settingsQuiet: false,
+      settingsVerbose: false,
+      settingsSkipExisting: true,
+    };
+
+    // ---- State ----
+    const state = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') };
+    let queue = [];
+    let pipelineRunning = false;
+    let currentStage = null;
+    let logLines = [];
+
+    // ---- Navigation ----
+    document.querySelectorAll('.nav-rail-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        document.querySelectorAll('.nav-rail-item').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
+        document.getElementById('tab-' + tab).classList.add('active');
+        document.getElementById('mainContent').scrollTop = 0;
+      });
+    });
+
+    // ---- Chip groups ----
+    document.querySelectorAll('.chip[data-field]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const field = chip.dataset.field;
+        const value = chip.dataset.value;
+        document.querySelectorAll(`.chip[data-field="${field}"]`).forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        document.getElementById(field).value = value;
+        state[field.replace('cfg', '')] = value;
+        saveState();
+      });
+    });
+
+    // ---- Sync all inputs to state ----
+    function syncFromState() {
+      Object.keys(DEFAULTS).forEach(key => {
+        const el = document.getElementById('cfg' + key.charAt(0).toUpperCase() + key.slice(1));
+        if (!el) return;
+        if (el.type === 'checkbox') el.checked = state[key];
+        else if (el.type === 'range') { el.value = state[key]; updateSliderValue(el); }
+        else el.value = state[key];
+
+        // Sync chip groups
+        document.querySelectorAll(`.chip[data-field="cfg${key.charAt(0).toUpperCase() + key.slice(1)}"]`).forEach(c => {
+          c.classList.toggle('active', c.dataset.value === String(state[key]));
+        });
+      });
+      updateConfigPreview();
+    }
+
+    function updateSliderValue(el) {
+      const valEl = document.getElementById('v-' + el.id);
+      if (valEl) valEl.textContent = el.value;
+    }
+
+    // Bind all inputs
+    document.querySelectorAll('input[type="range"]').forEach(el => {
+      el.addEventListener('input', () => {
+        const key = el.id.replace('cfg', '');
+        state[key.charAt(0).toLowerCase() + key.slice(1)] = parseFloat(el.value);
+        updateSliderValue(el);
+        saveState();
+        updateConfigPreview();
+      });
+    });
+
+    document.querySelectorAll('input[type="text"], input[type="number"], textarea, select').forEach(el => {
+      if (el.id && el.id.startsWith('cfg')) {
+        el.addEventListener('input', () => {
+          const key = el.id.replace('cfg', '');
+          state[key.charAt(0).toLowerCase() + key.slice(1)] = el.value;
+          saveState();
+          updateConfigPreview();
+        });
+      }
+    });
+
+    document.querySelectorAll('input[type="checkbox"]').forEach(el => {
+      if (el.id && el.id.startsWith('cfg')) {
+        el.addEventListener('change', () => {
+          const key = el.id.replace('cfg', '');
+          state[key.charAt(0).toLowerCase() + key.slice(1)] = el.checked;
+          saveState();
+          updateConfigPreview();
+        });
+      }
+    });
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    // ---- File drop zone ----
+    const fileDrop = document.getElementById('fileDrop');
+    const fileInput = document.getElementById('fileInput');
+
+    fileDrop.addEventListener('dragover', e => { e.preventDefault(); fileDrop.classList.add('dragover'); });
+    fileDrop.addEventListener('dragleave', () => fileDrop.classList.remove('dragover'));
+    fileDrop.addEventListener('drop', e => {
+      e.preventDefault();
+      fileDrop.classList.remove('dragover');
+      addFilesToQueue(e.dataTransfer.files);
+    });
+    fileInput.addEventListener('change', () => {
+      addFilesToQueue(fileInput.files);
+      fileInput.value = '';
+    });
+
+    function addFilesToQueue(files) {
+      for (const file of files) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (['mp4','mkv','mov','avi','mp3','wav','flac','ogg'].includes(ext)) {
+          queue.push({
+            id: Date.now() + Math.random(),
+            name: file.name,
+            size: file.size,
+            status: 'pending',
+            file: file,
+          });
+        }
+      }
+      renderQueue();
+      updateStats();
+    }
+
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / 1048576).toFixed(1) + ' MB';
+    }
+
+    function renderQueue() {
+      const list = document.getElementById('queueList');
+      const empty = document.getElementById('queueEmpty');
+
+      if (queue.length === 0) {
+        empty.style.display = 'block';
+        list.querySelectorAll('.queue-item').forEach(el => el.remove());
+        return;
+      }
+
+      empty.style.display = 'none';
+      // Remove old items
+      list.querySelectorAll('.queue-item').forEach(el => el.remove());
+
+      queue.forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'queue-item';
+        el.innerHTML = `
+          <div class="queue-item-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+          </div>
+          <div>
+            <div class="queue-item-name">${item.name}</div>
+            <div class="queue-item-meta">${formatSize(item.size)}</div>
+          </div>
+          <span class="queue-item-status status-${item.status}">${item.status.toUpperCase()}</span>
+          <button class="btn btn-text" onclick="removeFromQueue('${item.id}')" style="min-width:auto; padding: 0 8px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        `;
+        list.appendChild(el);
+      });
+    }
+
+    window.removeFromQueue = function(id) {
+      queue = queue.filter(item => String(item.id) !== String(id));
+      renderQueue();
+      updateStats();
+    };
+
+    function updateStats() {
+      document.getElementById('statQueue').textContent = queue.length;
+    }
+
+    // ---- Pipeline Visual ----
+    function setPipelineStage(stage, status) {
+      const visual = document.getElementById('pipelineVisual');
+      const overview = document.getElementById('pipelineOverview');
+      const stages = ['transcribe', 'diarize', 'analyze', 'cut', 'subtitles'];
+      const idx = stages.indexOf(stage);
+
+      if (status === 'active') {
+        currentStage = stage;
+        // Mark all before as done
+        stages.forEach((s, i) => {
+          const el = visual.querySelector(`[data-stage="${s}"]`);
+          const conn = visual.querySelectorAll('.pipeline-connector')[i];
+          if (i < idx) {
+            el.className = 'pipeline-stage done';
+            if (conn) conn.className = 'pipeline-connector done';
+          } else if (i === idx) {
+            el.className = 'pipeline-stage active';
+            if (conn) conn.className = 'pipeline-connector active';
+          } else {
+            el.className = 'pipeline-stage';
+            if (conn) conn.className = 'pipeline-connector';
+          }
+        });
+      } else if (status === 'done') {
+        stages.forEach((s, i) => {
+          if (i <= idx) {
+            const el = visual.querySelector(`[data-stage="${s}"]`);
+            el.className = 'pipeline-stage done';
+            const conn = visual.querySelectorAll('.pipeline-connector')[i];
+            if (conn) conn.className = 'pipeline-connector done';
+          }
+        });
+      } else if (status === 'error') {
+        const el = visual.querySelector(`[data-stage="${stage}"]`);
+        el.className = 'pipeline-stage error';
+      }
+
+      // Overview dots
+      overview.querySelectorAll('.pipeline-overview-dot').forEach(dot => {
+        const s = dot.dataset.stage;
+        const si = stages.indexOf(s);
+        if (si < idx) dot.className = 'pipeline-overview-dot done';
+        else if (si === idx && status === 'active') dot.className = 'pipeline-overview-dot active';
+        else if (si === idx && status === 'done') dot.className = 'pipeline-overview-dot done';
+        else if (si === idx && status === 'error') dot.className = 'pipeline-overview-dot error';
+        else dot.className = 'pipeline-overview-dot';
+      });
+    }
+
+    function resetPipelineVisual() {
+      document.querySelectorAll('.pipeline-stage').forEach(el => el.className = 'pipeline-stage');
+      document.querySelectorAll('.pipeline-connector').forEach(el => el.className = 'pipeline-connector');
+      document.querySelectorAll('.pipeline-overview-dot').forEach(el => el.className = 'pipeline-overview-dot');
+      currentStage = null;
+    }
+
+    // ---- Logging ----
+    function addLog(msg, level = 'info') {
+      const now = new Date().toLocaleTimeString('en-GB', { hour12: false });
+      logLines.push({ ts: now, msg, level });
+      const panel = document.getElementById('logPanel');
+      const line = document.createElement('div');
+      line.className = `log-line ${level}`;
+      line.innerHTML = `<span class="ts">[${now}]</span> ${msg}`;
+      panel.appendChild(line);
+      panel.scrollTop = panel.scrollHeight;
+    }
+
+    document.getElementById('btnClearLogs').addEventListener('click', () => {
+      logLines = [];
+      document.getElementById('logPanel').innerHTML = '';
+      addLog('Logs cleared', 'info');
+    });
+
+    document.getElementById('btnCopyLogs').addEventListener('click', () => {
+      const text = logLines.map(l => `[${l.ts}] ${l.msg}`).join('\n');
+      navigator.clipboard.writeText(text).then(() => addLog('Logs copied to clipboard', 'info'));
+    });
+
+    // ---- Config Export ----
+    function generateConfig() {
+      return `# Podcast Reels Forge — Generated by Pipeline GUI
+# ${new Date().toISOString()}
+
+paths:
+  input_dir: "${state.settingsInputDir}"
+  output_dir: "${state.settingsOutputDir}"
+
+cli:
+  quiet: ${state.settingsQuiet}
+  verbose: ${state.settingsVerbose}
+
+cache:
+  enabled: ${state.settingsCache}
+  validate_json: ${state.settingsValidateJson}
+
+transcription:
+  model: "${state.transcribeModel}"
+  device: "${state.transcribeDevice}"
+  language: "${state.transcribeLanguage}"
+  beam_size: ${state.transcribeBeam}
+  compute_type: "${state.transcribeComputeType}"
+  best_of: ${state.transcribeBestOf}
+  patience: ${state.transcribePatience}
+  batch_size: ${state.transcribeBatch}
+  condition_on_previous_text: ${state.transcribeCondition}
+  repetition_penalty: ${state.transcribeRepPenalty}
+  no_repeat_ngram_size: ${state.transcribeNoRepeat}
+  mode: "${state.transcribeMode}"
+  quality_beam_size: ${state.transcribeQBeam}
+  initial_prompt: "${state.transcribePrompt}"
+
+llama_cpp:
+  url: "${state.analyzeUrl}"
+  service:
+    auto_start: ${state.analyzeAutoStart}
+    model_path: "${state.analyzeModelPath}"
+    n_gpu_layers: 0
+    ctx_size: 8192
+    batch_size: 1024
+    ubatch_size: 512
+    threads: 4
+    parallel: 1
+  scout_parallelism: 1
+  roles:
+    scout: "${state.analyzeScout}"
+    cleanup_refine: "${state.analyzeCleanup}"
+    judge_metadata: "${state.analyzeJudge}"
+  timeout: ${state.analyzeTimeout}
+  temperature: ${state.analyzeTemp}
+  chunk_seconds: ${state.analyzeChunk}
+  max_chars_chunk: ${state.analyzeMaxChars}
+  watchdog:
+    enabled: ${state.analyzeWatchdog}
+    first_token_timeout: ${state.analyzeFirstToken}
+    stall_timeout: ${state.analyzeStall}
+    max_retries: ${state.analyzeRetries}
+
+prompts:
+  language: "${state.analyzeLang}"
+  variant: "${state.analyzeVariant}"
+
+processing:
+  quality_filters:
+    min_score: ${state.cutMinScore}
+    min_duration: ${state.cutMinDur}
+    max_duration: ${state.cutMaxDur}
+    face_min_ratio: ${state.cutFaceRatio}
+  reel_padding: ${state.cutPadding}
+
+exports:
+  webm: ${state.cutWebm}
+  gif: ${state.cutGif}
+  audio_only: ${state.cutAudio}
+
+subtitles:
+  enabled: ${state.subsEnabled}
+  font: "${state.subsFont}"
+  ass_style: "${state.subsAss}"
+  font_size_px: ${state.subsFontSize}
+  wrap_words: ${state.subsWrap}
+  max_lines: ${state.subsMaxLines}
+  max_width_ratio: ${state.subsMaxWidth}
+  vertical_align: "${state.subsVAlign}"
+  fade_in_duration: ${state.subsFadeIn}
+  fade_out_duration: ${state.subsFadeOut}
+
+video:
+  threads: ${state.cutThreads}
+  vertical_crop: ${state.cutVertical}
+  smart_crop_face: ${state.cutSmartCrop}
+  video_bitrate: "${state.cutVBitrate}"
+  audio_bitrate: "${state.cutABitrate}"
+  preset: "${state.cutPreset}"
+  use_nvenc: ${state.cutNvenc}
+  nvenc_cq: ${state.cutNvencCq}
+  nvenc_preset: "${state.cutNvencPreset}"
+  face_samples: ${state.cutFaceSamples}
+  face_min_size: ${state.cutFaceMinSize}
+
+diarization:
+  enabled: ${state.settingsDiarization}
+  model: "${state.settingsDiarModel}"
+`;
+    }
+
+    function updateConfigPreview() {
+      const el = document.getElementById('configPreview');
+      if (el) el.value = generateConfig();
+    }
+
+    document.getElementById('btnExportConfig').addEventListener('click', () => {
+      const blob = new Blob([generateConfig()], { type: 'text/yaml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'config.yaml'; a.click();
+      URL.revokeObjectURL(url);
+      addLog('config.yaml exported', 'success');
+    });
+
+    document.getElementById('btnResetConfig').addEventListener('click', () => {
+      Object.assign(state, DEFAULTS);
+      localStorage.removeItem(STORAGE_KEY);
+      syncFromState();
+      addLog('Configuration reset to defaults', 'info');
+    });
+
+    // ---- Simulated Pipeline ----
+    const btnRun = document.getElementById('btnRunPipeline');
+    const fabRun = document.getElementById('fabRun');
+
+    async function runPipeline() {
+      if (pipelineRunning) return;
+      if (queue.length === 0) {
+        addLog('No files in queue. Add video files first.', 'warn');
+        return;
+      }
+
+      pipelineRunning = true;
+      btnRun.disabled = true;
+      fabRun.disabled = true;
+
+      const stages = ['transcribe', 'analyze', 'cut'];
+      if (state.settingsDiarization) stages.splice(1, 0, 'diarize');
+      if (state.subsEnabled) stages.push('subtitles');
+
+      document.getElementById('bottomStatus').textContent = 'Pipeline running...';
+
+      for (const item of queue) {
+        if (item.status === 'done') continue;
+        item.status = 'running';
+        renderQueue();
+        addLog(`[forge] processing: ${item.name}`, 'info');
+
+        for (const stage of stages) {
+          setPipelineStage(stage, 'active');
+          addLog(`[${stage}] start`, 'info');
+          document.getElementById('bottomStatus').textContent = `${stage}: ${item.name}`;
+
+          // Simulate work
+          await new Promise(r => setTimeout(r, 800 + Math.random() * 1200));
+
+          // 10% chance of error for demo
+          if (Math.random() < 0.1) {
+            setPipelineStage(stage, 'error');
+            addLog(`[${stage}] error: simulated failure`, 'error');
+            item.status = 'error';
+            renderQueue();
+            pipelineRunning = false;
+            btnRun.disabled = false;
+            fabRun.disabled = false;
+            document.getElementById('bottomStatus').textContent = 'Error occurred';
+            return;
+          }
+
+          setPipelineStage(stage, 'done');
+          addLog(`[${stage}] done`, 'success');
+        }
+
+        item.status = 'done';
+        renderQueue();
+        addLog(`[forge] done: ${item.name}`, 'success');
+      }
+
+      pipelineRunning = false;
+      btnRun.disabled = false;
+      fabRun.disabled = false;
+      document.getElementById('bottomStatus').textContent = 'Pipeline complete';
+      document.getElementById('statReels').textContent = queue.filter(i => i.status === 'done').length;
+      addLog('[forge] all files processed', 'success');
+    }
+
+    btnRun.addEventListener('click', runPipeline);
+    fabRun.addEventListener('click', runPipeline);
+
+    document.getElementById('btnAutotune').addEventListener('click', () => {
+      addLog('[autotune] detecting system configuration...', 'info');
+      // Detect GPU
+      const gpuInfo = document.getElementById('gpuInfo');
+      if (navigator.gpu) {
+        navigator.gpu.requestAdapter().then(adapter => {
+          gpuInfo.textContent = `GPU: ${adapter.name || 'detected'}`;
+          addLog(`[autotune] GPU: ${adapter.name || 'detected'}`, 'success');
+        }).catch(() => {
+          gpuInfo.textContent = 'GPU: not available';
+          addLog('[autotune] No WebGPU adapter (running in worker?)', 'warn');
+        });
+      }
+      // Auto-set based on CPU cores
+      const cores = navigator.hardwareConcurrency || 4;
+      const threads = Math.max(1, Math.min(8, Math.floor(cores / 2)));
+      document.getElementById('cfgCutThreads').value = threads;
+      state.cutThreads = threads;
+      updateSliderValue(document.getElementById('cfgCutThreads'));
+      addLog(`[autotune] CPU cores: ${cores}, video threads: ${threads}`, 'info');
+      addLog('[autotune] done', 'success');
+      saveState();
+    });
+
+    document.getElementById('btnOpenStyleEditor').addEventListener('click', () => {
+      window.open('../assets/subtitles/style-editor.html', '_blank');
+    });
+
+    // ---- Init ----
+    syncFromState();
+    updateStats();
+    addLog('Pipeline GUI loaded', 'info');
+    addLog(`Config loaded from localStorage (${Object.keys(state).length} keys)`, 'info');
+  </script>
+</body>
+</html>
