@@ -57,7 +57,7 @@ class _TimedSubtitleWord:
 class SubtitleRenderSettings:
     enabled: bool
     font_path: Path
-    css_path: Path = DEFAULT_SUBTITLE_CSS_TEMPLATE
+    ass_style: Path | None = None
     font_size_px: int = DEFAULT_FONT_SIZE_PX
     max_lines: int = DEFAULT_MAX_LINES
     max_width_ratio: float = DEFAULT_MAX_WIDTH_RATIO
@@ -80,22 +80,22 @@ def subtitle_settings_from_conf(
         subtitles_conf = {}
     enabled = bool(subtitles_conf.get("enabled", True))
     font_value = subtitles_conf.get("font") or subtitles_conf.get("font_path")
-    css_value = subtitles_conf.get("css") or subtitles_conf.get("css_path")
+    ass_style_value = subtitles_conf.get("ass_style")
     font_path = _resolve_config_path(
         font_value,
         repo_dir=repo_dir,
         default=DEFAULT_SUBTITLE_FONT,
     )
-    css_path = _resolve_config_path(
-        css_value,
+    ass_style = _resolve_config_path(
+        ass_style_value,
         repo_dir=repo_dir,
-        default=DEFAULT_SUBTITLE_CSS_TEMPLATE,
-    )
+        default=Path("assets/subtitles/forge_subtitles.ass"),
+    ) if ass_style_value else None
 
     return SubtitleRenderSettings(
         enabled=enabled,
         font_path=font_path,
-        css_path=css_path,
+        ass_style=ass_style,
         font_size_px=_coerce_int(
             subtitles_conf.get("font_size_px"),
             default=DEFAULT_FONT_SIZE_PX,
@@ -275,34 +275,65 @@ def _fmt_ass_time(seconds: float) -> str:
 
 
 def _write_ass_file(path: Path, segments: Sequence[SubtitleSegment], settings: SubtitleRenderSettings) -> None:
-    font_name = "Bignoodletoo Oblique"
-    font_size = settings.font_size_px
+    # Try to load ASS style from the style-editor output file
+    ass_style_path = _find_ass_style_file()
+    if ass_style_path and ass_style_path.exists():
+        header = ass_style_path.read_text(encoding="utf-8").rstrip()
+    else:
+        font_name = _font_name_from_path(settings.font_path)
+        header = _default_ass_header(font_name, settings.font_size_px)
 
-    # ASS Header
-    ass_content = f"""[Script Info]
+    # Events section
+    events = "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+
+    dialogue_lines: list[str] = []
+    for seg in segments:
+        words = _build_timed_words(seg)
+        parts: list[str] = []
+        for w in words:
+            dur_cs = int((w.end - w.start) * 100)
+            parts.append(f"{{\\kf{dur_cs}}}{w.text}")
+
+        dialogue_text = " ".join(parts)
+        dialogue_lines.append(
+            f"Dialogue: 0,{_fmt_ass_time(seg.start)},{_fmt_ass_time(seg.end)},Default,,0,0,0,,{dialogue_text}"
+        )
+
+    path.write_text(header + events + "\n".join(dialogue_lines) + "\n", encoding="utf-8")
+
+
+def _find_ass_style_file() -> Path | None:
+    """Look for the style-editor output file (forge_subtitles.ass) in known locations."""
+    base = Path(__file__).resolve().parents[2]
+    candidates = [
+        base / "assets" / "subtitles" / "forge_subtitles.ass",
+        base / DEFAULT_SUBTITLE_CSS_TEMPLATE.with_suffix(".ass"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _font_name_from_path(font_path: Path) -> str:
+    """Extract a readable font name from the font file path."""
+    stem = font_path.stem
+    # Convert file name to a more readable font name
+    name = stem.replace("_", " ").replace("-", " ")
+    # Capitalize each word
+    return " ".join(word.capitalize() for word in name.split())
+
+
+def _default_ass_header(font_name: str, font_size: int) -> str:
+    """Generate a default ASS header with sensible defaults."""
+    return f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,1,0,1,4,3,2,40,40,150,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-
-    for seg in segments:
-        words = _build_timed_words(seg)
-        parts = []
-        for w in words:
-            dur_cs = int((w.end - w.start) * 100)
-            parts.append(f"{{\\kf{dur_cs}}}{w.text}")
-
-        dialogue_text = " ".join(parts)
-        ass_content += f"Dialogue: 0,{_fmt_ass_time(seg.start)},{_fmt_ass_time(seg.end)},Default,,0,0,0,,{dialogue_text}\n"
-
-    path.write_text(ass_content, encoding="utf-8")
+Style: Default,{font_name},{font_size},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,1,0,1,4,3,2,40,40,150,1"""
 
 
 def load_transcript_segments(path: Path) -> list[SubtitleSegment]:

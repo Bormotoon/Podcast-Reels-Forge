@@ -39,7 +39,7 @@ def test_subtitle_settings_defaults_are_conservative(tmp_path: Path) -> None:
     assert settings.wrap_words is True
     assert settings.vertical_align == "bottom"
     assert settings.vertical_offset == 0.0
-    assert settings.css_path == (tmp_path / bs.DEFAULT_SUBTITLE_CSS_TEMPLATE).resolve()
+    assert settings.ass_style is None
 
 
 def test_subtitle_settings_from_conf_resolves_css_path(tmp_path: Path) -> None:
@@ -48,7 +48,7 @@ def test_subtitle_settings_from_conf_resolves_css_path(tmp_path: Path) -> None:
             "subtitles": {
                 "enabled": True,
                 "font": "assets/fonts/custom.ttf",
-                "css": "assets/subtitles/custom.css",
+                "ass_style": "assets/subtitles/custom.ass",
                 "wrap_words": False,
             },
         },
@@ -57,7 +57,7 @@ def test_subtitle_settings_from_conf_resolves_css_path(tmp_path: Path) -> None:
 
     assert settings.enabled is True
     assert settings.font_path == (tmp_path / "assets/fonts/custom.ttf").resolve()
-    assert settings.css_path == (tmp_path / "assets/subtitles/custom.css").resolve()
+    assert settings.ass_style == (tmp_path / "assets/subtitles/custom.ass").resolve()
     assert settings.wrap_words is False
 
 
