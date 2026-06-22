@@ -6,6 +6,4 @@ coloredlogs>=15.0.1
 requests>=2.31.0
 PyYAML>=6.0.1
 opencv-python-headless>=4.8.0
-pycaps @ git+https://github.com/francozanardi/pycaps.git@a71237b643ed6f6b61122654b7ff23c9ebb80366
-playwright>=1.40.0
 platformdirs>=4.0.0

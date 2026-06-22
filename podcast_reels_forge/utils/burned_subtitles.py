@@ -1,11 +1,9 @@
-"""Helpers for rendering burned-in subtitles with pycaps."""
+"""Helpers for rendering burned-in subtitles via .ass files."""
 
 from __future__ import annotations
 
 import json
 import logging
-import os
-import shutil
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,7 +25,6 @@ DEFAULT_WORD_X_SPACE = 6
 DEFAULT_WORD_Y_SPACE = 8
 DEFAULT_TEXT_OVERFLOW_STRATEGY = "exceed_width"
 DEFAULT_AVOID_ENDING_WITH_SHORT_WORD_CHARS = 2
-_PYCAPS_TEMPLATE_DIRNAME = ".pycaps_template"
 
 # BBC/Netflix subtitle guidelines (https://www.bbc.co.uk/accessibility/forproducts/guides/subtitles):
 # - 25 chars/line for 9:16 vertical (equivalent to 37 chars in 75% 16:9)
@@ -171,8 +168,6 @@ def ensure_reel_burned_subtitles(
         raise FileNotFoundError(f"Transcript JSON not found: {transcript_json_path}")
     if not settings.font_path.exists():
         raise FileNotFoundError(f"Subtitle font not found: {settings.font_path}")
-    if not settings.css_path.exists():
-        raise FileNotFoundError(f"Subtitle CSS template not found: {settings.css_path}")
 
     start = _coerce_float(moment.get("start"), default=0.0)
     end = _coerce_float(moment.get("end"), default=0.0)
@@ -180,17 +175,13 @@ def ensure_reel_burned_subtitles(
         raise ValueError(f"Invalid reel boundaries for {reel_path.name}: start={start} end={end}")
 
     transcript_segments = load_transcript_segments(transcript_json_path)
-    template_dir = prepare_pycaps_template(
-        reel_path.parent / _PYCAPS_TEMPLATE_DIRNAME,
-        settings=settings,
-    )
     return _render_reel_with_subtitles_assets(
         moment=moment,
         reel_path=reel_path,
         transcript_segments=transcript_segments,
         padding=padding,
         settings=settings,
-        template_dir=template_dir,
+        template_dir=reel_path.parent,
         verbose=verbose,
     )
 
@@ -217,10 +208,6 @@ def sync_reel_burned_subtitles(
         return written
 
     transcript_segments = load_transcript_segments(transcript_json_path)
-    template_dir = prepare_pycaps_template(
-        reels_root / _PYCAPS_TEMPLATE_DIRNAME,
-        settings=settings,
-    )
 
     for reel_path in reel_files:
         index = reel_index_from_path(reel_path)
@@ -235,7 +222,7 @@ def sync_reel_burned_subtitles(
             transcript_segments=transcript_segments,
             padding=padding,
             settings=settings,
-            template_dir=template_dir,
+            template_dir=reel_path.parent,
             verbose=verbose,
         )
         if srt_path is not None:
@@ -256,7 +243,7 @@ def _render_reel_with_subtitles_assets(
     start = _coerce_float(moment.get("start"), default=0.0)
     end = _coerce_float(moment.get("end"), default=0.0)
     if end <= start:
-        raise ValueError(f"Invalid reel boundaries for {reel_path.name}: start={start} end={end}")
+        raise ValueError(f"Invalid boundaries: {start} - {end}")
 
     clip_segments = slice_segments_for_clip(
         transcript_segments,
@@ -264,30 +251,58 @@ def _render_reel_with_subtitles_assets(
         clip_end=end + float(padding),
     )
     clip_segments = _prepare_subtitle_segments(clip_segments, settings=settings)
+
     if not clip_segments:
-        LOG.warning(
-            "No transcript segments overlap %s; leaving video without burned subtitles",
-            reel_path.name,
-        )
         return None
 
+    # Write fallback .srt
     srt_path = reel_path.with_suffix(".srt")
     write_srt_file(srt_path, clip_segments)
 
-    subtitled_path = reel_path.with_name(f"{reel_path.stem}.subtitled{reel_path.suffix}")
-    if subtitled_path.exists():
-        subtitled_path.unlink(missing_ok=True)
+    # Write .ass subtitles
+    ass_path = reel_path.with_suffix(".ass")
+    _write_ass_file(ass_path, clip_segments, settings)
 
-    _render_reel_with_pycaps(
-        template_dir=template_dir,
-        reel_path=reel_path,
-        tmp_output=subtitled_path,
-        clip_segments=clip_segments,
-        settings=settings,
-        verbose=verbose,
-    )
-    # Keep reel_path as the clean (no-subtitle) version; subtitled_path is the burned version.
-    return srt_path
+    return ass_path
+
+
+def _fmt_ass_time(seconds: float) -> str:
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = seconds % 60
+    cs = int((s % 1) * 100)
+    return f"{h}:{m:02d}:{int(s):02d}.{cs:02d}"
+
+
+def _write_ass_file(path: Path, segments: Sequence[SubtitleSegment], settings: SubtitleRenderSettings) -> None:
+    font_name = "Bignoodletoo Oblique"
+    font_size = settings.font_size_px
+
+    # ASS Header
+    ass_content = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,{font_name},{font_size},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,1,0,1,4,3,2,40,40,150,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+    for seg in segments:
+        words = _build_timed_words(seg)
+        parts = []
+        for w in words:
+            dur_cs = int((w.end - w.start) * 100)
+            parts.append(f"{{\\kf{dur_cs}}}{w.text}")
+
+        dialogue_text = " ".join(parts)
+        ass_content += f"Dialogue: 0,{_fmt_ass_time(seg.start)},{_fmt_ass_time(seg.end)},Default,,0,0,0,,{dialogue_text}\n"
+
+    path.write_text(ass_content, encoding="utf-8")
 
 
 def load_transcript_segments(path: Path) -> list[SubtitleSegment]:
@@ -369,173 +384,6 @@ def write_srt_file(path: Path, segments: Sequence[SubtitleSegment]) -> Path:
     return path
 
 
-def prepare_pycaps_template(
-    template_dir: Path,
-    *,
-    settings: SubtitleRenderSettings,
-) -> Path:
-    resources_dir = template_dir / "resources"
-    resources_dir.mkdir(parents=True, exist_ok=True)
-
-    font_suffix = settings.font_path.suffix.lower() or ".ttf"
-    font_name = f"subtitle_font{font_suffix}"
-    shutil.copyfile(settings.font_path, resources_dir / font_name)
-
-    (template_dir / "styles.css").write_text(
-        _render_styles_css_template(
-            settings.css_path,
-            font_filename=font_name,
-            font_size_px=settings.font_size_px,
-            font_format=_font_format_for_suffix(font_suffix),
-        ),
-        encoding="utf-8",
-    )
-    (template_dir / "pycaps.template.json").write_text(
-        json.dumps(
-            _build_template_config(settings),
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return template_dir
-
-
-def _build_template_config(settings: SubtitleRenderSettings) -> dict[str, Any]:
-    max_number_of_lines = settings.max_lines if settings.wrap_words else 1
-    return {
-        "css": "styles.css",
-        "resources": "resources",
-        "layout": {
-            "x_words_space": settings.word_x_space,
-            "y_words_space": settings.word_y_space,
-            "max_width_ratio": settings.max_width_ratio,
-            "max_number_of_lines": max_number_of_lines,
-            "min_number_of_lines": 1,
-            "on_text_overflow_strategy": DEFAULT_TEXT_OVERFLOW_STRATEGY,
-            "vertical_align": {
-                "align": settings.vertical_align,
-                "offset": settings.vertical_offset,
-            },
-        },
-        "animations": [
-            {
-                "type": "fade_in",
-                "when": "narration-starts",
-                "what": "segment",
-                "duration": settings.fade_in_duration,
-            },
-            {
-                "type": "fade_out",
-                "when": "narration-ends",
-                "what": "segment",
-                "duration": settings.fade_out_duration,
-            },
-        ],
-    }
-
-
-def _render_styles_css_template(
-    template_path: Path,
-    *,
-    font_filename: str,
-    font_size_px: int,
-    font_format: str,
-) -> str:
-    default_template_path = _default_css_template_path()
-    rendered_default = _render_single_stylesheet(
-        default_template_path,
-        font_filename=font_filename,
-        font_size_px=font_size_px,
-        font_format=font_format,
-    )
-    if template_path.resolve() == default_template_path:
-        return rendered_default
-
-    rendered_custom = _render_single_stylesheet(
-        template_path,
-        font_filename=font_filename,
-        font_size_px=font_size_px,
-        font_format=font_format,
-    )
-    return rendered_default.rstrip() + "\n\n" + rendered_custom.lstrip()
-
-
-def _render_single_stylesheet(
-    template_path: Path,
-    *,
-    font_filename: str,
-    font_size_px: int,
-    font_format: str,
-) -> str:
-    template = template_path.read_text(encoding="utf-8")
-    return (
-        template.replace("__FONT_FILENAME__", font_filename)
-        .replace("__FONT_FORMAT__", font_format)
-        .replace("__FONT_SIZE_PX__", str(int(font_size_px)))
-    )
-
-
-def _render_reel_with_pycaps(
-    *,
-    template_dir: Path,
-    reel_path: Path,
-    tmp_output: Path,
-    clip_segments: Sequence[SubtitleSegment],
-    settings: SubtitleRenderSettings,
-    verbose: bool = False,
-) -> None:
-    try:
-        from pycaps.common import Document, Line, Segment, TimeFragment, Word
-        from pycaps.template import TemplateLoader
-        from pycaps.transcriber import AudioTranscriber
-    except ModuleNotFoundError as exc:  # pragma: no cover - exercised in runtime smoke tests
-        raise RuntimeError(
-            "pycaps is not installed in the current environment. Install project "
-            "requirements and make sure Playwright Chromium is available.",
-        ) from exc
-
-    class TranscriptTranscriber(AudioTranscriber):
-        def __init__(self, segments: Sequence[SubtitleSegment]) -> None:
-            self._segments = list(segments)
-
-        def transcribe(self, audio_path: str) -> Document:  # noqa: ARG002 - required by interface
-            document = Document()
-            for seg in self._segments:
-                duration = max(0.01, float(seg.end) - float(seg.start))
-                segment_time = TimeFragment(start=float(seg.start), end=float(seg.end))
-                segment = Segment(time=segment_time)
-                line = Line(time=segment_time)
-                text_without_spaces = seg.text.replace(" ", "")
-                if not text_without_spaces:
-                    continue
-                letter_duration = duration / len(text_without_spaces)
-                last_word_end = float(seg.start)
-                for word_text in seg.text.split():
-                    end = last_word_end + len(word_text) * letter_duration
-                    word = Word(
-                        text=word_text,
-                        time=TimeFragment(start=last_word_end, end=end),
-                    )
-                    last_word_end = end
-                    line.words.add(word)
-                segment.lines.add(line)
-                document.segments.add(segment)
-            return document
-
-    old_cwd = Path.cwd()
-    try:
-        os.chdir(reel_path.parent)
-        builder = TemplateLoader(template_dir.name).with_input_video(reel_path.name).load(False)
-        builder.with_output_video(tmp_output.name)
-        builder.with_custom_audio_transcriber(TranscriptTranscriber(clip_segments))
-        pipeline = builder.build()
-        pipeline.run()
-    finally:
-        os.chdir(old_cwd)
-
-
 def _format_srt_timestamp(seconds: float) -> str:
     total_ms = max(0, int(round(float(seconds) * 1000.0)))
     hours = total_ms // 3_600_000
@@ -545,10 +393,6 @@ def _format_srt_timestamp(seconds: float) -> str:
     secs = remainder // 1000
     millis = remainder % 1000
     return f"{hours:02}:{minutes:02}:{secs:02},{millis:03}"
-
-
-def _default_css_template_path() -> Path:
-    return (Path(__file__).resolve().parents[2] / DEFAULT_SUBTITLE_CSS_TEMPLATE).resolve()
 
 
 def _prepare_subtitle_segments(
@@ -887,15 +731,6 @@ def _build_timed_words(segment: SubtitleSegment) -> list[_TimedSubtitleWord]:
             ),
         )
     return timed_words
-
-
-def _font_format_for_suffix(suffix: str) -> str:
-    return {
-        ".ttf": "truetype",
-        ".otf": "opentype",
-        ".woff": "woff",
-        ".woff2": "woff2",
-    }.get(suffix.lower(), "truetype")
 
 
 def _resolve_config_path(

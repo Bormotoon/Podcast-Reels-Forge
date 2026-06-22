@@ -17,10 +17,14 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from podcast_reels_forge.utils.burned_subtitles import (
-    DEFAULT_SUBTITLE_CSS_TEMPLATE,
     DEFAULT_SUBTITLE_FONT,
     SubtitleRenderSettings,
-    sync_reel_burned_subtitles,
+    load_transcript_segments,
+    slice_segments_for_clip,
+    write_srt_file,
+    _prepare_subtitle_segments,
+    _write_ass_file,
+    _coerce_float,
 )
 from podcast_reels_forge.utils.face_crop import (
     FaceCropSettings,
@@ -86,6 +90,7 @@ def ffmpeg_cut(
     opts: FfmpegOptions,
     is_rejected: bool = False,
     rejected_dir: Path | None = None,
+    ass_path: Path | None = None,
 ) -> tuple[bool, Path, str | None]:
     """Cut a segment from video with optional vertical crop."""
 
@@ -135,6 +140,11 @@ def ffmpeg_cut(
                 vf = f"scale=-2:1920,crop=1080:1920:{crop_x}:0"
 
         filters.append(vf)
+
+    if ass_path and ass_path.exists():
+        # Escape path for FFmpeg filter
+        safe_ass_path = str(ass_path.resolve()).replace('\\', '/').replace(':', '\\:')
+        filters.append(f"ass='{safe_ass_path}'")
 
     if is_rejected and rejected_dir:
         out_path = rejected_dir / out_path.name
@@ -319,7 +329,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument(
         "--burn-subtitles",
         action="store_true",
-        help="Burn subtitles into each rendered reel using pycaps",
+        help="Burn subtitles into each rendered reel using .ass files",
     )
     ap.add_argument(
         "--transcript-json",
@@ -331,12 +341,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=DEFAULT_SUBTITLE_FONT,
         help="Font file for burned subtitles (default: assets/fonts/bignoodletoooblique.ttf)",
-    )
-    ap.add_argument(
-        "--subtitle-css",
-        type=Path,
-        default=DEFAULT_SUBTITLE_CSS_TEMPLATE,
-        help="CSS template for burned subtitles (default: assets/subtitles/forge_subtitles.css)",
     )
     ap.add_argument(
         "--subtitle-wrap-words",
@@ -388,18 +392,12 @@ def main(argv: list[str] | None = None) -> None:
         subtitle_settings = SubtitleRenderSettings(
             enabled=True,
             font_path=args.subtitle_font.resolve(),
-            css_path=args.subtitle_css.resolve(),
             wrap_words=bool(args.subtitle_wrap_words),
         )
         if not subtitle_settings.font_path.exists():
             subtitle_settings = replace(
                 subtitle_settings,
                 font_path=(Path.cwd() / DEFAULT_SUBTITLE_FONT).resolve(),
-            )
-        if not subtitle_settings.css_path.exists():
-            subtitle_settings = replace(
-                subtitle_settings,
-                css_path=(Path.cwd() / DEFAULT_SUBTITLE_CSS_TEMPLATE).resolve(),
             )
 
     opts = FfmpegOptions(
@@ -487,15 +485,44 @@ def main(argv: list[str] | None = None) -> None:
     if any(p is not None for p in all_cut_paths):
         if subtitle_settings is not None:
             try:
-                # Burn subtitles for every cut clip (accepted + rejected).
-                sync_reel_burned_subtitles(
-                    moments,
-                    reels_dir,
-                    transcript_json_path=args.transcript_json,
-                    padding=opts.padding,
-                    settings=subtitle_settings,
-                    verbose=bool(args.verbose and not args.quiet),
-                )
+                transcript_segments = load_transcript_segments(args.transcript_json)
+                for reel_path in final_reels:
+                    stem = reel_path.stem
+                    moment_match = None
+                    for idx_p, rp in enumerate(final_reels):
+                        if rp == reel_path and idx_p < len(moments):
+                            moment_match = moments[idx_p]
+                            break
+                    if moment_match is None:
+                        continue
+
+                    clip_segments = slice_segments_for_clip(
+                        transcript_segments,
+                        clip_start=max(0.0, float(moment_match.get("start", 0)) - opts.padding),
+                        clip_end=float(moment_match.get("end", 0)) + opts.padding,
+                    )
+                    clip_segments = _prepare_subtitle_segments(clip_segments, settings=subtitle_settings)
+                    if not clip_segments:
+                        continue
+
+                    srt_path = reel_path.with_suffix(".srt")
+                    write_srt_file(srt_path, clip_segments)
+
+                    ass_path = reel_path.with_suffix(".ass")
+                    _write_ass_file(ass_path, clip_segments, subtitle_settings)
+
+                    subtitled_path = reel_path.with_name(f"{stem}.subtitled.mp4")
+                    success, _, _ = ffmpeg_cut(
+                        args.input,
+                        float(moment_match.get("start", 0)),
+                        float(moment_match.get("end", 0)),
+                        subtitled_path,
+                        opts,
+                        ass_path=ass_path,
+                    )
+                    if success and subtitled_path.exists():
+                        reel_path.unlink(missing_ok=True)
+                        subtitled_path.rename(reel_path)
             except Exception as exc:
                 LOG.error("Failed to burn subtitles: %s", exc)
                 sys.exit(1)

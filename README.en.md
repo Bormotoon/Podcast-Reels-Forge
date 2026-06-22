@@ -72,7 +72,6 @@ Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 python3 -m venv whisper-env
 source whisper-env/bin/activate
 pip install -r requirements.txt
-playwright install chromium
 ```
 
 ### Prepare Input
@@ -263,7 +262,6 @@ python3 rerender_videos.py --smart-crop-face --replace
 - **Blackwell GPU (RTX 50xx)**: Requires `torch>=2.7` built for CUDA 12.x. The PyTorch `sm_120` warning is harmless — Whisper inference runs via ctranslate2, not PyTorch kernels.
 - **ffmpeg / NVENC**: Forge auto-detects an NVENC-capable ffmpeg (`/usr/local/bin`, `/usr/bin`); you can force a path via the `FORGE_FFMPEG` env var. If NVENC is unavailable, encoding falls back to CPU (libx264).
 - **llama.cpp**: If a model takes too long to respond, increase `llama_cpp.watchdog.first_token_timeout` in config.
-- **Pycaps / Playwright**: If subtitle rendering fails with a Chromium-related error, run `playwright install chromium`.
 
 ---
 
