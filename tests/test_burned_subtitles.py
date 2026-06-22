@@ -1,4 +1,4 @@
-"""Tests for pycaps-based burned subtitle helpers."""
+"""Tests for .ass-based burned subtitle helpers."""
 
 from __future__ import annotations
 
@@ -33,9 +33,9 @@ def test_slice_segments_for_clip_rebases_and_clips() -> None:
 def test_subtitle_settings_defaults_are_conservative(tmp_path: Path) -> None:
     settings = bs.subtitle_settings_from_conf(None, repo_dir=tmp_path)
 
-    assert settings.font_size_px == 44
+    assert settings.font_size_px == 36
     assert settings.max_lines == 2
-    assert settings.max_width_ratio == 0.9
+    assert settings.max_width_ratio == 0.65
     assert settings.wrap_words is True
     assert settings.vertical_align == "bottom"
     assert settings.vertical_offset == 0.0
@@ -61,111 +61,39 @@ def test_subtitle_settings_from_conf_resolves_css_path(tmp_path: Path) -> None:
     assert settings.wrap_words is False
 
 
-def test_prepare_pycaps_template_uses_external_css_template(tmp_path: Path) -> None:
-    font_path = tmp_path / "font.ttf"
-    font_path.write_text("font", encoding="utf-8")
-
-    css_template = tmp_path / "subtitles.css"
-    css_template.write_text(
-        """/* custom template marker */
-@font-face {
-    font-family: 'ForgeSubtitleFont';
-    src: url('__FONT_FILENAME__') format('__FONT_FORMAT__');
-}
-
-.word {
-    font-size: __FONT_SIZE_PX__px;
-}
-""",
-        encoding="utf-8",
-    )
-
-    template_dir = tmp_path / "template"
-    out_dir = bs.prepare_pycaps_template(
-        template_dir,
-        settings=bs.SubtitleRenderSettings(
-            enabled=True,
-            font_path=font_path,
-            css_path=css_template,
-            font_size_px=37,
-        ),
-    )
-
-    styles = (out_dir / "styles.css").read_text(encoding="utf-8")
-    assert "custom template marker" in styles
-    assert "src: url('subtitle_font.ttf') format('truetype');" in styles
-    assert "--subtitle-font-size: 37px;" in styles
-    assert "padding: var(--subtitle-padding-y) var(--subtitle-padding-x);" in styles
-
-
-def test_prepare_pycaps_template_disables_word_wrap_when_requested(tmp_path: Path) -> None:
-    font_path = tmp_path / "font.ttf"
-    font_path.write_text("font", encoding="utf-8")
-
-    css_template = tmp_path / "subtitles.css"
-    css_template.write_text(
-        ".word { font-size: __FONT_SIZE_PX__px; }\n",
-        encoding="utf-8",
-    )
-
-    template_dir = tmp_path / "template"
-    out_dir = bs.prepare_pycaps_template(
-        template_dir,
-        settings=bs.SubtitleRenderSettings(
-            enabled=True,
-            font_path=font_path,
-            css_path=css_template,
-            wrap_words=False,
-        ),
-    )
-
-    template = json.loads((out_dir / "pycaps.template.json").read_text(encoding="utf-8"))
-    assert template["layout"]["max_number_of_lines"] == 1
-
-
-def test_prepare_subtitle_segments_splits_long_cues_into_readable_chunks(
-    tmp_path: Path,
-) -> None:
-    font_path = tmp_path / "font.ttf"
-    font_path.write_text("font", encoding="utf-8")
-
-    css_template = tmp_path / "subtitles.css"
-    css_template.write_text(
-        ".word { font-size: __FONT_SIZE_PX__px; }\n",
-        encoding="utf-8",
-    )
-
-    prepared = bs._prepare_subtitle_segments(  # noqa: SLF001 - regression coverage for runtime bug
-        [
-            bs.SubtitleSegment(
-                start=0.0,
-                end=5.1,
-                text=(
-                    "разражает почему а первый потому что правда "
-                    "почти всегда ведут себя неподобающе как я уже"
-                ),
-            ),
-        ],
-        settings=bs.SubtitleRenderSettings(
-            enabled=True,
-            font_path=font_path,
-            css_path=css_template,
-            max_lines=2,
-            wrap_words=True,
-        ),
-    )
-
-    assert [segment.text for segment in prepared] == [
-        "разражает почему а первый потому",
-        "что правда почти всегда ведут",
-        "себя неподобающе как я уже",
+def test_write_ass_file_creates_valid_ass(tmp_path: Path) -> None:
+    """Ensure _write_ass_file creates a valid .ass file with karaoke tags."""
+    ass_path = tmp_path / "test.ass"
+    segments = [
+        bs.SubtitleSegment(start=0.0, end=2.5, text="Hello world"),
+        bs.SubtitleSegment(start=3.0, end=5.0, text="Second line"),
     ]
-    assert prepared[0].start == 0.0
-    assert prepared[-1].end == 5.1
+    settings = bs.SubtitleRenderSettings(
+        enabled=True,
+        font_path=tmp_path / "font.ttf",
+    )
+
+    bs._write_ass_file(ass_path, segments, settings)
+
+    content = ass_path.read_text(encoding="utf-8")
+    assert "[Script Info]" in content
+    assert "[V4+ Styles]" in content
+    assert "[Events]" in content
+    assert "Dialogue:" in content
+    assert "Hello" in content
+    assert "world" in content
+    assert "\\kf" in content  # karaoke tag
 
 
-def test_ensure_reel_burned_subtitles_writes_srt_and_runs_pycaps(
-    monkeypatch: MonkeyPatch, tmp_path: Path,
+def test_fmt_ass_time_formats_correctly() -> None:
+    assert bs._fmt_ass_time(0.0) == "0:00:00.00"
+    assert bs._fmt_ass_time(65.5) == "0:01:05.50"
+    result = bs._fmt_ass_time(3661.12)
+    assert result.startswith("1:01:01.1")
+
+
+def test_ensure_reel_burned_subtitles_writes_srt_and_ass(
+    tmp_path: Path,
 ) -> None:
     reel_path = tmp_path / "reel_01.mp4"
     reel_path.write_text("mp4")
@@ -187,30 +115,7 @@ def test_ensure_reel_burned_subtitles_writes_srt_and_runs_pycaps(
         encoding="utf-8",
     )
 
-    render_calls: list[tuple[str, str, str, list[str]]] = []
-
-    def fake_render(
-        *,
-        template_dir: Path,
-        reel_path: Path,
-        tmp_output: Path,
-        clip_segments: list[bs.SubtitleSegment],
-        settings: bs.SubtitleRenderSettings,
-        verbose: bool = False,
-    ) -> None:
-        render_calls.append(
-            (
-                template_dir.name,
-                reel_path.name,
-                tmp_output.name,
-                [segment.text for segment in clip_segments],
-            ),
-        )
-        tmp_output.write_text("subtitled")
-
-    monkeypatch.setattr(bs, "_render_reel_with_pycaps", fake_render)
-
-    srt_path = bs.ensure_reel_burned_subtitles(
+    ass_path = bs.ensure_reel_burned_subtitles(
         {"start": 10.0, "end": 13.0},
         reel_path,
         transcript_json_path=transcript_path,
@@ -218,33 +123,15 @@ def test_ensure_reel_burned_subtitles_writes_srt_and_runs_pycaps(
         settings=bs.SubtitleRenderSettings(
             enabled=True,
             font_path=font_path,
-            css_path=(Path(__file__).resolve().parents[1] / bs.DEFAULT_SUBTITLE_CSS_TEMPLATE).resolve(),
         ),
     )
 
-    assert srt_path == reel_path.with_suffix(".srt")
+    assert ass_path is not None
+    assert ass_path.suffix == ".ass"
+    assert ass_path.exists()
+    assert "[Script Info]" in ass_path.read_text(encoding="utf-8")
+
+    srt_path = reel_path.with_suffix(".srt")
     assert srt_path.exists()
-    assert "00:00:00,500 --> 00:00:03,500" in srt_path.read_text(encoding="utf-8")
-    assert render_calls == [
-        (
-            ".pycaps_template",
-            "reel_01.mp4",
-            "reel_01.subtitled.mp4",
-            ["Key moment", "Closing words"],
-        ),
-    ]
-    assert reel_path.read_text(encoding="utf-8") == "subtitled"
-    template_dir = reel_path.parent / ".pycaps_template"
-    assert (template_dir / "pycaps.template.json").exists()
-
-    template = json.loads((template_dir / "pycaps.template.json").read_text(encoding="utf-8"))
-    assert template["layout"]["max_number_of_lines"] == 2
-    assert template["layout"]["min_number_of_lines"] == 1
-    assert template["layout"]["on_text_overflow_strategy"] == "exceed_width"
-    assert template["layout"]["vertical_align"] == {"align": "bottom", "offset": 0.0}
-    assert template["layout"]["x_words_space"] == 6
-    assert template["layout"]["y_words_space"] == 8
-
-    styles = (template_dir / "styles.css").read_text(encoding="utf-8")
-    assert "--subtitle-font-size: 44px;" in styles
-    assert "padding: var(--subtitle-padding-y) var(--subtitle-padding-x);" in styles
+    srt_content = srt_path.read_text(encoding="utf-8")
+    assert "Key moment" in srt_content

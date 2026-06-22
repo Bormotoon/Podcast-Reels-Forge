@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock
 
 import podcast_reels_forge.scripts.analyze as analyze
@@ -71,19 +72,28 @@ def test_assign_speakers() -> None:
 
 
 def test_find_moments_orchestration() -> None:
-    provider = MagicMock()
-    provider.generate.side_effect = [
+    responses = [
         '{"moment": {"start": 10, "end": 40, "score": 9, "title": "C1", "why": "W1"}}',
         '{"moment": {"start": 60, "end": 90, "score": 8, "title": "C2", "why": "W2"}}',
         '{"moments": [{"start": 10, "end": 40, "score": 9, "title": "T1", "why": "W1", "quote": "Q1"}]}',
     ]
+    call_idx = 0
+
+    async def async_generate(prompt: str, *, temperature: float, timeout: int) -> str:
+        nonlocal call_idx
+        result = responses[call_idx] if call_idx < len(responses) else "[]"
+        call_idx += 1
+        return result
+
+    provider = MagicMock()
+    provider.generate = async_generate
 
     segments = [
         {"start": i * 10, "end": (i + 1) * 10, "text": f"seg {i}"}
         for i in range(10)
     ]
 
-    moments = analyze.find_moments(
+    moments = asyncio.run(analyze.find_moments(
         provider,
         segments,
         duration=100.0,
@@ -95,7 +105,7 @@ def test_find_moments_orchestration() -> None:
         timeout=10,
         ch_prompt="prompt1 {r_min} {r_max} {transcript}",
         select_prompt="prompt2 {count} {candidates_json}",
-    )
+    ))
 
     assert len(moments) == 1
     # Final selection is done locally (no extra LLM call), so we keep the best

@@ -181,7 +181,7 @@ def test_transcribe_file_quality_mode_uses_sequential(
     assert kwargs["condition_on_previous_text"] is True
     assert kwargs["beam_size"] == 10
     assert kwargs["initial_prompt"] == "Родительское собрание."
-    assert "hallucination_silence_threshold" in kwargs
+    assert "vad_parameters" in kwargs
 
     import json
     data = json.loads(out_path.read_text(encoding="utf-8"))

@@ -9,10 +9,17 @@ LOG = logging.getLogger(__name__)
 try:
     import cv2
     import mediapipe as mp
-    mp_face_detection = mp.solutions.face_detection
+    from mediapipe.tasks.python.vision import FaceDetector, FaceDetectorOptions, RunningMode
+    from mediapipe.tasks.python import BaseOptions
+
     HAS_CV_AND_MP = True
 except ImportError:
     HAS_CV_AND_MP = False
+
+
+_MODEL_PATH = str(
+    (Path(__file__).resolve().parents[2] / "assets" / "models" / "blaze_face_short_range.tflite")
+)
 
 
 @dataclass(frozen=True)
@@ -22,7 +29,20 @@ class FaceCropSettings:
 
 
 def face_detection_available() -> bool:
-    return HAS_CV_AND_MP
+    if not HAS_CV_AND_MP:
+        return False
+    return Path(_MODEL_PATH).exists()
+
+
+def _create_detector() -> FaceDetector | None:
+    if not HAS_CV_AND_MP or not Path(_MODEL_PATH).exists():
+        return None
+    options = FaceDetectorOptions(
+        base_options=BaseOptions(model_asset_path=_MODEL_PATH),
+        running_mode=RunningMode.IMAGE,
+        min_detection_confidence=0.5,
+    )
+    return FaceDetector.create_from_options(options)
 
 
 def detect_face_center_ratio(
@@ -35,39 +55,45 @@ def detect_face_center_ratio(
     if not HAS_CV_AND_MP:
         return None, 0.0
 
+    detector = _create_detector()
+    if detector is None:
+        return None, 0.0
+
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
+        detector.close()
         return None, 0.0
 
     ratios: list[float] = []
 
-    with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5) as face_detection:
-        try:
-            width = float(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-            if width <= 0:
-                return None, 0.0
+    try:
+        width = float(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        if width <= 0:
+            return None, 0.0
 
-            for t in sample_times_s:
-                cap.set(cv2.CAP_PROP_POS_MSEC, float(t) * 1000.0)
-                ok, frame = cap.read()
-                if not ok or frame is None:
-                    continue
+        for t in sample_times_s:
+            cap.set(cv2.CAP_PROP_POS_MSEC, float(t) * 1000.0)
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
 
-                # MediaPipe needs RGB
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                results = face_detection.process(rgb_frame)
+            # MediaPipe needs RGB
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+            result = detector.detect(mp_image)
 
-                if results.detections:
-                    # Get the largest face by bounding box area
-                    best_detection = max(
-                        results.detections,
-                        key=lambda d: d.location_data.relative_bounding_box.width * d.location_data.relative_bounding_box.height
-                    )
-                    bbox = best_detection.location_data.relative_bounding_box
-                    center_x = bbox.xmin + (bbox.width / 2.0)
-                    ratios.append(max(0.0, min(1.0, center_x)))
-        finally:
-            cap.release()
+            if result.detections:
+                # Get the largest face by bounding box area
+                best = max(
+                    result.detections,
+                    key=lambda d: d.bounding_box.width * d.bounding_box.height,
+                )
+                bbox = best.bounding_box
+                center_x = bbox.origin_x + (bbox.width / 2.0)
+                ratios.append(max(0.0, min(1.0, center_x / width)))
+    finally:
+        cap.release()
+        detector.close()
 
     rate = len(ratios) / len(sample_times_s) if sample_times_s else 0.0
     if not ratios:

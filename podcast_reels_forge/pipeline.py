@@ -470,7 +470,7 @@ def run_pipeline(
             )
 
     roles = resolve_llama_cpp_role_mapping(conf)
-    final_model_folder = _model_folder_name(roles.judge)
+    final_model_folder = _model_folder_name(roles.judge_metadata)
 
     # Resolve local llama host/port once so all stages can reference it.
     _llama_url = str(a_conf.get("url", "")).strip()
@@ -770,7 +770,6 @@ def run_pipeline(
                 video_args.append("--burn-subtitles")
                 video_args += ["--transcript-json", str(transcript_path)]
                 video_args += ["--subtitle-font", str(subtitle_settings.font_path)]
-                video_args += ["--subtitle-css", str(subtitle_settings.css_path)]
                 if not subtitle_settings.wrap_words:
                     video_args.append("--no-subtitle-wrap-words")
             if quiet:

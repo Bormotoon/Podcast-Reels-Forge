@@ -130,7 +130,7 @@ def test_run_pipeline_builds_and_calls_stages(
 
     analysis_calls: list[dict[str, object]] = []
 
-    def fake_run_staged_analysis(
+    async def fake_run_staged_analysis(
         *,
         transcript_path: Path,
         outdir: Path,
@@ -234,6 +234,9 @@ def test_run_pipeline_builds_and_calls_stages(
 
     monkeypatch.setattr(pipeline, "llama_cpp_start", fake_llama_cpp_start)
     monkeypatch.setattr(pipeline, "llama_cpp_stop", fake_llama_cpp_stop)
+    monkeypatch.setattr(pipeline, "wait_for_server_ready", lambda *a, **kw: None)
+    monkeypatch.setattr(pipeline, "_kill_llama_server", lambda *a: None)
+    monkeypatch.setattr(pipeline, "is_tcp_open", lambda *a: False)
 
     conf = {
         "paths": {"input_dir": str(input_dir), "output_dir": str(tmp_path / "output")},
@@ -246,10 +249,8 @@ def test_run_pipeline_builds_and_calls_stages(
         "llama_cpp": {
             "roles": {
                 "scout": "gemma4",
-                "cleanup": "gemma4",
-                "refine": "gemma4",
-                "judge": "gemma4",
-                "metadata": "gemma4",
+                "cleanup_refine": "gemma4",
+                "judge_metadata": "gemma4",
             },
             "url": "http://127.0.0.1:8080/v1/chat/completions",
             "service": {
@@ -296,7 +297,7 @@ def test_run_pipeline_builds_and_calls_stages(
 
     assert len(analysis_calls) == 1
     roles = analysis_calls[0]["roles"]
-    assert getattr(roles, "judge") == "gemma4"
+    assert getattr(roles, "judge_metadata") == "gemma4"
     assert analysis_calls[0]["transcript_path"] == tmp_path / "output" / "video" / "video.json"
     assert analysis_calls[0]["outdir"] == tmp_path / "output" / "video" / "gemma4"
 
@@ -323,9 +324,6 @@ def test_run_pipeline_builds_and_calls_stages(
         raise AssertionError(message)
     if str(tmp_path / "assets" / "fonts" / "custom.ttf") not in video_args:
         message = "Video stage missing configured subtitle font path"
-        raise AssertionError(message)
-    if str(tmp_path / "assets" / "subtitles" / "custom.css") not in video_args:
-        message = "Video stage missing configured subtitle css path"
         raise AssertionError(message)
 
     assert len(sync_markdown_calls) == 1
@@ -436,6 +434,9 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
         "llama_cpp_stop",
         lambda proc: stopped.append(getattr(proc, "pid", 0)),
     )
+    monkeypatch.setattr(pipeline, "wait_for_server_ready", lambda *a, **kw: None)
+    monkeypatch.setattr(pipeline, "_kill_llama_server", lambda *a: None)
+    monkeypatch.setattr(pipeline, "is_tcp_open", lambda *a: False)
 
     subtitle_sync_calls: list[tuple[Path, Path]] = []
 
@@ -463,10 +464,8 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
         "llama_cpp": {
             "roles": {
                 "scout": "gemma4",
-                "cleanup": "gemma4",
-                "refine": "gemma4",
-                "judge": "gemma4",
-                "metadata": "gemma4",
+                "cleanup_refine": "gemma4",
+                "judge_metadata": "gemma4",
             },
             "url": "http://127.0.0.1:8080/v1/chat/completions",
             "service": {

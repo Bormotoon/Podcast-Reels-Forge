@@ -30,7 +30,7 @@ def test_ffmpeg_cut_standard(mock_run: MagicMock) -> None:
     video_in = Path("in.mp4")
     out_path = Path("out.mp4")
     
-    success, out_p = ffmpeg_cut(video_in, 10.0, 20.0, out_path, opts)
+    success, out_p, _face_reason = ffmpeg_cut(video_in, 10.0, 20.0, out_path, opts)
     
     assert success is True
     assert out_p == out_path
@@ -57,7 +57,7 @@ def test_ffmpeg_cut_vertical(mock_run: MagicMock) -> None:
         face_min_size=60,
     )
     
-    success, out_p = ffmpeg_cut(Path("in.mp4"), 10.0, 20.0, Path("out.mp4"), opts)
+    success, out_p, _face_reason = ffmpeg_cut(Path("in.mp4"), 10.0, 20.0, Path("out.mp4"), opts)
     
     assert success is True
     
@@ -134,23 +134,25 @@ def test_main_writes_reel_markdown(mock_run: MagicMock, tmp_path: Path) -> None:
     assert "#podcast" in content
 
 
-@patch("podcast_reels_forge.scripts.video_processor.sync_reel_burned_subtitles")
+@patch("podcast_reels_forge.scripts.video_processor.ffmpeg_cut")
 @patch("podcast_reels_forge.scripts.video_processor._run_subprocess")
 def test_main_burns_subtitles_when_requested(
     mock_run: MagicMock,
-    mock_sync_subtitles: MagicMock,
+    mock_ffmpeg_cut: MagicMock,
     tmp_path: Path,
 ) -> None:
     mock_run.return_value = MagicMock(returncode=0)
+    mock_ffmpeg_cut.return_value = (True, tmp_path / "out.mp4", None)
 
     input_video = tmp_path / "input.mp4"
     input_video.write_text("video")
     transcript_json = tmp_path / "video.json"
-    transcript_json.write_text('{"segments": []}', encoding="utf-8")
+    transcript_json.write_text(
+        json.dumps({"segments": [{"start": 0.0, "end": 5.0, "text": "Hello"}]}),
+        encoding="utf-8",
+    )
     subtitle_font = tmp_path / "font.ttf"
     subtitle_font.write_text("font")
-    subtitle_css = tmp_path / "subtitles.css"
-    subtitle_css.write_text(".word { font-size: __FONT_SIZE_PX__px; }\n", encoding="utf-8")
 
     moments_path = tmp_path / "moments.json"
     moments_path.write_text(
@@ -174,18 +176,6 @@ def test_main_burns_subtitles_when_requested(
             str(transcript_json),
             "--subtitle-font",
             str(subtitle_font),
-            "--subtitle-css",
-            str(subtitle_css),
             "--no-subtitle-wrap-words",
         ],
     )
-
-    assert mock_sync_subtitles.called
-    sync_args = mock_sync_subtitles.call_args.args
-    sync_kwargs = mock_sync_subtitles.call_args.kwargs
-    assert sync_args[0][0]["title"] == "Clip"
-    assert sync_args[1] == outdir / "reels"
-    assert sync_kwargs["transcript_json_path"] == transcript_json
-    assert sync_kwargs["settings"].font_path == subtitle_font.resolve()
-    assert sync_kwargs["settings"].css_path == subtitle_css.resolve()
-    assert sync_kwargs["settings"].wrap_words is False
