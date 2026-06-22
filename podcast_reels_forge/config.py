@@ -19,7 +19,7 @@ ALLOWED_LLAMA_CPP_MODELS = frozenset(
     },
 )
 
-DEFAULT_ROLE_ORDER = ("scout", "cleanup", "refine", "judge")
+DEFAULT_ROLE_ORDER = ("scout", "cleanup_refine", "judge_metadata")
 
 
 @dataclass(frozen=True)
@@ -27,18 +27,14 @@ class LlamaCppRoleMapping:
     """Resolved model roles used by the default analysis pipeline."""
 
     scout: str
-    cleanup: str
-    refine: str
-    judge: str
-    metadata: str
+    cleanup_refine: str
+    judge_metadata: str
 
     def as_dict(self) -> dict[str, str]:
         return {
             "scout": self.scout,
-            "cleanup": self.cleanup,
-            "refine": self.refine,
-            "judge": self.judge,
-            "metadata": self.metadata,
+            "cleanup_refine": self.cleanup_refine,
+            "judge_metadata": self.judge_metadata,
         }
 
     def unique_models(self) -> tuple[str, ...]:
@@ -151,26 +147,20 @@ def resolve_llama_cpp_role_mapping(conf: Mapping[str, Any] | None) -> LlamaCppRo
         )
 
     scout = role_map["scout"]
-    cleanup = role_map["cleanup"]
-    refine = role_map["refine"]
-    judge = role_map["judge"]
-    metadata = role_map.get("metadata", judge)
+    cleanup_refine = role_map["cleanup_refine"]
+    judge_metadata = role_map["judge_metadata"]
 
     resolved = LlamaCppRoleMapping(
         scout=scout,
-        cleanup=cleanup,
-        refine=refine,
-        judge=judge,
-        metadata=metadata,
+        cleanup_refine=cleanup_refine,
+        judge_metadata=judge_metadata,
     )
 
     _validate_allowed_models(
         {
             "scout": resolved.scout,
-            "cleanup": resolved.cleanup,
-            "refine": resolved.refine,
-            "judge": resolved.judge,
-            "metadata": resolved.metadata,
+            "cleanup_refine": resolved.cleanup_refine,
+            "judge_metadata": resolved.judge_metadata,
         },
     )
 

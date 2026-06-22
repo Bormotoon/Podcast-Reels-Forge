@@ -78,10 +78,8 @@ Moment = MomentRecord
 
 _STAGE_FILES = {
     "scout": "chunk",
-    "cleanup": "cleanup",
-    "refine": "refine",
-    "judge": "judge",
-    "metadata": "metadata",
+    "cleanup_refine": "cleanup",
+    "judge_metadata": "judge",
 }
 
 _LEGACY_STAGE_FALLBACKS = {
@@ -599,11 +597,9 @@ def _make_stage_provider(
 def _default_stage_temperature(role: str) -> float:
     if role == "scout":
         return 0.35
-    if role == "cleanup":
+    if role == "cleanup_refine":
         return 0.15
-    if role == "refine":
-        return 0.2
-    if role == "judge":
+    if role == "judge_metadata":
         return 0.05
     return 0.15
 
@@ -668,34 +664,7 @@ def scout_candidates(
     return candidates
 
 
-def cleanup_candidates(
-    provider: LLMProvider,
-    candidates: Sequence[MomentRecord],
-    *,
-    requirements: str,
-    prompt: str,
-    temperature: float,
-    timeout: int,
-) -> list[MomentRecord]:
-    cleaned_input = dedupe_moments(candidates)
-    if not cleaned_input:
-        return []
-
-    prompt_text = _render_prompt(
-        prompt,
-        _prompt_payload(
-            requirements=requirements,
-            candidates=cleaned_input,
-        ),
-    )
-    resp = get_llm_json(provider, prompt_text, temperature, timeout)
-    cleaned = _parse_candidate_response(resp, stage="cleanup")
-    if cleaned:
-        return dedupe_moments(cleaned)
-    return cleaned_input
-
-
-def refine_candidates(
+def cleanup_and_refine_candidates(
     provider: LLMProvider,
     candidates: Sequence[MomentRecord],
     *,
@@ -705,13 +674,15 @@ def refine_candidates(
     timeout: int,
     max_items: int,
 ) -> list[MomentRecord]:
-    if not candidates:
+    cleaned_input = dedupe_moments(candidates)
+    if not cleaned_input:
         return []
 
     sorted_candidates = sorted(
-        candidates,
+        cleaned_input,
         key=lambda record: (-float(record.score), record.start, record.end),
     )[:max(1, int(max_items))]
+
     prompt_text = _render_prompt(
         prompt,
         _prompt_payload(
@@ -720,13 +691,13 @@ def refine_candidates(
         ),
     )
     resp = get_llm_json(provider, prompt_text, temperature, timeout)
-    refined = _parse_candidate_response(resp, stage="refine")
+    refined = _parse_candidate_response(resp, stage="cleanup_refine")
     if refined:
-        return refined
+        return dedupe_moments(refined)
     return list(sorted_candidates)
 
 
-def judge_candidates(
+def judge_and_finalize_candidates(
     provider: LLMProvider,
     candidates: Sequence[MomentRecord],
     *,
@@ -747,40 +718,12 @@ def judge_candidates(
         ),
     )
     resp = get_llm_json(provider, prompt_text, temperature, timeout)
-    judged = _parse_candidate_response(resp, stage="judge")
+    judged = _parse_candidate_response(resp, stage="judge_metadata")
     if judged:
         selected = rank_moments(judged, clip_type_quotas=quotas)
-    else:
-        selected = rank_moments(candidates, clip_type_quotas=quotas)
-    return selected
-
-
-def finalize_metadata(
-    provider: LLMProvider,
-    candidates: Sequence[MomentRecord],
-    *,
-    requirements: str,
-    prompt: str,
-    temperature: float,
-    timeout: int,
-) -> list[MomentRecord]:
-    if not candidates:
-        return []
-
-    prompt_text = _render_prompt(
-        prompt,
-        _prompt_payload(
-            requirements=requirements,
-            candidates=candidates,
-        ),
-    )
-    resp = get_llm_json(provider, prompt_text, temperature, timeout)
-    finalized = _parse_candidate_response(resp, stage="metadata")
-    if finalized:
-        out = finalize_moment_list(finalized)
-    else:
-        out = finalize_moment_list(candidates)
-    return out
+        return finalize_moment_list(selected)
+    selected = rank_moments(candidates, clip_type_quotas=quotas)
+    return finalize_moment_list(selected)
 
 
 def _ensure_prompt_text(stage: str, lang: str, variant: str) -> str:
@@ -841,10 +784,8 @@ def run_staged_analysis(
 
     base_timeout = int(llama_cpp_conf.get("timeout", 900))
     scout_conf = _stage_config(llama_cpp_conf, role="scout", model=roles.scout)
-    cleanup_conf = _stage_config(llama_cpp_conf, role="cleanup", model=roles.cleanup)
-    refine_conf = _stage_config(llama_cpp_conf, role="refine", model=roles.refine)
-    judge_conf = _stage_config(llama_cpp_conf, role="judge", model=roles.judge)
-    metadata_conf = _stage_config(llama_cpp_conf, role="metadata", model=roles.metadata)
+    cleanup_refine_conf = _stage_config(llama_cpp_conf, role="cleanup_refine", model=roles.cleanup_refine)
+    judge_metadata_conf = _stage_config(llama_cpp_conf, role="judge_metadata", model=roles.judge_metadata)
 
     scout_provider = _make_stage_provider(
         provider_name,
@@ -853,40 +794,24 @@ def run_staged_analysis(
         stage_conf=scout_conf,
         api_key=api_key,
     )
-    cleanup_provider = _make_stage_provider(
+    cleanup_refine_provider = _make_stage_provider(
         provider_name,
-        model=roles.cleanup,
+        model=roles.cleanup_refine,
         base_url=str(llama_cpp_conf.get("url", url)),
-        stage_conf=cleanup_conf,
+        stage_conf=cleanup_refine_conf,
         api_key=api_key,
     )
-    refine_provider = _make_stage_provider(
+    judge_metadata_provider = _make_stage_provider(
         provider_name,
-        model=roles.refine,
+        model=roles.judge_metadata,
         base_url=str(llama_cpp_conf.get("url", url)),
-        stage_conf=refine_conf,
-        api_key=api_key,
-    )
-    judge_provider = _make_stage_provider(
-        provider_name,
-        model=roles.judge,
-        base_url=str(llama_cpp_conf.get("url", url)),
-        stage_conf=judge_conf,
-        api_key=api_key,
-    )
-    metadata_provider = _make_stage_provider(
-        provider_name,
-        model=roles.metadata,
-        base_url=str(llama_cpp_conf.get("url", url)),
-        stage_conf=metadata_conf,
+        stage_conf=judge_metadata_conf,
         api_key=api_key,
     )
 
     scout_prompt = _ensure_prompt_text("scout", prompt_lang, variant)
-    cleanup_prompt = _ensure_prompt_text("cleanup", prompt_lang, variant)
-    refine_prompt = _ensure_prompt_text("refine", prompt_lang, variant)
-    judge_prompt = _ensure_prompt_text("judge", prompt_lang, variant)
-    metadata_prompt = _ensure_prompt_text("metadata", prompt_lang, variant)
+    cleanup_refine_prompt = _ensure_prompt_text("cleanup_refine", prompt_lang, variant)
+    judge_metadata_prompt = _ensure_prompt_text("judge_metadata", prompt_lang, variant)
 
     scout_chunk_seconds = _stage_chunk_seconds(scout_conf, int(llama_cpp_conf.get("chunk_seconds", 900)))
     scout_max_chars = _stage_max_chars(scout_conf, int(llama_cpp_conf.get("max_chars_chunk", 12000)))
@@ -913,23 +838,19 @@ def run_staged_analysis(
     atomic_write_json(outdir / "analysis_manifest.json", manifest)
 
     _status(
-        f"[analyze] scout={roles.scout} cleanup={roles.cleanup} "
-        f"refine={roles.refine} judge={roles.judge}",
+        f"[analyze] scout={roles.scout} cleanup_refine={roles.cleanup_refine} "
+        f"judge_metadata={roles.judge_metadata}",
         quiet=quiet,
     )
     _status(f"[analyze] chunks={len(chunks)}", quiet=quiet)
 
     scout_temp = _stage_temperature(scout_conf, _default_stage_temperature("scout"))
-    cleanup_temp = _stage_temperature(cleanup_conf, _default_stage_temperature("cleanup"))
-    refine_temp = _stage_temperature(refine_conf, _default_stage_temperature("refine"))
-    judge_temp = _stage_temperature(judge_conf, _default_stage_temperature("judge"))
-    metadata_temp = _stage_temperature(metadata_conf, _default_stage_temperature("metadata"))
+    cleanup_refine_temp = _stage_temperature(cleanup_refine_conf, _default_stage_temperature("cleanup_refine"))
+    judge_metadata_temp = _stage_temperature(judge_metadata_conf, _default_stage_temperature("judge_metadata"))
 
     scout_timeout = _stage_timeout(scout_conf, base_timeout)
-    cleanup_timeout = _stage_timeout(cleanup_conf, base_timeout)
-    refine_timeout = _stage_timeout(refine_conf, base_timeout)
-    judge_timeout = _stage_timeout(judge_conf, base_timeout)
-    metadata_timeout = _stage_timeout(metadata_conf, base_timeout)
+    cleanup_refine_timeout = _stage_timeout(cleanup_refine_conf, base_timeout)
+    judge_metadata_timeout = _stage_timeout(judge_metadata_conf, base_timeout)
     scout_parallelism = _stage_parallelism(
         scout_conf,
         int(llama_cpp_conf.get("scout_parallelism", 1)),
@@ -950,64 +871,38 @@ def run_staged_analysis(
     atomic_write_json(outdir / "scout_candidates.json", build_candidate_json(scouted_candidates))
 
     # Limit total candidates before cleanup to stay within ctx=8192.
-    # 25 candidates × ~200 tokens + prompt ≈ 5400 tokens; adding n_predict(2048) = 7448 < 8192.
     _CLEANUP_CAP = 25
     cleanup_input = scouted_candidates
     if len(scouted_candidates) > _CLEANUP_CAP:
         cleanup_input = sorted(scouted_candidates, key=lambda m: m.score, reverse=True)[:_CLEANUP_CAP]
         LOGGER.info(
-            "pre-cleanup cap: reduced %d → %d candidates (top by score)",
+            "pre-cleanup cap: reduced %d -> %d candidates (top by score)",
             len(scouted_candidates), _CLEANUP_CAP,
         )
 
-    cleaned_candidates = cleanup_candidates(
-        cleanup_provider,
+    cleaned_candidates = cleanup_and_refine_candidates(
+        cleanup_refine_provider,
         cleanup_input,
         requirements=requirements,
-        prompt=cleanup_prompt,
-        temperature=cleanup_temp,
-        timeout=cleanup_timeout,
+        prompt=cleanup_refine_prompt,
+        temperature=cleanup_refine_temp,
+        timeout=cleanup_refine_timeout,
+        max_items=max(12, target_total * 3),
     )
     atomic_write_json(outdir / "cleaned_candidates.json", build_candidate_json(cleaned_candidates))
 
-    refined_candidates = refine_candidates(
-        refine_provider,
+    final_moments = judge_and_finalize_candidates(
+        judge_metadata_provider,
         cleaned_candidates,
         requirements=requirements,
-        prompt=refine_prompt,
-        temperature=refine_temp,
-        timeout=refine_timeout,
-        max_items=max(12, target_total * 3),
-    )
-    atomic_write_json(outdir / "refined_candidates.json", build_candidate_json(refined_candidates))
-
-    judged_candidates = judge_candidates(
-        judge_provider,
-        refined_candidates,
-        requirements=requirements,
-        prompt=judge_prompt,
-        temperature=judge_temp,
-        timeout=judge_timeout,
+        prompt=judge_metadata_prompt,
+        temperature=judge_metadata_temp,
+        timeout=judge_metadata_timeout,
         quotas=quotas,
-    )
-    judge_report = {
-        "selected_count": len(judged_candidates),
-        "quotas": quotas,
-        "selected": build_candidate_json(judged_candidates),
-    }
-    atomic_write_json(outdir / "judge_report.json", judge_report)
-
-    final_moments = finalize_metadata(
-        metadata_provider,
-        judged_candidates,
-        requirements=requirements,
-        prompt=metadata_prompt,
-        temperature=metadata_temp,
-        timeout=metadata_timeout,
     )
 
     if not final_moments:
-        final_moments = finalize_moment_list(judged_candidates)
+        final_moments = finalize_moment_list(cleaned_candidates)
 
     final_moments = rank_moments(final_moments, clip_type_quotas=quotas) or final_moments
     final_payload = [moment.to_dict() for moment in final_moments]
@@ -1112,10 +1007,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     ap.add_argument("--model", help="Legacy single-model mode (maps to all roles)")
     ap.add_argument("--scout-model", help="Scout role model")
-    ap.add_argument("--cleanup-model", help="Cleanup role model")
-    ap.add_argument("--refine-model", help="Refine role model")
-    ap.add_argument("--judge-model", help="Judge role model")
-    ap.add_argument("--metadata-model", help="Metadata role model")
+    ap.add_argument("--cleanup-model", help="Cleanup/refine role model")
+    ap.add_argument("--judge-model", help="Judge/metadata role model")
     ap.add_argument("--temperature", type=float, default=0.25, help="Base temperature")
     ap.add_argument("--reels", type=int, default=4, help="Number of reels to generate")
     ap.add_argument("--stories-count", type=int, default=0, help="Number of stories (up to 15s)")
@@ -1151,18 +1044,14 @@ def _resolve_role_mapping(args: argparse.Namespace, conf_model: str | None = Non
         legacy_model = str(args.model).strip()
         role_map = {
             "scout": args.scout_model or legacy_model,
-            "cleanup": args.cleanup_model or legacy_model,
-            "refine": args.refine_model or legacy_model,
-            "judge": args.judge_model or legacy_model,
-            "metadata": args.metadata_model or args.judge_model or legacy_model,
+            "cleanup_refine": args.cleanup_model or legacy_model,
+            "judge_metadata": args.judge_model or legacy_model,
         }
         return resolve_llama_cpp_role_mapping({"llama_cpp": {"roles": role_map}})
     role_map = {
         "scout": args.scout_model or conf_model or "gemma4",
-        "cleanup": args.cleanup_model or conf_model or "gemma4",
-        "refine": args.refine_model or conf_model or "gemma4",
-        "judge": args.judge_model or conf_model or "gemma4",
-        "metadata": args.metadata_model or args.judge_model or conf_model or "gemma4",
+        "cleanup_refine": args.cleanup_model or conf_model or "gemma4",
+        "judge_metadata": args.judge_model or conf_model or "gemma4",
     }
     return resolve_llama_cpp_role_mapping({"llama_cpp": {"roles": role_map}})
 
