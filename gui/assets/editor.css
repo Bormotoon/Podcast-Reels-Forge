@@ -1,0 +1,318 @@
+    /* ===== INLINED ASS STYLE EDITOR (scoped) ===== */
+    #assEditorRoot { --brand-color: #E1306C; --ease-out: cubic-bezier(0,0,0,1); display:block; font-family:'Roboto',system-ui,sans-serif; color:var(--md-sys-color-on-background); }
+    #assEditorRoot {
+.app {
+      display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(420px, 1fr);
+      gap: 12px; padding: 0; height: 78vh;
+    }
+
+    /* Collapse the bento to a single column before the panel gets too cramped */
+    @media (max-width: 1100px) {
+      .sidebar-body { grid-template-columns: 1fr; }
+      .section.span-2 { grid-column: auto; }
+    }
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 1fr; grid-template-rows: auto 80vh; height: auto; }
+      .sidebar { max-height: 60vh; }
+    }
+
+    /* M3 SIDEBAR */
+    .sidebar {
+      background: var(--md-sys-color-surface-container-low); 
+      border-radius: 28px; 
+      display: flex; flex-direction: column; overflow: hidden;
+      box-shadow: var(--md-elevation-1);
+    }
+
+    .sidebar-header {
+      padding: 16px 20px 12px;
+      background: var(--md-sys-color-surface-container);
+      border-bottom: 1px solid var(--md-sys-color-outline-variant);
+      z-index: 10;
+    }
+    h1 { margin: 0 0 2px; font-size: 18px; font-weight: 500; letter-spacing: 0px; color: var(--md-sys-color-on-background); }
+    .lede { margin: 0; color: var(--md-sys-color-outline); font-size: 12.5px; font-weight: 400; letter-spacing: 0.25px;}
+
+    /* M3 BENTO GRID — two columns with full-width bands */
+    .sidebar-body {
+      padding: 12px; overflow-y: auto;
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-auto-flow: dense; align-content: start; gap: 10px;
+    }
+    .section.span-2 { grid-column: 1 / -1; }
+
+    /* M3 CARDS (Sections) */
+    .section {
+      padding: 14px 16px; border-radius: 18px;
+      background: var(--md-sys-color-surface-container);
+      border: 1px solid transparent;
+      transition: box-shadow 0.3s var(--ease-standard), transform 0.3s var(--ease-standard), border-color 0.3s;
+      animation: assSlideUpFade 0.6s var(--ease-emphasized) backwards;
+    }
+    .section:hover { transform: translateY(-2px); box-shadow: var(--md-elevation-2); }
+    
+    /* Staggered Animations */
+    .section:nth-child(1) { animation-delay: 0.05s; }
+    .section:nth-child(2) { animation-delay: 0.10s; }
+    .section:nth-child(3) { animation-delay: 0.15s; }
+    .section:nth-child(4) { animation-delay: 0.20s; }
+    .section:nth-child(5) { animation-delay: 0.25s; }
+    .section:nth-child(6) { animation-delay: 0.30s; }
+
+    
+
+    .section-title {
+      font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--md-sys-color-primary); margin: 0 0 10px 0; font-weight: 500;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .section-title svg { width: 16px; height: 16px; }
+
+    /* M3 FILTER CHIPS (Presets) */
+    .preset-group { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .preset-btn {
+      position: relative; overflow: hidden;
+      font-size: 13px; font-weight: 500; padding: 0 12px; height: 28px; border-radius: 8px;
+      background: transparent; border: 1px solid var(--md-sys-color-outline); 
+      color: var(--md-sys-color-on-surface-variant); cursor: pointer;
+      transition: all 0.2s var(--ease-standard);
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .preset-btn::after {
+      content: ''; position: absolute; inset: 0; background: currentColor; opacity: 0; transition: opacity 0.2s;
+    }
+    .preset-btn:hover::after { opacity: 0.08; }
+    
+    .preset-btn.active { 
+      background: var(--md-sys-color-secondary-container); 
+      border-color: transparent; 
+      color: var(--md-sys-color-on-secondary-container); 
+    }
+    .preset-btn.plat-btn.active {
+      background: var(--brand-color); color: #fff;
+    }
+
+    /* GRIDS & FIELDS */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .field { display: flex; flex-direction: column; gap: 5px; position: relative;}
+    .field.full { grid-column: 1 / -1; }
+    
+    label { font-size: 12px; color: var(--md-sys-color-on-surface-variant); font-weight: 500; display: flex; justify-content: space-between; align-items: center;}
+    .value { color: var(--md-sys-color-primary); background: var(--md-sys-color-surface-container-highest); padding: 2px 8px; border-radius: 12px; font-variant-numeric: tabular-nums; font-size: 11px;}
+    
+    /* M3 TEXT FIELDS & SELECTS */
+    input[type="text"], textarea, select {
+      width: 100%; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 4px;
+      background: transparent; color: var(--md-sys-color-on-background); padding: 9px 12px; font-size: 14px; outline: none;
+      transition: all 0.2s var(--ease-standard); font-family: inherit;
+    }
+    input[type="text"]:focus, textarea:focus, select:focus {
+      border-color: var(--md-sys-color-primary); border-width: 2px; padding: 8px 11px;
+    }
+
+    input[type="color"] { width: 100%; height: 34px; padding: 0; border: none; border-radius: 10px; cursor: pointer; background: transparent;}
+    input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+    input[type="color"]::-webkit-color-swatch { border: 2px solid var(--md-sys-color-outline-variant); border-radius: 12px; transition: 0.2s; }
+    input[type="color"]:hover::-webkit-color-swatch { border-color: var(--md-sys-color-primary); }
+
+    /* M3 SLIDERS */
+    input[type="range"] {
+      -webkit-appearance: none; width: 100%; height: 30px; background: transparent; cursor: pointer; outline: none; margin: 0;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      width: 100%; height: 8px; background: var(--md-sys-color-surface-container-highest); border-radius: 4px; transition: 0.2s;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; height: 20px; width: 20px; border-radius: 50%; background: var(--md-sys-color-primary);
+      margin-top: -6px; box-shadow: 0 0 0 0 rgba(208, 188, 255, 0); transition: 0.2s cubic-bezier(0.2, 0, 0, 1);
+    }
+    input[type="range"]:hover::-webkit-slider-thumb { box-shadow: 0 0 0 10px rgba(208, 188, 255, 0.12); transform: scale(1.1); }
+    input[type="range"]:active::-webkit-slider-thumb { box-shadow: 0 0 0 14px rgba(208, 188, 255, 0.20); transform: scale(1.2); }
+
+    /* M3 SWITCHES */
+    .m3-switch {
+      display: flex; align-items: center; justify-content: space-between; width: 100%; cursor: pointer;
+      padding: 4px 0;
+    }
+    .m3-switch input { display: none; }
+    .m3-switch-track {
+      width: 52px; height: 32px; border-radius: 16px; border: 2px solid var(--md-sys-color-outline);
+      background: var(--md-sys-color-surface-container-highest); position: relative; transition: 0.3s var(--ease-standard);
+    }
+    .m3-switch-thumb {
+      width: 16px; height: 16px; border-radius: 50%; background: var(--md-sys-color-outline);
+      position: absolute; top: 6px; left: 6px; transition: 0.3s var(--ease-standard);
+    }
+    .m3-switch:hover .m3-switch-thumb { box-shadow: 0 0 0 10px rgba(230, 224, 233, 0.08); }
+    
+    .m3-switch input:checked + .m3-switch-track { background: var(--md-sys-color-primary); border-color: var(--md-sys-color-primary); }
+    .m3-switch input:checked + .m3-switch-track .m3-switch-thumb {
+      background: var(--md-sys-color-on-primary); width: 24px; height: 24px; top: 2px; left: 24px;
+    }
+    .m3-switch input:checked:hover + .m3-switch-track .m3-switch-thumb { box-shadow: 0 0 0 10px rgba(56, 30, 114, 0.12); }
+
+    /* M3 TOGGLE BUTTONS */
+    .toggle-group { display: flex; border: 1px solid var(--md-sys-color-outline); border-radius: 18px; overflow: hidden; height: 34px;}
+    .toggle-btn {
+      flex: 1; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer;
+      border-right: 1px solid var(--md-sys-color-outline); background: transparent; transition: 0.2s;
+    }
+    .toggle-btn:last-child { border-right: none; }
+    .toggle-btn input { display: none; }
+    .toggle-content { font-size: 14px; font-weight: 500; color: var(--md-sys-color-on-surface-variant); z-index: 2; transition: 0.2s;}
+    .toggle-bg { position: absolute; inset: 0; background: var(--md-sys-color-secondary-container); opacity: 0; transition: 0.2s; z-index: 1;}
+    .toggle-btn input:checked ~ .toggle-bg { opacity: 1; }
+    .toggle-btn input:checked ~ .toggle-content { color: var(--md-sys-color-on-secondary-container); }
+    .toggle-btn:hover .toggle-bg { opacity: 0.08; }
+    .toggle-btn input:checked:hover ~ .toggle-bg { opacity: 0.85; }
+
+    /* M3 BUTTONS */
+    button.action-btn {
+      position: relative; overflow: hidden;
+      border: none; border-radius: 18px; height: 36px; font-size: 13.5px; font-weight: 500; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px; transition: transform 0.1s, box-shadow 0.2s;
+      background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+    }
+    button.action-btn:active { transform: scale(0.96); }
+    button.primary { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+    
+    .file-upload-box {
+      position: relative; overflow: hidden;
+      border: 2px dashed var(--md-sys-color-outline); border-radius: 14px; padding: 11px; text-align: center; cursor: pointer;
+      background: transparent; transition: 0.3s; margin-bottom: 10px;
+      color: var(--md-sys-color-on-surface-variant);
+    }
+    .file-upload-box:hover { border-color: var(--md-sys-color-primary); background: rgba(208,188,255,0.05); color: var(--md-sys-color-primary); }
+    .file-upload-box span { font-weight: 500; font-size: 13px; }
+
+    .specs-info {
+      font-size: 11.5px; color: var(--md-sys-color-on-surface-variant); background: var(--md-sys-color-surface-container-highest);
+      padding: 9px 12px; border-radius: 10px; border-left: 4px solid var(--brand-color);
+      line-height: 1.45; transition: border-color 0.5s; margin-bottom: 12px;
+    }
+
+    /* ========================================= */
+    /* WORKSPACE & CANVAS ARCHITECTURE (PERFECT) */
+    /* ========================================= */
+    
+    .workspace-body { 
+      position: relative; padding: 20px; display: flex; justify-content: center; align-items: center; 
+      height: 100%; border-radius: 28px; overflow: hidden; 
+      background-color: var(--md-sys-color-background);
+      background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+      background-size: 24px 24px;
+      perspective: 1500px; /* Важно для 3D наклона */
+    }
+
+    /* AMBIENT GLOW BEHIND PHONE */
+    .ambient-glow {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 400px; height: 800px; border-radius: 50%;
+      background: var(--brand-color); opacity: 0.15; filter: blur(120px);
+      transition: background 1s ease; pointer-events: none;
+      animation: pulseGlow 6s infinite alternate;
+    }
+    
+
+    /* 1. Слой бронирования места (Scaling Wrapper) */
+    .device-scaler {
+      position: relative;
+      /* Ширина и высота сюда пробрасываются через JS (например, 400x700px), чтобы работал Flex-centering */
+    }
+
+    /* 2. Слой парения (Float Wrapper) */
+    .device-floater {
+      position: absolute;
+      top: 50%; left: 50%;
+      /* Фиксированные оригинальные размеры телефона: 1080 + 34*2 + 6*2 = 1160px */
+      width: 1160px; height: 2000px;
+      margin-left: -580px; margin-top: -1000px; /* Четко центрируем внутри Scaler */
+      animation: float 6s ease-in-out infinite;
+      transition: transform 0.3s cubic-bezier(0.2, 0, 0, 1);
+      transform-style: preserve-3d;
+      pointer-events: none; /* Пропускаем клики к фрейму */
+    }
+    .device-floater:hover {
+      transform: scale(1.02); /* Эффект приближения при наведении */
+      animation-play-state: paused;
+    }
+    
+    
+
+    /* 3. Слой фрейма смартфона (Apply Scale & Parallax Here) */
+    .device-frame {
+      position: absolute; top: 0; left: 0; box-sizing: content-box;
+      background: #0f0f11; width: 1080px; height: 1920px; padding: 34px; 
+      border-radius: 160px; border: 6px solid #2a2a2c;
+      box-shadow: inset 0 0 12px rgba(255,255,255,0.05), 0 0 0 2px #000, 0 50px 100px -20px rgba(0,0,0,0.8);
+      transform-origin: center center;
+      transition: box-shadow 0.3s;
+      pointer-events: auto; /* Включаем клики обратно */
+    }
+
+    /* Экран устройства (всегда ровно 1080x1920) */
+    .preview-container {
+      position: relative; width: 1080px; height: 1920px; overflow: hidden;
+      border-radius: 126px; background: #000;
+      /* APPLE-STYLE GRADIENT ONSCREEN */
+      background-image: 
+        radial-gradient(circle at 20% -10%, #3b1b6d 0%, transparent 45%),
+        radial-gradient(circle at 80% 15%, #d82b6b 0%, transparent 40%),
+        radial-gradient(circle at 50% 100%, #17428f 0%, transparent 55%),
+        radial-gradient(circle at -10% 70%, #0d1e3d 0%, transparent 40%);
+      box-shadow: inset 0 0 80px rgba(0,0,0,0.8);
+    }
+
+    .device-camera {
+      position: absolute; top: 25px; left: 50%; transform: translateX(-50%);
+      width: 300px; height: 90px; background: #000; border-radius: 45px; z-index: 50;
+      box-shadow: inset -2px -2px 6px rgba(255,255,255,0.1), inset 2px 2px 6px rgba(0,0,0,1);
+    }
+
+    .device-btn { position: absolute; background: #2c2c2e; border: 1px solid #111; }
+    .btn-power { right: -14px; top: 580px; width: 8px; height: 220px; border-radius: 0 8px 8px 0; }
+    .btn-vol-up { left: -14px; top: 480px; width: 8px; height: 160px; border-radius: 8px 0 0 8px; }
+    .btn-vol-down { left: -14px; top: 680px; width: 8px; height: 160px; border-radius: 8px 0 0 8px; }
+
+    .media-layer { position: absolute; top: 0; left: 0; width: 1080px; height: 1920px; object-fit: cover; display: none; z-index: 1;}
+    .placeholder-text { 
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+      color: rgba(255,255,255,0.95); text-align: center; font-weight: 500; line-height: 1.5; z-index: 2; pointer-events: none; width: 100%;
+      text-shadow: 0 8px 24px rgba(0,0,0,0.8);
+    }
+    
+    .ass-subtitle-container {
+      position: absolute; display: flex; flex-direction: column; pointer-events: none; z-index: 10;
+      left: var(--css-left); right: var(--css-right); top: var(--css-top); bottom: var(--css-bottom);
+      align-items: var(--css-align-items); text-align: var(--css-text-align); transform: var(--css-transform-container);
+    }
+    .ass-line { display: inline-flex; flex-wrap: wrap; justify-content: var(--css-justify); column-gap: var(--css-spacing); background-color: var(--css-box-bg); padding: var(--css-box-pad); }
+    .ass-word {
+      font-family: var(--css-font), sans-serif; font-size: var(--css-font-size); font-weight: var(--css-weight);
+      font-style: var(--css-style); text-decoration: var(--css-decoration); letter-spacing: var(--css-spacing);
+      color: var(--css-color-sec); text-shadow: var(--css-text-shadow); -webkit-text-stroke: var(--css-text-stroke);
+      /* Рисуем обводку ПОЗАДИ заливки — как это делает libass (контур снаружи глифа),
+         иначе толстый stroke «съедает» буквы и текст превращается в чёрное месиво. */
+      paint-order: stroke fill;
+      transform: var(--css-transform-word); white-space: nowrap; line-height: 1.1; transition: color 0.1s;
+    }
+    .ass-word.active { color: var(--css-color-pri); }
+
+    .overlay-layer { position: absolute; top: 0; left: 0; width: 1080px; height: 1920px; pointer-events: none; z-index: 20; }
+    .overlay-layer polygon { transition: all 0.5s var(--ease-standard); }
+    
+    .code-card { padding: 12px; border-radius: 16px; background: var(--md-sys-color-surface-container-highest); border: 1px solid var(--md-sys-color-outline-variant); margin-top: 10px;}
+    textarea.code { font-family: var(--font-code); font-size: 11px; min-height: 120px; background: transparent; color: var(--md-sys-color-secondary); border: none; padding: 0;}
+    textarea.code:focus { border:none; padding:0; }
+  
+    }
+@keyframes assSlideUpFade {
+      from { opacity: 0; transform: translateY(40px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+@keyframes pulseGlow { 0% { transform: translate(-50%, -50%) scale(1); opacity: 0.15; } 100% { transform: translate(-50%, -50%) scale(1.1); opacity: 0.25; } }
+@keyframes float {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-16px); }
+    }

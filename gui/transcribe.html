@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Podcast Reels Forge — Транскрибация</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body data-page="transcribe">
+  <div class="app-shell">
+    <!-- NAVIGATION RAIL -->
+    <nav class="nav-rail">
+      <a href="index.html" class="nav-rail-brand">PF</a>
+
+      <a class="nav-rail-item" data-tab="dashboard" data-tooltip-i18n="nav_dashboard" href="index.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        <span data-i18n="nav_home">Главная</span>
+      </a>
+      <a class="nav-rail-item" data-tab="transcribe" data-tooltip-i18n="nav_transcribe" href="transcribe.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        <span data-i18n="nav_transcribe">Транскрибация</span>
+      </a>
+      <a class="nav-rail-item" data-tab="analyze" data-tooltip-i18n="nav_analyze" href="analyze.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span data-i18n="nav_analyze">Анализ</span>
+      </a>
+      <a class="nav-rail-item" data-tab="cut" data-tooltip-i18n="nav_cut" href="cut.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+        <span data-i18n="nav_cut">Нарезка</span>
+      </a>
+      <a class="nav-rail-item" data-tab="subtitles" data-tooltip-i18n="nav_subtitles" href="subtitles.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+        <span data-i18n="nav_subs">Субтитры</span>
+      </a>
+
+      <div class="nav-rail-divider"></div>
+
+      <a class="nav-rail-item" data-tab="settings" data-tooltip-i18n="nav_settings" href="settings.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span data-i18n="nav_settings">Настройки</span>
+      </a>
+      <a class="nav-rail-item" data-tab="logs" data-tooltip-i18n="nav_logs" href="logs.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <span data-i18n="nav_logs">Логи</span>
+      </a>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content" id="mainContent">
+
+      <div class="tab-page active" id="tab-transcribe">
+        <div class="page-header">
+          <div class="page-header-text">
+            <h2 data-i18n="trans_title">Транскрибация</h2>
+            <p data-i18n="trans_desc">Настройка модели Whisper и параметров транскрибации</p>
+          </div>
+          <div class="lang-toggle">
+            <button class="lang-toggle-btn" data-lang="en">ENG</button>
+            <button class="lang-toggle-btn active" data-lang="ru">RUS</button>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+              <span data-i18n="trans_model_device">Модель и устройство</span>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label data-i18n="trans_whisper_model">Модель Whisper</label>
+              <select id="cfgTranscribeModel">
+                <option value="large-v3">large-v3 (лучшее качество)</option>
+                <option value="large-v2">large-v2</option>
+                <option value="medium">medium</option>
+                <option value="small">small</option>
+                <option value="base">base (самая быстрая)</option>
+              </select>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label data-i18n="trans_device">Устройство</label>
+              <div class="chip-group">
+                <button class="chip active" data-field="cfgTranscribeDevice" data-value="auto" data-i18n="chip_auto">Авто</button>
+                <button class="chip" data-field="cfgTranscribeDevice" data-value="cuda">CUDA GPU</button>
+                <button class="chip" data-field="cfgTranscribeDevice" data-value="cpu">CPU</button>
+              </div>
+              <input type="hidden" id="cfgTranscribeDevice" value="auto">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label data-i18n="trans_compute_type">Тип вычислений</label>
+              <select id="cfgTranscribeComputeType">
+                <option value="auto">Auto</option>
+                <option value="float32">float32</option>
+                <option value="float16">float16</option>
+                <option value="int8">int8</option>
+                <option value="int8_float16">int8_float16</option>
+                <option value="int8_float32">int8_float32</option>
+              </select>
+            </div>
+            <div class="field">
+              <label data-i18n="trans_language">Язык</label>
+              <select id="cfgTranscribeLanguage">
+                <option value="auto" data-i18n="opt_auto_detect">Автоопределение</option>
+                <option value="ru">Русский</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span data-i18n="trans_mode_quality">Режим и качество</span>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label data-i18n="trans_mode">Режим транскрибации</label>
+              <div class="chip-group">
+                <button class="chip active" data-field="cfgTranscribeMode" data-value="fast" data-i18n="trans_fast">Быстрый (пакетный)</button>
+                <button class="chip" data-field="cfgTranscribeMode" data-value="quality" data-i18n="trans_quality">Качественный (последовательный)</button>
+              </div>
+              <input type="hidden" id="cfgTranscribeMode" value="fast">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="trans_beam">Размер луча</span> <span class="value" id="v-cfgTranscribeBeam">5</span></label>
+              <input type="range" id="cfgTranscribeBeam" min="1" max="20" step="1" value="5">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="trans_batch">Размер пакета (GPU)</span> <span class="value" id="v-cfgTranscribeBatch">16</span></label>
+              <input type="range" id="cfgTranscribeBatch" min="1" max="64" step="1" value="16">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="trans_best_of">Лучший из</span> <span class="value" id="v-cfgTranscribeBestOf">1</span></label>
+              <input type="range" id="cfgTranscribeBestOf" min="1" max="10" step="1" value="1">
+            </div>
+            <div class="field">
+              <label><span data-i18n="trans_qbeam">Лучший луч для качества</span> <span class="value" id="v-cfgTranscribeQBeam">10</span></label>
+              <input type="range" id="cfgTranscribeQBeam" min="1" max="20" step="1" value="10">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span data-i18n="trans_antihall">Анти-галлюцинации и домен</span>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="trans_condition_text">Условие по предыдущему тексту</div>
+                  <div class="m3-switch-desc" data-i18n="trans_condition_desc">Предотвращает петли галлюцинаций на тишине</div>
+                </div>
+                <input type="checkbox" id="cfgTranscribeCondition">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field">
+              <label><span data-i18n="trans_rep_penalty">Штраф за повтор</span> <span class="value" id="v-cfgTranscribeRepPenalty">1.1</span></label>
+              <input type="range" id="cfgTranscribeRepPenalty" min="1.0" max="2.0" step="0.05" value="1.1">
+            </div>
+            <div class="field">
+              <label><span data-i18n="trans_no_repeat">Размер n-граммы без повтора</span> <span class="value" id="v-cfgTranscribeNoRepeat">3</span></label>
+              <input type="range" id="cfgTranscribeNoRepeat" min="0" max="10" step="1" value="3">
+            </div>
+            <div class="field">
+              <label><span data-i18n="trans_patience">Терпение</span> <span class="value" id="v-cfgTranscribePatience">1.0</span></label>
+              <input type="range" id="cfgTranscribePatience" min="1.0" max="3.0" step="0.1" value="1.0">
+            </div>
+          </div>
+          <div class="field" style="margin-top: 16px;">
+            <label data-i18n="trans_prompt">Начальный промпт (контекст домена)</label>
+            <textarea id="cfgTranscribePrompt" data-i18n-placeholder="trans_prompt_ph" placeholder="Подсказка для лексики. Пример: Подкаст о технологиях и стартапах."></textarea>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="bottom-bar">
+      <div class="bottom-bar-left">
+        <span class="bottom-status" id="bottomStatus" data-i18n="bottom_ready">Готов</span>
+      </div>
+      <div class="bottom-bar-center">
+        <div class="pipeline-overview" id="pipelineOverview">
+          <div class="pipeline-overview-dot" data-stage="transcribe"></div>
+          <div class="pipeline-overview-dot" data-stage="diarize"></div>
+          <div class="pipeline-overview-dot" data-stage="analyze"></div>
+          <div class="pipeline-overview-dot" data-stage="cut"></div>
+          <div class="pipeline-overview-dot" data-stage="subtitles"></div>
+        </div>
+      </div>
+      <div class="bottom-bar-right">
+        <span class="gpu-info" id="gpuInfo">GPU: --</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>

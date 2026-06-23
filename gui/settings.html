@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Podcast Reels Forge — Настройки</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body data-page="settings">
+  <div class="app-shell">
+    <!-- NAVIGATION RAIL -->
+    <nav class="nav-rail">
+      <a href="index.html" class="nav-rail-brand">PF</a>
+
+      <a class="nav-rail-item" data-tab="dashboard" data-tooltip-i18n="nav_dashboard" href="index.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        <span data-i18n="nav_home">Главная</span>
+      </a>
+      <a class="nav-rail-item" data-tab="transcribe" data-tooltip-i18n="nav_transcribe" href="transcribe.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        <span data-i18n="nav_transcribe">Транскрибация</span>
+      </a>
+      <a class="nav-rail-item" data-tab="analyze" data-tooltip-i18n="nav_analyze" href="analyze.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span data-i18n="nav_analyze">Анализ</span>
+      </a>
+      <a class="nav-rail-item" data-tab="cut" data-tooltip-i18n="nav_cut" href="cut.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+        <span data-i18n="nav_cut">Нарезка</span>
+      </a>
+      <a class="nav-rail-item" data-tab="subtitles" data-tooltip-i18n="nav_subtitles" href="subtitles.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+        <span data-i18n="nav_subs">Субтитры</span>
+      </a>
+
+      <div class="nav-rail-divider"></div>
+
+      <a class="nav-rail-item" data-tab="settings" data-tooltip-i18n="nav_settings" href="settings.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span data-i18n="nav_settings">Настройки</span>
+      </a>
+      <a class="nav-rail-item" data-tab="logs" data-tooltip-i18n="nav_logs" href="logs.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <span data-i18n="nav_logs">Логи</span>
+      </a>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content" id="mainContent">
+
+      <div class="tab-page active" id="tab-settings">
+        <div class="page-header">
+          <div class="page-header-text">
+            <h2 data-i18n="set_title">Настройки</h2>
+            <p data-i18n="set_desc">Общая конфигурация, пути и системные параметры</p>
+          </div>
+          <div class="lang-toggle">
+            <button class="lang-toggle-btn" data-lang="en">ENG</button>
+            <button class="lang-toggle-btn active" data-lang="ru">RUS</button>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span data-i18n="set_paths">Пути</span>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label data-i18n="set_input_dir">Директория ввода</label>
+              <input type="text" id="cfgSettingsInputDir" value="input">
+            </div>
+            <div class="field">
+              <label data-i18n="set_output_dir">Директория вывода</label>
+              <input type="text" id="cfgSettingsOutputDir" value="output">
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span data-i18n="set_cache_diar">Кэш и диаризация</span>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="set_cache">Кэш включён</div>
+                  <div class="m3-switch-desc" data-i18n="set_cache_desc">Пропускать существующие файлы вывода</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsCache" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="set_validate">Валидация JSON</div>
+                  <div class="m3-switch-desc" data-i18n="set_validate_desc">Проверять целостность JSON-вывода</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsValidateJson" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="set_diar">Диаризация (ID спикеров)</div>
+                  <div class="m3-switch-desc" data-i18n="set_diar_desc">Определять спикеров в аудио</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsDiarization">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field">
+              <label data-i18n="set_diar_model">Модель диаризации</label>
+              <input type="text" id="cfgSettingsDiarModel" value="pyannote/speaker-diarization">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+            <span data-i18n="set_cli">Параметры CLI</span>
+          </div>
+          <div class="grid-3">
+            <div class="field">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="set_quiet">Тихий режим</div>
+                  <div class="m3-switch-desc" data-i18n="set_quiet_desc">Подавлять вывод не ошибок</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsQuiet">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="set_verbose">Подробный режим</div>
+                  <div class="m3-switch-desc" data-i18n="set_verbose_desc">Показывать подробные логи</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsVerbose">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="set_skip">Пропускать завершённые</div>
+                  <div class="m3-switch-desc" data-i18n="set_skip_desc">Не перезапускать завершённые стадии</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsSkipExisting" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="set_no_progress">Без прогресс-бара</div>
+                  <div class="m3-switch-desc" data-i18n="set_no_progress_desc">Отключить UI прогресса (для логов/CI)</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsNoProgress">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <span data-i18n="set_preview">Предпросмотр config.yaml</span>
+          </div>
+          <div style="background: var(--md-sys-color-surface-container-highest); border-radius: 12px; padding: 16px; border: 1px solid var(--md-sys-color-outline-variant);">
+            <textarea id="configPreview" style="font-family: var(--font-code); font-size: 11px; min-height: 200px; background: transparent; color: var(--md-sys-color-secondary); border: none; padding: 0; resize: vertical; width: 100%;" readonly></textarea>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 12px;">
+            <button class="btn btn-filled" id="btnExportConfig">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span data-i18n="set_export">Экспорт config.yaml</span>
+            </button>
+            <button class="btn btn-tonal" id="btnResetConfig" data-i18n="set_reset">Сбросить к умолчаниям</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="bottom-bar">
+      <div class="bottom-bar-left">
+        <span class="bottom-status" id="bottomStatus" data-i18n="bottom_ready">Готов</span>
+      </div>
+      <div class="bottom-bar-center">
+        <div class="pipeline-overview" id="pipelineOverview">
+          <div class="pipeline-overview-dot" data-stage="transcribe"></div>
+          <div class="pipeline-overview-dot" data-stage="diarize"></div>
+          <div class="pipeline-overview-dot" data-stage="analyze"></div>
+          <div class="pipeline-overview-dot" data-stage="cut"></div>
+          <div class="pipeline-overview-dot" data-stage="subtitles"></div>
+        </div>
+      </div>
+      <div class="bottom-bar-right">
+        <span class="gpu-info" id="gpuInfo">GPU: --</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>

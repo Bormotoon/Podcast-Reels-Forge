@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Podcast Reels Forge — Нарезка</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body data-page="cut">
+  <div class="app-shell">
+    <!-- NAVIGATION RAIL -->
+    <nav class="nav-rail">
+      <a href="index.html" class="nav-rail-brand">PF</a>
+
+      <a class="nav-rail-item" data-tab="dashboard" data-tooltip-i18n="nav_dashboard" href="index.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        <span data-i18n="nav_home">Главная</span>
+      </a>
+      <a class="nav-rail-item" data-tab="transcribe" data-tooltip-i18n="nav_transcribe" href="transcribe.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        <span data-i18n="nav_transcribe">Транскрибация</span>
+      </a>
+      <a class="nav-rail-item" data-tab="analyze" data-tooltip-i18n="nav_analyze" href="analyze.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span data-i18n="nav_analyze">Анализ</span>
+      </a>
+      <a class="nav-rail-item" data-tab="cut" data-tooltip-i18n="nav_cut" href="cut.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+        <span data-i18n="nav_cut">Нарезка</span>
+      </a>
+      <a class="nav-rail-item" data-tab="subtitles" data-tooltip-i18n="nav_subtitles" href="subtitles.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+        <span data-i18n="nav_subs">Субтитры</span>
+      </a>
+
+      <div class="nav-rail-divider"></div>
+
+      <a class="nav-rail-item" data-tab="settings" data-tooltip-i18n="nav_settings" href="settings.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span data-i18n="nav_settings">Настройки</span>
+      </a>
+      <a class="nav-rail-item" data-tab="logs" data-tooltip-i18n="nav_logs" href="logs.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <span data-i18n="nav_logs">Логи</span>
+      </a>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content" id="mainContent">
+
+      <div class="tab-page active" id="tab-cut">
+        <div class="page-header">
+          <div class="page-header-text">
+            <h2 data-i18n="cut_title">Нарезка и экспорт</h2>
+            <p data-i18n="cut_desc">Обработка видео, фильтры качества и форматы экспорта</p>
+          </div>
+          <div class="lang-toggle">
+            <button class="lang-toggle-btn" data-lang="en">ENG</button>
+            <button class="lang-toggle-btn active" data-lang="ru">RUS</button>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+              <span data-i18n="cut_encoding">Кодирование</span>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="cut_nvenc">Использовать NVENC (GPU)</div>
+                  <div class="m3-switch-desc" data-i18n="cut_nvenc_desc">Быстрое кодирование через NVIDIA GPU</div>
+                </div>
+                <input type="checkbox" id="cfgCutNvenc" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label data-i18n="cut_vbitrate">Видео битрейт</label>
+              <input type="text" id="cfgCutVBitrate" value="8M">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label data-i18n="cut_abitrate">Аудио битрейт</label>
+              <input type="text" id="cfgCutABitrate" value="192k">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label data-i18n="cut_preset">Пресет (libx264 фоллбэк)</label>
+              <select id="cfgCutPreset">
+                <option value="ultrafast">ultrafast</option>
+                <option value="superfast">superfast</option>
+                <option value="veryfast">veryfast</option>
+                <option value="faster">faster</option>
+                <option value="fast" selected>fast</option>
+                <option value="medium">medium</option>
+                <option value="slow">slow</option>
+              </select>
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label>NVENC CQ <span class="value" id="v-cfgCutNvencCq">21</span></label>
+                <input type="range" id="cfgCutNvencCq" min="15" max="30" step="1" value="21">
+              </div>
+              <div class="field">
+                <label data-i18n="cut_nvenc_preset">NVENC пресет</label>
+                <select id="cfgCutNvencPreset">
+                  <option value="p1">p1 (быстрее)</option>
+                  <option value="p2">p2</option>
+                  <option value="p3">p3</option>
+                  <option value="p4">p4</option>
+                  <option value="p5" selected>p5 (сбалансирован)</option>
+                  <option value="p6">p6</option>
+                  <option value="p7">p7 (лучшее)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <span data-i18n="cut_filters">Фильтры качества</span>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="cut_min_score">Мин. вирусная оценка</span> <span class="value" id="v-cfgCutMinScore">7</span></label>
+              <input type="range" id="cfgCutMinScore" min="1" max="10" step="1" value="7">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="cut_min_dur">Мин. длительность (сек)</span> <span class="value" id="v-cfgCutMinDur">15</span></label>
+              <input type="range" id="cfgCutMinDur" min="5" max="60" step="1" value="15">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="cut_max_dur">Макс. длительность (сек)</span> <span class="value" id="v-cfgCutMaxDur">180</span></label>
+              <input type="range" id="cfgCutMaxDur" min="30" max="600" step="10" value="180">
+            </div>
+            <div class="field">
+              <label><span data-i18n="cut_face_ratio">Мин. доля лица</span> <span class="value" id="v-cfgCutFaceRatio">0.30</span></label>
+              <input type="range" id="cfgCutFaceRatio" min="0" max="1" step="0.05" value="0.3">
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+              <span data-i18n="cut_crop">Кроп и детекция лица</span>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="cut_vertical">Вертикальный кроп</div>
+                  <div class="m3-switch-desc" data-i18n="cut_vertical_desc">Обрезка горизонтального видео до 9:16</div>
+                </div>
+                <input type="checkbox" id="cfgCutVertical" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="cut_smart">Умный кроп (трекинг лица)</div>
+                  <div class="m3-switch-desc" data-i18n="cut_smart_desc">Следить за лицом спикера в кадре</div>
+                </div>
+                <input type="checkbox" id="cfgCutSmartCrop" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="cut_face_samples">Сэмплы лица</span> <span class="value" id="v-cfgCutFaceSamples">9</span></label>
+              <input type="range" id="cfgCutFaceSamples" min="1" max="20" step="1" value="9">
+            </div>
+            <div class="field">
+              <label><span data-i18n="cut_face_min">Мин. размер лица (px)</span> <span class="value" id="v-cfgCutFaceMinSize">72</span></label>
+              <input type="range" id="cfgCutFaceMinSize" min="20" max="200" step="4" value="72">
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span data-i18n="cut_export">Форматы экспорта</span>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="cut_webm">Экспорт WebM</div>
+                  <div class="m3-switch-desc" data-i18n="cut_webm_desc">Дополнительный формат WebM</div>
+                </div>
+                <input type="checkbox" id="cfgCutWebm">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="cut_gif">Экспорт GIF</div>
+                  <div class="m3-switch-desc" data-i18n="cut_gif_desc">Анимированный GIF-превью</div>
+                </div>
+                <input type="checkbox" id="cfgCutGif">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="cut_audio_only">Только аудио</div>
+                  <div class="m3-switch-desc" data-i18n="cut_audio_only_desc">Экспорт MP3 аудиодорожки</div>
+                </div>
+                <input type="checkbox" id="cfgCutAudio">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y2="21" x2="7" y2="1"/><line x1="17" y2="21" x2="17" y2="1"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/></svg>
+            <span data-i18n="cut_processing">Параметры обработки</span>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label><span data-i18n="cut_threads">Параллельные потоки</span> <span class="value" id="v-cfgCutThreads">4</span></label>
+              <input type="range" id="cfgCutThreads" min="1" max="16" step="1" value="4">
+            </div>
+            <div class="field">
+              <label><span data-i18n="cut_padding">Паддинг рилсов (сек)</span> <span class="value" id="v-cfgCutPadding">5</span></label>
+              <input type="range" id="cfgCutPadding" min="0" max="15" step="1" value="5">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+            <span data-i18n="cut_clips">Типы клипов и количество</span>
+          </div>
+          <div class="grid-4">
+            <div class="field">
+              <label><span data-i18n="clips_stories_n">Stories — кол-во</span> <span class="value" id="v-cfgClipsStoriesCount">2</span></label>
+              <input type="range" id="cfgClipsStoriesCount" min="0" max="10" step="1" value="2">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_stories_d">Stories — макс. сек</span> <span class="value" id="v-cfgClipsStoriesMaxDur">15</span></label>
+              <input type="range" id="cfgClipsStoriesMaxDur" min="5" max="60" step="1" value="15">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_reels_n">Reels — кол-во</span> <span class="value" id="v-cfgClipsReelsCount">3</span></label>
+              <input type="range" id="cfgClipsReelsCount" min="0" max="10" step="1" value="3">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_reels_d">Reels — макс. сек</span> <span class="value" id="v-cfgClipsReelsMaxDur">60</span></label>
+              <input type="range" id="cfgClipsReelsMaxDur" min="15" max="180" step="5" value="60">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_long_n">Long reels — кол-во</span> <span class="value" id="v-cfgClipsLongCount">1</span></label>
+              <input type="range" id="cfgClipsLongCount" min="0" max="10" step="1" value="1">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_long_d">Long reels — макс. сек</span> <span class="value" id="v-cfgClipsLongMaxDur">180</span></label>
+              <input type="range" id="cfgClipsLongMaxDur" min="60" max="600" step="10" value="180">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_hl_n">Highlights — кол-во</span> <span class="value" id="v-cfgClipsHlCount">1</span></label>
+              <input type="range" id="cfgClipsHlCount" min="0" max="10" step="1" value="1">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_hl_m">Highlights — моментов</span> <span class="value" id="v-cfgClipsHlMoments">5</span></label>
+              <input type="range" id="cfgClipsHlMoments" min="1" max="20" step="1" value="5">
+            </div>
+          </div>
+          <div class="grid-3" style="margin-top: 16px;">
+            <div class="field">
+              <label><span data-i18n="clips_reels_count">Reels всего (reels_count)</span> <span class="value" id="v-cfgProcReelsCount">3</span></label>
+              <input type="range" id="cfgProcReelsCount" min="0" max="20" step="1" value="3">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_reel_min">Reel мин. сек</span> <span class="value" id="v-cfgProcReelMinDur">30</span></label>
+              <input type="range" id="cfgProcReelMinDur" min="5" max="120" step="1" value="30">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_reel_max">Reel макс. сек</span> <span class="value" id="v-cfgProcReelMaxDur">60</span></label>
+              <input type="range" id="cfgProcReelMaxDur" min="15" max="300" step="5" value="60">
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="bottom-bar">
+      <div class="bottom-bar-left">
+        <span class="bottom-status" id="bottomStatus" data-i18n="bottom_ready">Готов</span>
+      </div>
+      <div class="bottom-bar-center">
+        <div class="pipeline-overview" id="pipelineOverview">
+          <div class="pipeline-overview-dot" data-stage="transcribe"></div>
+          <div class="pipeline-overview-dot" data-stage="diarize"></div>
+          <div class="pipeline-overview-dot" data-stage="analyze"></div>
+          <div class="pipeline-overview-dot" data-stage="cut"></div>
+          <div class="pipeline-overview-dot" data-stage="subtitles"></div>
+        </div>
+      </div>
+      <div class="bottom-bar-right">
+        <span class="gpu-info" id="gpuInfo">GPU: --</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>

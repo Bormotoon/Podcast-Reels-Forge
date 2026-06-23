@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Podcast Reels Forge — Анализ</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body data-page="analyze">
+  <div class="app-shell">
+    <!-- NAVIGATION RAIL -->
+    <nav class="nav-rail">
+      <a href="index.html" class="nav-rail-brand">PF</a>
+
+      <a class="nav-rail-item" data-tab="dashboard" data-tooltip-i18n="nav_dashboard" href="index.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        <span data-i18n="nav_home">Главная</span>
+      </a>
+      <a class="nav-rail-item" data-tab="transcribe" data-tooltip-i18n="nav_transcribe" href="transcribe.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        <span data-i18n="nav_transcribe">Транскрибация</span>
+      </a>
+      <a class="nav-rail-item" data-tab="analyze" data-tooltip-i18n="nav_analyze" href="analyze.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span data-i18n="nav_analyze">Анализ</span>
+      </a>
+      <a class="nav-rail-item" data-tab="cut" data-tooltip-i18n="nav_cut" href="cut.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+        <span data-i18n="nav_cut">Нарезка</span>
+      </a>
+      <a class="nav-rail-item" data-tab="subtitles" data-tooltip-i18n="nav_subtitles" href="subtitles.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+        <span data-i18n="nav_subs">Субтитры</span>
+      </a>
+
+      <div class="nav-rail-divider"></div>
+
+      <a class="nav-rail-item" data-tab="settings" data-tooltip-i18n="nav_settings" href="settings.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span data-i18n="nav_settings">Настройки</span>
+      </a>
+      <a class="nav-rail-item" data-tab="logs" data-tooltip-i18n="nav_logs" href="logs.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <span data-i18n="nav_logs">Логи</span>
+      </a>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content" id="mainContent">
+
+      <div class="tab-page active" id="tab-analyze">
+        <div class="page-header">
+          <div class="page-header-text">
+            <h2 data-i18n="an_title">Анализ</h2>
+            <p data-i18n="an_desc">LLM-поиск вирусных моментов и оценка</p>
+          </div>
+          <div class="lang-toggle">
+            <button class="lang-toggle-btn" data-lang="en">ENG</button>
+            <button class="lang-toggle-btn active" data-lang="ru">RUS</button>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              <span data-i18n="an_service">LLM-сервис</span>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label data-i18n="an_url">URL сервиса</label>
+              <input type="text" id="cfgAnalyzeUrl" value="http://127.0.0.1:11440/completion">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="an_autostart">Авто-запуск llama-server</div>
+                  <div class="m3-switch-desc" data-i18n="an_autostart_desc">Запустить локальный сервер если не запущен</div>
+                </div>
+                <input type="checkbox" id="cfgAnalyzeAutoStart" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field">
+              <label data-i18n="an_model_path">Путь к модели</label>
+              <input type="text" id="cfgAnalyzeModelPath" value="/opt/llamacpp/models/gemma4-26b.gguf">
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <span data-i18n="an_roles">Роли моделей</span>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label data-i18n="an_scout">Разведчик (быстрый поиск)</label>
+              <select id="cfgAnalyzeScout">
+                <option value="gemma4:26b">gemma4:26b</option>
+                <option value="gemma4">gemma4</option>
+                <option value="gemma4:12b">gemma4:12b</option>
+              </select>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label data-i18n="an_cleanup">Очистка / Уточнение</label>
+              <select id="cfgAnalyzeCleanup">
+                <option value="gemma4:26b">gemma4:26b</option>
+                <option value="gemma4">gemma4</option>
+                <option value="gemma4:12b">gemma4:12b</option>
+              </select>
+            </div>
+            <div class="field">
+              <label data-i18n="an_judge">Судья / Метаданные</label>
+              <select id="cfgAnalyzeJudge">
+                <option value="gemma4:26b">gemma4:26b</option>
+                <option value="gemma4">gemma4</option>
+                <option value="gemma4:12b">gemma4:12b</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span data-i18n="an_params">Параметры инференса</span>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="an_temp">Температура</span> <span class="value" id="v-cfgAnalyzeTemp">0.2</span></label>
+              <input type="range" id="cfgAnalyzeTemp" min="0.0" max="1.0" step="0.05" value="0.2">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="an_timeout">Таймаут (сек)</span> <span class="value" id="v-cfgAnalyzeTimeout">600</span></label>
+              <input type="range" id="cfgAnalyzeTimeout" min="60" max="1800" step="30" value="600">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="an_chunk">Длительность чанка (сек)</span> <span class="value" id="v-cfgAnalyzeChunk">900</span></label>
+              <input type="range" id="cfgAnalyzeChunk" min="300" max="3600" step="60" value="900">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="an_max_chars">Макс. символов на чанк</span> <span class="value" id="v-cfgAnalyzeMaxChars">7000</span></label>
+              <input type="range" id="cfgAnalyzeMaxChars" min="2000" max="12000" step="500" value="7000">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_scout_par">Параллелизм разведчика</span> <span class="value" id="v-cfgAnalyzeScoutParallelism">1</span></label>
+              <input type="range" id="cfgAnalyzeScoutParallelism" min="1" max="8" step="1" value="1">
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span data-i18n="an_watchdog">Watchdog и фоллбэк</span>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="an_wd_enabled">Watchdog включён</div>
+                  <div class="m3-switch-desc" data-i18n="an_wd_desc">Обнаружение зависаний и перезапуск</div>
+                </div>
+                <input type="checkbox" id="cfgAnalyzeWatchdog" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="an_wd_first">Таймаут первого токена</span> <span class="value" id="v-cfgAnalyzeFirstToken">90</span>с</label>
+              <input type="range" id="cfgAnalyzeFirstToken" min="30" max="300" step="10" value="90">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="an_wd_stall">Таймаут зависания</span> <span class="value" id="v-cfgAnalyzeStall">120</span>с</label>
+              <input type="range" id="cfgAnalyzeStall" min="30" max="600" step="10" value="120">
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label><span data-i18n="an_wd_retries">Макс. попыток</span> <span class="value" id="v-cfgAnalyzeRetries">4</span></label>
+              <input type="range" id="cfgAnalyzeRetries" min="1" max="10" step="1" value="4">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_wd_log">Интервал логов (сек)</span> <span class="value" id="v-cfgAnalyzeLogInterval">10</span></label>
+              <input type="range" id="cfgAnalyzeLogInterval" min="1" max="60" step="1" value="10">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+            <span data-i18n="an_service_tuning">Сервис llama.cpp — VRAM и производительность</span>
+          </div>
+          <div class="grid-3">
+            <div class="field">
+              <label><span data-i18n="an_ngpu">Слои на GPU (n_gpu_layers)</span> <span class="value" id="v-cfgLlamaNgpu">0</span></label>
+              <input type="range" id="cfgLlamaNgpu" min="0" max="999" step="1" value="0">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_ctx">Размер контекста (ctx_size)</span> <span class="value" id="v-cfgLlamaCtx">8192</span></label>
+              <input type="range" id="cfgLlamaCtx" min="2048" max="32768" step="1024" value="8192">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_startup">Таймаут старта (сек)</span> <span class="value" id="v-cfgLlamaStartupTimeout">120</span></label>
+              <input type="range" id="cfgLlamaStartupTimeout" min="30" max="600" step="10" value="120">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_lbatch">Размер батча (batch_size)</span> <span class="value" id="v-cfgLlamaBatch">1024</span></label>
+              <input type="range" id="cfgLlamaBatch" min="128" max="4096" step="128" value="1024">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_ubatch">Микро-батч (ubatch_size)</span> <span class="value" id="v-cfgLlamaUbatch">512</span></label>
+              <input type="range" id="cfgLlamaUbatch" min="64" max="2048" step="64" value="512">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_lthreads">Потоки CPU (threads)</span> <span class="value" id="v-cfgLlamaThreads">4</span></label>
+              <input type="range" id="cfgLlamaThreads" min="1" max="32" step="1" value="4">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_parallel">Параллельные слоты (parallel)</span> <span class="value" id="v-cfgLlamaParallel">1</span></label>
+              <input type="range" id="cfgLlamaParallel" min="1" max="8" step="1" value="1">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_main_gpu">Основной GPU (main_gpu)</span> <span class="value" id="v-cfgLlamaMainGpu">0</span></label>
+              <input type="range" id="cfgLlamaMainGpu" min="0" max="7" step="1" value="0">
+            </div>
+            <div class="field">
+              <label data-i18n="an_cache_k">KV-кэш K (cache_type_k)</label>
+              <select id="cfgLlamaCacheK">
+                <option value="f16">f16</option>
+                <option value="q8_0" selected>q8_0</option>
+                <option value="q5_1">q5_1</option>
+                <option value="q4_0">q4_0</option>
+              </select>
+            </div>
+            <div class="field">
+              <label data-i18n="an_cache_v">KV-кэш V (cache_type_v)</label>
+              <select id="cfgLlamaCacheV">
+                <option value="f16">f16</option>
+                <option value="q8_0" selected>q8_0</option>
+                <option value="q5_1">q5_1</option>
+                <option value="q4_0">q4_0</option>
+              </select>
+            </div>
+            <div class="field span-full">
+              <label data-i18n="an_fallback">Фоллбэк-модели (через запятую)</label>
+              <input type="text" id="cfgAnalyzeFallback" data-i18n-placeholder="an_fallback_ph" placeholder="например: gemma4:12b, gemma4">
+            </div>
+            <div class="field span-full">
+              <label data-i18n="an_extra_args">Доп. аргументы llama-server (через пробел)</label>
+              <input type="text" id="cfgLlamaExtraArgs" data-i18n-placeholder="an_extra_args_ph" placeholder="например: --flash-attn --no-mmap">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <span data-i18n="an_role_overrides">Переопределения по ролям</span>
+          </div>
+          <p style="margin:-8px 0 14px; font-size:12px; color:var(--md-sys-color-outline); line-height:1.5;" data-i18n="an_role_overrides_desc">Точечные настройки таймаута/температуры для каждой роли поверх общих параметров выше.</p>
+          <div class="grid-3">
+            <div class="field">
+              <label><span data-i18n="an_ro_scout_timeout">Разведчик: таймаут</span> <span class="value" id="v-cfgRoScoutTimeout">600</span></label>
+              <input type="range" id="cfgRoScoutTimeout" min="60" max="1800" step="30" value="600">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_ro_scout_temp">Разведчик: температура</span> <span class="value" id="v-cfgRoScoutTemp">0.35</span></label>
+              <input type="range" id="cfgRoScoutTemp" min="0" max="1" step="0.05" value="0.35">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_ro_scout_chunk">Разведчик: чанк (сек)</span> <span class="value" id="v-cfgRoScoutChunk">1200</span></label>
+              <input type="range" id="cfgRoScoutChunk" min="300" max="3600" step="60" value="1200">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_ro_cleanup_timeout">Очистка: таймаут</span> <span class="value" id="v-cfgRoCleanupTimeout">600</span></label>
+              <input type="range" id="cfgRoCleanupTimeout" min="60" max="1800" step="30" value="600">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_ro_cleanup_temp">Очистка: температура</span> <span class="value" id="v-cfgRoCleanupTemp">0.15</span></label>
+              <input type="range" id="cfgRoCleanupTemp" min="0" max="1" step="0.05" value="0.15">
+            </div>
+            <div class="field"></div>
+            <div class="field">
+              <label><span data-i18n="an_ro_judge_timeout">Судья: таймаут</span> <span class="value" id="v-cfgRoJudgeTimeout">600</span></label>
+              <input type="range" id="cfgRoJudgeTimeout" min="60" max="1800" step="30" value="600">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_ro_judge_temp">Судья: температура</span> <span class="value" id="v-cfgRoJudgeTemp">0.05</span></label>
+              <input type="range" id="cfgRoJudgeTemp" min="0" max="1" step="0.05" value="0.05">
+            </div>
+            <div class="field"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span data-i18n="an_prompts">Промпты и язык</span>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label data-i18n="an_prompt_lang">Язык промптов</label>
+              <div class="chip-group">
+                <button class="chip active" data-field="cfgAnalyzeLang" data-value="auto" data-i18n="chip_auto">Авто</button>
+                <button class="chip" data-field="cfgAnalyzeLang" data-value="ru">Русский</button>
+                <button class="chip" data-field="cfgAnalyzeLang" data-value="en">English</button>
+              </div>
+              <input type="hidden" id="cfgAnalyzeLang" value="auto">
+            </div>
+            <div class="field">
+              <label data-i18n="an_variant">Вариант промпта</label>
+              <div class="chip-group">
+                <button class="chip active" data-field="cfgAnalyzeVariant" data-value="default" data-i18n="an_default">По умолчанию</button>
+                <button class="chip" data-field="cfgAnalyzeVariant" data-value="a">Вариант A</button>
+                <button class="chip" data-field="cfgAnalyzeVariant" data-value="b">Вариант B</button>
+              </div>
+              <input type="hidden" id="cfgAnalyzeVariant" value="default">
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="bottom-bar">
+      <div class="bottom-bar-left">
+        <span class="bottom-status" id="bottomStatus" data-i18n="bottom_ready">Готов</span>
+      </div>
+      <div class="bottom-bar-center">
+        <div class="pipeline-overview" id="pipelineOverview">
+          <div class="pipeline-overview-dot" data-stage="transcribe"></div>
+          <div class="pipeline-overview-dot" data-stage="diarize"></div>
+          <div class="pipeline-overview-dot" data-stage="analyze"></div>
+          <div class="pipeline-overview-dot" data-stage="cut"></div>
+          <div class="pipeline-overview-dot" data-stage="subtitles"></div>
+        </div>
+      </div>
+      <div class="bottom-bar-right">
+        <span class="gpu-info" id="gpuInfo">GPU: --</span>
+      </div>
+    </footer>
+  </div>
+
+  <script src="assets/app.js"></script>
+</body>
+</html>
