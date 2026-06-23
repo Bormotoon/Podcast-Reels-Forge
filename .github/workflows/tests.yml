@@ -53,4 +53,7 @@ jobs:
       - name: Tests
         run: pytest -q
       - name: Type check
+        # mypy.ini pins python_version=3.10, so type-checking is interpreter-independent;
+        # run it once to avoid newer dependency stubs (numpy/PEP 695) tripping it on 3.12.
+        if: matrix.python-version == '3.10'
         run: mypy podcast_reels_forge --ignore-missing-imports
