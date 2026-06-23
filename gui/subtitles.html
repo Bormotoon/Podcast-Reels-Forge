@@ -82,14 +82,14 @@
 <div class="app">
     <aside class="panel sidebar">
       <div class="sidebar-header">
-        <h1>Студия ASS</h1>
-        <p class="lede">Material 3.0 • Безопасные зоны и субтитры</p>
+        <h1 data-i18n="ed_studio">Студия ASS</h1>
+        <p class="lede" data-i18n="ed_studio_sub">Material 3.0 • Безопасные зоны и субтитры</p>
       </div>
 
       <div class="sidebar-body">
         
         <section class="section">
-          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg> Настройка платформы</div>
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg> <span data-i18n="ed_platform">Настройка платформы</span></div>
           
           <div class="preset-group">
             <button class="preset-btn plat-btn active ripplable" data-platform="ig">IG Reels</button>
@@ -103,37 +103,37 @@
 
           <label class="file-upload-box ripplable">
             <input type="file" id="media-upload" accept="image/*,video/*">
-            <span>Загрузить фон (фото/видео)</span>
+            <span data-i18n="ed_upload_bg">Загрузить фон (фото/видео)</span>
           </label>
-          <button class="action-btn full ripplable" id="clearMediaBtn" style="margin-bottom:16px;">Очистить медиа</button>
+          <button class="action-btn full ripplable" id="clearMediaBtn" style="margin-bottom:16px;" data-i18n="ed_clear_media">Очистить медиа</button>
 
           <label class="m3-switch ripplable-switch">
-            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Интерфейс-макет</span>
+            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)" data-i18n="ed_ui_mockup">Интерфейс-макет</span>
             <input type="checkbox" id="showUI" checked>
             <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
           </label>
-          
+
           <label class="m3-switch ripplable-switch">
-            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Контур безопасной зоны</span>
+            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)" data-i18n="ed_safe_outline">Контур безопасной зоны</span>
             <input type="checkbox" id="showOutline" checked>
             <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
           </label>
 
           <label class="m3-switch ripplable-switch">
-            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Тёмная маска (небезопасная область)</span>
+            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)" data-i18n="ed_dark_mask">Тёмная маска (небезопасная область)</span>
             <input type="checkbox" id="showMask" checked>
             <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
           </label>
 
           <div class="field full" style="margin-top:8px;">
-            <label>Прозрачность маски <span class="value" id="v-maskOpacity"></span></label>
+            <label><span data-i18n="ed_mask_opacity">Прозрачность маски</span> <span class="value" id="v-maskOpacity"></span></label>
             <input id="maskOpacity" type="range" min="0" max="100" step="1">
           </div>
         </section>
 
         <!-- Pipeline render parameters (subtitles.*) -->
         <section class="section span-2">
-          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg> Параметры рендера субтитров</div>
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg> <span data-i18n="ed_render_params">Параметры рендера субтитров</span></div>
 
           <div class="grid-2">
             <label class="m3-switch ripplable-switch">
@@ -166,141 +166,141 @@
 
         <!-- Typography -->
         <section class="section span-2">
-          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg> Типографика</div>
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg> <span data-i18n="ed_typography">Типографика</span></div>
           <div class="preset-group">
             <button class="preset-btn ripplable" onclick="applyPreset('typo', 'hormozi')">Hormozi</button>
             <button class="preset-btn ripplable" onclick="applyPreset('typo', 'mrbeast')">MrBeast</button>
             <button class="preset-btn ripplable" onclick="applyPreset('typo', 'tiktok')">TikTok</button>
-            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'minimal')">Минимал</button>
-            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'impact')">Импакт</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'minimal')" data-i18n="ed_p_minimal">Минимал</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'impact')" data-i18n="ed_p_impact">Импакт</button>
           </div>
 
-          <div class="field full"><label>Путь к шрифту</label><input id="fontPath" type="text" value="assets/fonts/bignoodletoooblique.ttf"></div>
+          <div class="field full"><label data-i18n="ed_font_path">Путь к шрифту</label><input id="fontPath" type="text" value="assets/fonts/bignoodletoooblique.ttf"></div>
           <div class="grid-2">
-            <div class="field"><label>Размер шрифта <span class="value" id="v-fontSizePx"></span></label><input id="fontSizePx" type="range" min="16" max="150" step="1"></div>
-            <div class="field"><label>Межбуквенный интервал <span class="value" id="v-spacingPx"></span></label><input id="spacingPx" type="range" min="-10" max="30" step="1"></div>
+            <div class="field"><label><span data-i18n="ed_font_size">Размер шрифта</span> <span class="value" id="v-fontSizePx"></span></label><input id="fontSizePx" type="range" min="16" max="150" step="1"></div>
+            <div class="field"><label><span data-i18n="ed_letter_spacing">Межбуквенный интервал</span> <span class="value" id="v-spacingPx"></span></label><input id="spacingPx" type="range" min="-10" max="30" step="1"></div>
           </div>
-          
+
           <div class="toggle-group" style="margin-top: 16px;">
             <label class="toggle-btn ripplable">
               <input type="checkbox" id="bold">
               <div class="toggle-bg"></div>
-              <span class="toggle-content">Жирный</span>
+              <span class="toggle-content" data-i18n="ed_bold">Жирный</span>
             </label>
             <label class="toggle-btn ripplable">
               <input type="checkbox" id="italic">
               <div class="toggle-bg"></div>
-              <span class="toggle-content">Курсив</span>
+              <span class="toggle-content" data-i18n="ed_italic">Курсив</span>
             </label>
             <label class="toggle-btn ripplable">
               <input type="checkbox" id="underline">
               <div class="toggle-bg"></div>
-              <span class="toggle-content">Подчёрк</span>
+              <span class="toggle-content" data-i18n="ed_underline">Подчёрк</span>
             </label>
             <label class="toggle-btn ripplable">
               <input type="checkbox" id="strikeout">
               <div class="toggle-bg"></div>
-              <span class="toggle-content">Зачёрк</span>
+              <span class="toggle-content" data-i18n="ed_strikeout">Зачёрк</span>
             </label>
           </div>
         </section>
 
         <!-- Colors -->
         <section class="section">
-          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path><path d="M2 12h20"></path></svg> Цветовая тема</div>
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path><path d="M2 12h20"></path></svg> <span data-i18n="ed_colors">Цветовая тема</span></div>
           <div class="preset-group">
             <button class="preset-btn ripplable" onclick="applyPreset('colors', 'hormozi')">Hormozi</button>
-            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'green')">Грин-скрин</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'green')" data-i18n="ed_p_green">Грин-скрин</button>
             <button class="preset-btn ripplable" onclick="applyPreset('colors', 'tiktok')">TikTok</button>
-            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'red')">Красный</button>
-            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'white')">Белый</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'red')" data-i18n="ed_p_red">Красный</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'white')" data-i18n="ed_p_white">Белый</button>
           </div>
 
           <div class="grid-2">
-            <div class="field"><label>Основная заливка</label><input id="primaryColor" type="color"></div>
-            <div class="field"><label>Прозрачность <span class="value" id="v-primaryOp"></span></label><input id="primaryOp" type="range" min="0" max="1" step="0.05"></div>
+            <div class="field"><label data-i18n="ed_primary_fill">Основная заливка</label><input id="primaryColor" type="color"></div>
+            <div class="field"><label><span data-i18n="ed_opacity">Прозрачность</span> <span class="value" id="v-primaryOp"></span></label><input id="primaryOp" type="range" min="0" max="1" step="0.05"></div>
 
-            <div class="field"><label>Вторичная заливка</label><input id="secondaryColor" type="color"></div>
-            <div class="field"><label>Прозрачность <span class="value" id="v-secondaryOp"></span></label><input id="secondaryOp" type="range" min="0" max="1" step="0.05"></div>
+            <div class="field"><label data-i18n="ed_secondary_fill">Вторичная заливка</label><input id="secondaryColor" type="color"></div>
+            <div class="field"><label><span data-i18n="ed_opacity">Прозрачность</span> <span class="value" id="v-secondaryOp"></span></label><input id="secondaryOp" type="range" min="0" max="1" step="0.05"></div>
           </div>
         </section>
 
         <!-- Borders -->
         <section class="section">
-          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg> Контур и тень</div>
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg> <span data-i18n="ed_borders">Контур и тень</span></div>
           <div class="preset-group">
             <button class="preset-btn ripplable" onclick="applyPreset('borders', 'hormozi')">Hormozi</button>
-            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'shadow')">Мягкая тень</button>
-            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'box')">Блок</button>
-            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'box_outline')">Блок + контур</button>
-            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'neon')">Неон</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'shadow')" data-i18n="ed_p_soft_shadow">Мягкая тень</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'box')" data-i18n="ed_p_box">Блок</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'box_outline')" data-i18n="ed_p_box_outline">Блок + контур</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'neon')" data-i18n="ed_p_neon">Неон</button>
           </div>
 
           <div class="field full">
-            <label>Стиль границы</label>
+            <label data-i18n="ed_border_style">Стиль границы</label>
             <select id="borderStyle">
-              <option value="1">1: Контур + тень</option>
-              <option value="3">3: Непрозрачный блок</option>
+              <option value="1" data-i18n="ed_border_opt1">1: Контур + тень</option>
+              <option value="3" data-i18n="ed_border_opt3">3: Непрозрачный блок</option>
             </select>
           </div>
           <div class="grid-2">
-            <div class="field"><label>Цвет контура</label><input id="outlineColor" type="color"></div>
-            <div class="field"><label>Прозрачность <span class="value" id="v-outlineOp"></span></label><input id="outlineOp" type="range" min="0" max="1" step="0.05"></div>
-            <div class="field full"><label>Толщина контура <span class="value" id="v-outline"></span></label><input id="outline" type="range" min="0" max="20" step="1"></div>
+            <div class="field"><label data-i18n="ed_outline_color">Цвет контура</label><input id="outlineColor" type="color"></div>
+            <div class="field"><label><span data-i18n="ed_opacity">Прозрачность</span> <span class="value" id="v-outlineOp"></span></label><input id="outlineOp" type="range" min="0" max="1" step="0.05"></div>
+            <div class="field full"><label><span data-i18n="ed_outline_width">Толщина контура</span> <span class="value" id="v-outline"></span></label><input id="outline" type="range" min="0" max="20" step="1"></div>
 
-            <div class="field"><label>Тень/блок</label><input id="backColor" type="color"></div>
-            <div class="field"><label>Прозрачность <span class="value" id="v-backOp"></span></label><input id="backOp" type="range" min="0" max="1" step="0.05"></div>
-            <div class="field full"><label>Смещение тени <span class="value" id="v-shadow"></span></label><input id="shadow" type="range" min="0" max="20" step="1"></div>
+            <div class="field"><label data-i18n="ed_shadow_box">Тень/блок</label><input id="backColor" type="color"></div>
+            <div class="field"><label><span data-i18n="ed_opacity">Прозрачность</span> <span class="value" id="v-backOp"></span></label><input id="backOp" type="range" min="0" max="1" step="0.05"></div>
+            <div class="field full"><label><span data-i18n="ed_shadow_offset">Смещение тени</span> <span class="value" id="v-shadow"></span></label><input id="shadow" type="range" min="0" max="20" step="1"></div>
           </div>
         </section>
 
         <!-- Geometry -->
         <section class="section">
-          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg> Размещение</div>
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg> <span data-i18n="ed_placement">Размещение</span></div>
           <div class="preset-group">
-            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'reels')">Reels низ</button>
-            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'shorts')">Shorts низ</button>
-            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'center')">Центр</button>
-            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'top')">Верх</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'reels')" data-i18n="ed_p_reels_bottom">Reels низ</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'shorts')" data-i18n="ed_p_shorts_bottom">Shorts низ</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'center')" data-i18n="ed_p_center">Центр</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'top')" data-i18n="ed_p_top">Верх</button>
             <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'tiktok')">TikTok</button>
           </div>
 
           <div class="grid-2">
             <div class="field">
-              <label>Сетка выравнивания</label>
+              <label data-i18n="ed_alignment">Сетка выравнивания</label>
               <select id="alignment">
-                <option value="7">7 — Верх Л</option><option value="8">8 — Верх Ц</option><option value="9">9 — Верх П</option>
-                <option value="4">4 — Центр Л</option><option value="5">5 — Центр Ц</option><option value="6">6 — Центр П</option>
-                <option value="1">1 — Низ Л</option><option value="2">2 — Низ Ц</option><option value="3">3 — Низ П</option>
+                <option value="7" data-i18n="ed_align_tl">7 — Верх Л</option><option value="8" data-i18n="ed_align_tc">8 — Верх Ц</option><option value="9" data-i18n="ed_align_tr">9 — Верх П</option>
+                <option value="4" data-i18n="ed_align_ml">4 — Центр Л</option><option value="5" data-i18n="ed_align_mc">5 — Центр Ц</option><option value="6" data-i18n="ed_align_mr">6 — Центр П</option>
+                <option value="1" data-i18n="ed_align_bl">1 — Низ Л</option><option value="2" data-i18n="ed_align_bc">2 — Низ Ц</option><option value="3" data-i18n="ed_align_br">3 — Низ П</option>
               </select>
             </div>
-            <div class="field"><label>Отступ В <span class="value" id="v-marginV"></span></label><input id="marginV" type="range" min="0" max="800" step="5"></div>
-            <div class="field"><label>Отступ Л <span class="value" id="v-marginL"></span></label><input id="marginL" type="range" min="0" max="300" step="5"></div>
-            <div class="field"><label>Отступ П <span class="value" id="v-marginR"></span></label><input id="marginR" type="range" min="0" max="300" step="5"></div>
-            <div class="field"><label>Масштаб X <span class="value" id="v-scaleX"></span></label><input id="scaleX" type="range" min="50" max="200" step="5"></div>
-            <div class="field"><label>Масштаб Y <span class="value" id="v-scaleY"></span></label><input id="scaleY" type="range" min="50" max="200" step="5"></div>
-            <div class="field full"><label>Угол (Z) <span class="value" id="v-angle"></span></label><input id="angle" type="range" min="-180" max="180" step="1"></div>
+            <div class="field"><label><span data-i18n="ed_margin_v">Отступ В</span> <span class="value" id="v-marginV"></span></label><input id="marginV" type="range" min="0" max="800" step="5"></div>
+            <div class="field"><label><span data-i18n="ed_margin_l">Отступ Л</span> <span class="value" id="v-marginL"></span></label><input id="marginL" type="range" min="0" max="300" step="5"></div>
+            <div class="field"><label><span data-i18n="ed_margin_r">Отступ П</span> <span class="value" id="v-marginR"></span></label><input id="marginR" type="range" min="0" max="300" step="5"></div>
+            <div class="field"><label><span data-i18n="ed_scale_x">Масштаб X</span> <span class="value" id="v-scaleX"></span></label><input id="scaleX" type="range" min="50" max="200" step="5"></div>
+            <div class="field"><label><span data-i18n="ed_scale_y">Масштаб Y</span> <span class="value" id="v-scaleY"></span></label><input id="scaleY" type="range" min="50" max="200" step="5"></div>
+            <div class="field full"><label><span data-i18n="ed_angle">Угол (Z)</span> <span class="value" id="v-angle"></span></label><input id="angle" type="range" min="-180" max="180" step="1"></div>
           </div>
         </section>
 
         <!-- Preview & Output -->
         <section class="section span-2">
-          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Экспорт конфигурации</div>
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> <span data-i18n="ed_export">Экспорт конфигурации</span></div>
           <textarea id="sampleText" rows="2" style="margin-bottom:16px;">Разбираемся, почему этот выпуск вызывает споры.</textarea>
-          
+
           <label class="m3-switch ripplable-switch" style="margin-bottom: 16px;">
-            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Симуляция караоке \kf</span>
+            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)" data-i18n="ed_karaoke">Симуляция караоке \kf</span>
             <input type="checkbox" id="autoAnimate" checked>
             <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
           </label>
-          
+
           <div style="display:flex; gap:10px;">
-            <button id="applyBtn" class="action-btn primary ripplable" style="flex:1;">Сохранить файл ASS</button>
-            <button id="connectBtn" class="action-btn ripplable" style="flex:1;">Выбрать папку</button>
+            <button id="applyBtn" class="action-btn primary ripplable" style="flex:1;" data-i18n="ed_save_ass">Сохранить файл ASS</button>
+            <button id="connectBtn" class="action-btn ripplable" style="flex:1;" data-i18n="ed_pick_dir">Выбрать папку</button>
           </div>
-          
+
           <div class="code-card">
-            <label style="margin-bottom: 8px; color: var(--md-sys-color-primary);">[V4+ Styles] Конфигурация</label>
+            <label style="margin-bottom: 8px; color: var(--md-sys-color-primary);" data-i18n="ed_v4_config">[V4+ Styles] Конфигурация</label>
             <textarea id="assOutput" class="code" readonly></textarea>
           </div>
         </section>
@@ -334,7 +334,7 @@
                       <div class="placeholder-text" id="placeholder">
                         <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom: 20px; opacity: 0.9;">
                             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>
-                        </svg><br><span style="font-size: 36px;">Загрузите медиа</span>
+                        </svg><br><span style="font-size: 36px;" data-i18n="ed_load_media">Загрузите медиа</span>
                       </div>
                       
                       <img id="preview-img" class="media-layer" alt="Превью">

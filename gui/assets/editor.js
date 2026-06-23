@@ -337,7 +337,10 @@
       const platData = PLATFORMS[state.platform] || PLATFORMS.ig;
       document.getElementById('assEditorRoot').style.setProperty('--brand-color', platData.color);
       document.getElementById('ambientGlow').style.background = platData.color;
-      document.getElementById('specs-text').innerHTML = platData.desc;
+      // Safe-zone caption is localised through the shared i18n bridge (falls back to the RU default).
+      const specsKey = 'ed_specs_' + state.platform;
+      document.getElementById('specs-text').innerHTML =
+        (window.t && window.t(specsKey) !== specsKey) ? window.t(specsKey) : platData.desc;
       
       const uiLayer = document.getElementById('uiLayer');
       uiLayer.innerHTML = state.showUI ? platData.ui : '';
@@ -432,7 +435,9 @@
     });
 
     window.addEventListener('resize', resizePreview);
-    
+    // Re-render the JS-built parts (safe-zone caption) when the page language changes.
+    window.addEventListener('forge:langchange', () => updatePreview());
+
     setInterval(() => {
       if(state.autoAnimate) {
         let max = state.sampleText.trim().split(/\s+/).filter(Boolean).length;
@@ -448,8 +453,11 @@
       } catch(e) { alert(e); }
     });
 
+    // Small i18n helper: use the shared bridge if present, else fall back to the RU literal.
+    const T = (key, fallback) => (window.t && window.t(key) !== key) ? window.t(key) : fallback;
+
     document.getElementById('applyBtn').addEventListener('click', async () => {
-      if (!projHandle) return alert("Сначала выберите папку проекта!");
+      if (!projHandle) return alert(T('ed_pick_first', "Сначала выберите папку проекта!"));
       try {
         let dir = projHandle;
         for (let p of ["assets", "subtitles"]) dir = await dir.getDirectoryHandle(p, { create: true });
@@ -459,15 +467,15 @@
         await writable.close();
         
         let btn = document.getElementById('applyBtn');
-        btn.innerText = "\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043e! \u2714";
+        btn.innerText = T('ed_saved', "\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043e! \u2714");
         btn.style.background = "var(--md-sys-color-primary-container)"; 
         btn.style.color = "var(--md-sys-color-on-primary-container)";
         setTimeout(() => { 
-            btn.innerText = "Сохранить файл ASS";
+            btn.innerText = T('ed_save_ass', "Сохранить файл ASS");
             btn.style.background = "var(--md-sys-color-primary)"; 
             btn.style.color = "var(--md-sys-color-on-primary)";
         }, 2000);
-      } catch(e) { alert("Ошибка: " + e); }
+      } catch(e) { alert(T('ed_save_error', "Ошибка: ") + e); }
     });
 
     // Initial sync and calculation
