@@ -435,11 +435,331 @@
     .empty-state h3 { margin: 0 0 8px; font-size: 18px; font-weight: 400; color: var(--md-sys-color-on-surface-variant); }
     .empty-state p { margin: 0; font-size: 14px; }
 
+
     /* ===== RESPONSIVE ===== */
     @media (max-width: 900px) {
       .app-shell { grid-template-columns: 1fr; }
       .nav-rail { display: none; }
       .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    }
+  
+    /* ===== INLINED ASS STYLE EDITOR (scoped) ===== */
+    #assEditorRoot { --brand-color: #E1306C; --ease-out: cubic-bezier(0,0,0,1); display:block; font-family:'Roboto',system-ui,sans-serif; color:var(--md-sys-color-on-background); }
+    #assEditorRoot {
+.app {
+      display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(420px, 1fr);
+      gap: 12px; padding: 0; height: 78vh;
+    }
+
+    /* Collapse the bento to a single column before the panel gets too cramped */
+    @media (max-width: 1100px) {
+      .sidebar-body { grid-template-columns: 1fr; }
+      .section.span-2 { grid-column: auto; }
+    }
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 1fr; grid-template-rows: auto 80vh; height: auto; }
+      .sidebar { max-height: 60vh; }
+    }
+
+    /* M3 SIDEBAR */
+    .sidebar {
+      background: var(--md-sys-color-surface-container-low); 
+      border-radius: 28px; 
+      display: flex; flex-direction: column; overflow: hidden;
+      box-shadow: var(--md-elevation-1);
+    }
+
+    .sidebar-header {
+      padding: 16px 20px 12px;
+      background: var(--md-sys-color-surface-container);
+      border-bottom: 1px solid var(--md-sys-color-outline-variant);
+      z-index: 10;
+    }
+    h1 { margin: 0 0 2px; font-size: 18px; font-weight: 500; letter-spacing: 0px; color: var(--md-sys-color-on-background); }
+    .lede { margin: 0; color: var(--md-sys-color-outline); font-size: 12.5px; font-weight: 400; letter-spacing: 0.25px;}
+
+    /* M3 BENTO GRID — two columns with full-width bands */
+    .sidebar-body {
+      padding: 12px; overflow-y: auto;
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-auto-flow: dense; align-content: start; gap: 10px;
+    }
+    .section.span-2 { grid-column: 1 / -1; }
+
+    /* M3 CARDS (Sections) */
+    .section {
+      padding: 14px 16px; border-radius: 18px;
+      background: var(--md-sys-color-surface-container);
+      border: 1px solid transparent;
+      transition: box-shadow 0.3s var(--ease-standard), transform 0.3s var(--ease-standard), border-color 0.3s;
+      animation: assSlideUpFade 0.6s var(--ease-emphasized) backwards;
+    }
+    .section:hover { transform: translateY(-2px); box-shadow: var(--md-elevation-2); }
+    
+    /* Staggered Animations */
+    .section:nth-child(1) { animation-delay: 0.05s; }
+    .section:nth-child(2) { animation-delay: 0.10s; }
+    .section:nth-child(3) { animation-delay: 0.15s; }
+    .section:nth-child(4) { animation-delay: 0.20s; }
+    .section:nth-child(5) { animation-delay: 0.25s; }
+    .section:nth-child(6) { animation-delay: 0.30s; }
+
+    
+
+    .section-title {
+      font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--md-sys-color-primary); margin: 0 0 10px 0; font-weight: 500;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .section-title svg { width: 16px; height: 16px; }
+
+    /* M3 FILTER CHIPS (Presets) */
+    .preset-group { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .preset-btn {
+      position: relative; overflow: hidden;
+      font-size: 13px; font-weight: 500; padding: 0 12px; height: 28px; border-radius: 8px;
+      background: transparent; border: 1px solid var(--md-sys-color-outline); 
+      color: var(--md-sys-color-on-surface-variant); cursor: pointer;
+      transition: all 0.2s var(--ease-standard);
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .preset-btn::after {
+      content: ''; position: absolute; inset: 0; background: currentColor; opacity: 0; transition: opacity 0.2s;
+    }
+    .preset-btn:hover::after { opacity: 0.08; }
+    
+    .preset-btn.active { 
+      background: var(--md-sys-color-secondary-container); 
+      border-color: transparent; 
+      color: var(--md-sys-color-on-secondary-container); 
+    }
+    .preset-btn.plat-btn.active {
+      background: var(--brand-color); color: #fff;
+    }
+
+    /* GRIDS & FIELDS */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .field { display: flex; flex-direction: column; gap: 5px; position: relative;}
+    .field.full { grid-column: 1 / -1; }
+    
+    label { font-size: 12px; color: var(--md-sys-color-on-surface-variant); font-weight: 500; display: flex; justify-content: space-between; align-items: center;}
+    .value { color: var(--md-sys-color-primary); background: var(--md-sys-color-surface-container-highest); padding: 2px 8px; border-radius: 12px; font-variant-numeric: tabular-nums; font-size: 11px;}
+    
+    /* M3 TEXT FIELDS & SELECTS */
+    input[type="text"], textarea, select {
+      width: 100%; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 4px;
+      background: transparent; color: var(--md-sys-color-on-background); padding: 9px 12px; font-size: 14px; outline: none;
+      transition: all 0.2s var(--ease-standard); font-family: inherit;
+    }
+    input[type="text"]:focus, textarea:focus, select:focus {
+      border-color: var(--md-sys-color-primary); border-width: 2px; padding: 8px 11px;
+    }
+
+    input[type="color"] { width: 100%; height: 34px; padding: 0; border: none; border-radius: 10px; cursor: pointer; background: transparent;}
+    input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+    input[type="color"]::-webkit-color-swatch { border: 2px solid var(--md-sys-color-outline-variant); border-radius: 12px; transition: 0.2s; }
+    input[type="color"]:hover::-webkit-color-swatch { border-color: var(--md-sys-color-primary); }
+
+    /* M3 SLIDERS */
+    input[type="range"] {
+      -webkit-appearance: none; width: 100%; height: 30px; background: transparent; cursor: pointer; outline: none; margin: 0;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      width: 100%; height: 8px; background: var(--md-sys-color-surface-container-highest); border-radius: 4px; transition: 0.2s;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; height: 20px; width: 20px; border-radius: 50%; background: var(--md-sys-color-primary);
+      margin-top: -6px; box-shadow: 0 0 0 0 rgba(208, 188, 255, 0); transition: 0.2s cubic-bezier(0.2, 0, 0, 1);
+    }
+    input[type="range"]:hover::-webkit-slider-thumb { box-shadow: 0 0 0 10px rgba(208, 188, 255, 0.12); transform: scale(1.1); }
+    input[type="range"]:active::-webkit-slider-thumb { box-shadow: 0 0 0 14px rgba(208, 188, 255, 0.20); transform: scale(1.2); }
+
+    /* M3 SWITCHES */
+    .m3-switch {
+      display: flex; align-items: center; justify-content: space-between; width: 100%; cursor: pointer;
+      padding: 4px 0;
+    }
+    .m3-switch input { display: none; }
+    .m3-switch-track {
+      width: 52px; height: 32px; border-radius: 16px; border: 2px solid var(--md-sys-color-outline);
+      background: var(--md-sys-color-surface-container-highest); position: relative; transition: 0.3s var(--ease-standard);
+    }
+    .m3-switch-thumb {
+      width: 16px; height: 16px; border-radius: 50%; background: var(--md-sys-color-outline);
+      position: absolute; top: 6px; left: 6px; transition: 0.3s var(--ease-standard);
+    }
+    .m3-switch:hover .m3-switch-thumb { box-shadow: 0 0 0 10px rgba(230, 224, 233, 0.08); }
+    
+    .m3-switch input:checked + .m3-switch-track { background: var(--md-sys-color-primary); border-color: var(--md-sys-color-primary); }
+    .m3-switch input:checked + .m3-switch-track .m3-switch-thumb {
+      background: var(--md-sys-color-on-primary); width: 24px; height: 24px; top: 2px; left: 24px;
+    }
+    .m3-switch input:checked:hover + .m3-switch-track .m3-switch-thumb { box-shadow: 0 0 0 10px rgba(56, 30, 114, 0.12); }
+
+    /* M3 TOGGLE BUTTONS */
+    .toggle-group { display: flex; border: 1px solid var(--md-sys-color-outline); border-radius: 18px; overflow: hidden; height: 34px;}
+    .toggle-btn {
+      flex: 1; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer;
+      border-right: 1px solid var(--md-sys-color-outline); background: transparent; transition: 0.2s;
+    }
+    .toggle-btn:last-child { border-right: none; }
+    .toggle-btn input { display: none; }
+    .toggle-content { font-size: 14px; font-weight: 500; color: var(--md-sys-color-on-surface-variant); z-index: 2; transition: 0.2s;}
+    .toggle-bg { position: absolute; inset: 0; background: var(--md-sys-color-secondary-container); opacity: 0; transition: 0.2s; z-index: 1;}
+    .toggle-btn input:checked ~ .toggle-bg { opacity: 1; }
+    .toggle-btn input:checked ~ .toggle-content { color: var(--md-sys-color-on-secondary-container); }
+    .toggle-btn:hover .toggle-bg { opacity: 0.08; }
+    .toggle-btn input:checked:hover ~ .toggle-bg { opacity: 0.85; }
+
+    /* M3 BUTTONS */
+    button.action-btn {
+      position: relative; overflow: hidden;
+      border: none; border-radius: 18px; height: 36px; font-size: 13.5px; font-weight: 500; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px; transition: transform 0.1s, box-shadow 0.2s;
+      background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+    }
+    button.action-btn:active { transform: scale(0.96); }
+    button.primary { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+    
+    .file-upload-box {
+      position: relative; overflow: hidden;
+      border: 2px dashed var(--md-sys-color-outline); border-radius: 14px; padding: 11px; text-align: center; cursor: pointer;
+      background: transparent; transition: 0.3s; margin-bottom: 10px;
+      color: var(--md-sys-color-on-surface-variant);
+    }
+    .file-upload-box:hover { border-color: var(--md-sys-color-primary); background: rgba(208,188,255,0.05); color: var(--md-sys-color-primary); }
+    .file-upload-box span { font-weight: 500; font-size: 13px; }
+
+    .specs-info {
+      font-size: 11.5px; color: var(--md-sys-color-on-surface-variant); background: var(--md-sys-color-surface-container-highest);
+      padding: 9px 12px; border-radius: 10px; border-left: 4px solid var(--brand-color);
+      line-height: 1.45; transition: border-color 0.5s; margin-bottom: 12px;
+    }
+
+    /* ========================================= */
+    /* WORKSPACE & CANVAS ARCHITECTURE (PERFECT) */
+    /* ========================================= */
+    
+    .workspace-body { 
+      position: relative; padding: 20px; display: flex; justify-content: center; align-items: center; 
+      height: 100%; border-radius: 28px; overflow: hidden; 
+      background-color: var(--md-sys-color-background);
+      background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+      background-size: 24px 24px;
+      perspective: 1500px; /* Важно для 3D наклона */
+    }
+
+    /* AMBIENT GLOW BEHIND PHONE */
+    .ambient-glow {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 400px; height: 800px; border-radius: 50%;
+      background: var(--brand-color); opacity: 0.15; filter: blur(120px);
+      transition: background 1s ease; pointer-events: none;
+      animation: pulseGlow 6s infinite alternate;
+    }
+    
+
+    /* 1. Слой бронирования места (Scaling Wrapper) */
+    .device-scaler {
+      position: relative;
+      /* Ширина и высота сюда пробрасываются через JS (например, 400x700px), чтобы работал Flex-centering */
+    }
+
+    /* 2. Слой парения (Float Wrapper) */
+    .device-floater {
+      position: absolute;
+      top: 50%; left: 50%;
+      /* Фиксированные оригинальные размеры телефона: 1080 + 34*2 + 6*2 = 1160px */
+      width: 1160px; height: 2000px;
+      margin-left: -580px; margin-top: -1000px; /* Четко центрируем внутри Scaler */
+      animation: float 6s ease-in-out infinite;
+      transition: transform 0.3s cubic-bezier(0.2, 0, 0, 1);
+      transform-style: preserve-3d;
+      pointer-events: none; /* Пропускаем клики к фрейму */
+    }
+    .device-floater:hover {
+      transform: scale(1.02); /* Эффект приближения при наведении */
+      animation-play-state: paused;
+    }
+    
+    
+
+    /* 3. Слой фрейма смартфона (Apply Scale & Parallax Here) */
+    .device-frame {
+      position: absolute; top: 0; left: 0; box-sizing: content-box;
+      background: #0f0f11; width: 1080px; height: 1920px; padding: 34px; 
+      border-radius: 160px; border: 6px solid #2a2a2c;
+      box-shadow: inset 0 0 12px rgba(255,255,255,0.05), 0 0 0 2px #000, 0 50px 100px -20px rgba(0,0,0,0.8);
+      transform-origin: center center;
+      transition: box-shadow 0.3s;
+      pointer-events: auto; /* Включаем клики обратно */
+    }
+
+    /* Экран устройства (всегда ровно 1080x1920) */
+    .preview-container {
+      position: relative; width: 1080px; height: 1920px; overflow: hidden;
+      border-radius: 126px; background: #000;
+      /* APPLE-STYLE GRADIENT ONSCREEN */
+      background-image: 
+        radial-gradient(circle at 20% -10%, #3b1b6d 0%, transparent 45%),
+        radial-gradient(circle at 80% 15%, #d82b6b 0%, transparent 40%),
+        radial-gradient(circle at 50% 100%, #17428f 0%, transparent 55%),
+        radial-gradient(circle at -10% 70%, #0d1e3d 0%, transparent 40%);
+      box-shadow: inset 0 0 80px rgba(0,0,0,0.8);
+    }
+
+    .device-camera {
+      position: absolute; top: 25px; left: 50%; transform: translateX(-50%);
+      width: 300px; height: 90px; background: #000; border-radius: 45px; z-index: 50;
+      box-shadow: inset -2px -2px 6px rgba(255,255,255,0.1), inset 2px 2px 6px rgba(0,0,0,1);
+    }
+
+    .device-btn { position: absolute; background: #2c2c2e; border: 1px solid #111; }
+    .btn-power { right: -14px; top: 580px; width: 8px; height: 220px; border-radius: 0 8px 8px 0; }
+    .btn-vol-up { left: -14px; top: 480px; width: 8px; height: 160px; border-radius: 8px 0 0 8px; }
+    .btn-vol-down { left: -14px; top: 680px; width: 8px; height: 160px; border-radius: 8px 0 0 8px; }
+
+    .media-layer { position: absolute; top: 0; left: 0; width: 1080px; height: 1920px; object-fit: cover; display: none; z-index: 1;}
+    .placeholder-text { 
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+      color: rgba(255,255,255,0.95); text-align: center; font-weight: 500; line-height: 1.5; z-index: 2; pointer-events: none; width: 100%;
+      text-shadow: 0 8px 24px rgba(0,0,0,0.8);
+    }
+    
+    .ass-subtitle-container {
+      position: absolute; display: flex; flex-direction: column; pointer-events: none; z-index: 10;
+      left: var(--css-left); right: var(--css-right); top: var(--css-top); bottom: var(--css-bottom);
+      align-items: var(--css-align-items); text-align: var(--css-text-align); transform: var(--css-transform-container);
+    }
+    .ass-line { display: inline-flex; flex-wrap: wrap; justify-content: var(--css-justify); column-gap: var(--css-spacing); background-color: var(--css-box-bg); padding: var(--css-box-pad); }
+    .ass-word {
+      font-family: var(--css-font), sans-serif; font-size: var(--css-font-size); font-weight: var(--css-weight);
+      font-style: var(--css-style); text-decoration: var(--css-decoration); letter-spacing: var(--css-spacing);
+      color: var(--css-color-sec); text-shadow: var(--css-text-shadow); -webkit-text-stroke: var(--css-text-stroke);
+      /* Рисуем обводку ПОЗАДИ заливки — как это делает libass (контур снаружи глифа),
+         иначе толстый stroke «съедает» буквы и текст превращается в чёрное месиво. */
+      paint-order: stroke fill;
+      transform: var(--css-transform-word); white-space: nowrap; line-height: 1.1; transition: color 0.1s;
+    }
+    .ass-word.active { color: var(--css-color-pri); }
+
+    .overlay-layer { position: absolute; top: 0; left: 0; width: 1080px; height: 1920px; pointer-events: none; z-index: 20; }
+    .overlay-layer polygon { transition: all 0.5s var(--ease-standard); }
+    
+    .code-card { padding: 12px; border-radius: 16px; background: var(--md-sys-color-surface-container-highest); border: 1px solid var(--md-sys-color-outline-variant); margin-top: 10px;}
+    textarea.code { font-family: var(--font-code); font-size: 11px; min-height: 120px; background: transparent; color: var(--md-sys-color-secondary); border: none; padding: 0;}
+    textarea.code:focus { border:none; padding:0; }
+  
+    }
+@keyframes assSlideUpFade {
+      from { opacity: 0; transform: translateY(40px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+@keyframes pulseGlow { 0% { transform: translate(-50%, -50%) scale(1); opacity: 0.15; } 100% { transform: translate(-50%, -50%) scale(1.1); opacity: 0.25; } }
+@keyframes float {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-16px); }
     }
   </style>
 </head>
@@ -808,9 +1128,13 @@
               <label><span data-i18n="an_chunk">Длительность чанка (сек)</span> <span class="value" id="v-cfgAnalyzeChunk">900</span></label>
               <input type="range" id="cfgAnalyzeChunk" min="300" max="3600" step="60" value="900">
             </div>
-            <div class="field">
+            <div class="field" style="margin-bottom: 16px;">
               <label><span data-i18n="an_max_chars">Макс. символов на чанк</span> <span class="value" id="v-cfgAnalyzeMaxChars">7000</span></label>
               <input type="range" id="cfgAnalyzeMaxChars" min="2000" max="12000" step="500" value="7000">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_scout_par">Параллелизм разведчика</span> <span class="value" id="v-cfgAnalyzeScoutParallelism">1</span></label>
+              <input type="range" id="cfgAnalyzeScoutParallelism" min="1" max="8" step="1" value="1">
             </div>
           </div>
 
@@ -837,9 +1161,76 @@
               <label><span data-i18n="an_wd_stall">Таймаут зависания</span> <span class="value" id="v-cfgAnalyzeStall">120</span>с</label>
               <input type="range" id="cfgAnalyzeStall" min="30" max="600" step="10" value="120">
             </div>
-            <div class="field">
+            <div class="field" style="margin-bottom: 16px;">
               <label><span data-i18n="an_wd_retries">Макс. попыток</span> <span class="value" id="v-cfgAnalyzeRetries">4</span></label>
               <input type="range" id="cfgAnalyzeRetries" min="1" max="10" step="1" value="4">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_wd_log">Интервал логов (сек)</span> <span class="value" id="v-cfgAnalyzeLogInterval">10</span></label>
+              <input type="range" id="cfgAnalyzeLogInterval" min="1" max="60" step="1" value="10">
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+            <span data-i18n="an_service_tuning">Сервис llama.cpp — VRAM и производительность</span>
+          </div>
+          <div class="grid-3">
+            <div class="field">
+              <label><span data-i18n="an_ngpu">Слои на GPU (n_gpu_layers)</span> <span class="value" id="v-cfgLlamaNgpu">0</span></label>
+              <input type="range" id="cfgLlamaNgpu" min="0" max="999" step="1" value="0">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_ctx">Размер контекста (ctx_size)</span> <span class="value" id="v-cfgLlamaCtx">8192</span></label>
+              <input type="range" id="cfgLlamaCtx" min="2048" max="32768" step="1024" value="8192">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_startup">Таймаут старта (сек)</span> <span class="value" id="v-cfgLlamaStartupTimeout">120</span></label>
+              <input type="range" id="cfgLlamaStartupTimeout" min="30" max="600" step="10" value="120">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_lbatch">Размер батча (batch_size)</span> <span class="value" id="v-cfgLlamaBatch">1024</span></label>
+              <input type="range" id="cfgLlamaBatch" min="128" max="4096" step="128" value="1024">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_ubatch">Микро-батч (ubatch_size)</span> <span class="value" id="v-cfgLlamaUbatch">512</span></label>
+              <input type="range" id="cfgLlamaUbatch" min="64" max="2048" step="64" value="512">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_lthreads">Потоки CPU (threads)</span> <span class="value" id="v-cfgLlamaThreads">4</span></label>
+              <input type="range" id="cfgLlamaThreads" min="1" max="32" step="1" value="4">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_parallel">Параллельные слоты (parallel)</span> <span class="value" id="v-cfgLlamaParallel">1</span></label>
+              <input type="range" id="cfgLlamaParallel" min="1" max="8" step="1" value="1">
+            </div>
+            <div class="field">
+              <label><span data-i18n="an_main_gpu">Основной GPU (main_gpu)</span> <span class="value" id="v-cfgLlamaMainGpu">0</span></label>
+              <input type="range" id="cfgLlamaMainGpu" min="0" max="7" step="1" value="0">
+            </div>
+            <div class="field">
+              <label data-i18n="an_cache_k">KV-кэш K (cache_type_k)</label>
+              <select id="cfgLlamaCacheK">
+                <option value="f16">f16</option>
+                <option value="q8_0" selected>q8_0</option>
+                <option value="q5_1">q5_1</option>
+                <option value="q4_0">q4_0</option>
+              </select>
+            </div>
+            <div class="field">
+              <label data-i18n="an_cache_v">KV-кэш V (cache_type_v)</label>
+              <select id="cfgLlamaCacheV">
+                <option value="f16">f16</option>
+                <option value="q8_0" selected>q8_0</option>
+                <option value="q5_1">q5_1</option>
+                <option value="q4_0">q4_0</option>
+              </select>
+            </div>
+            <div class="field span-full">
+              <label data-i18n="an_fallback">Фоллбэк-модели (через запятую)</label>
+              <input type="text" id="cfgAnalyzeFallback" data-i18n-placeholder="an_fallback_ph" placeholder="например: gemma4:12b, gemma4">
             </div>
           </div>
         </div>
@@ -1055,6 +1446,61 @@
             </div>
           </div>
         </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+            <span data-i18n="cut_clips">Типы клипов и количество</span>
+          </div>
+          <div class="grid-4">
+            <div class="field">
+              <label><span data-i18n="clips_stories_n">Stories — кол-во</span> <span class="value" id="v-cfgClipsStoriesCount">2</span></label>
+              <input type="range" id="cfgClipsStoriesCount" min="0" max="10" step="1" value="2">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_stories_d">Stories — макс. сек</span> <span class="value" id="v-cfgClipsStoriesMaxDur">15</span></label>
+              <input type="range" id="cfgClipsStoriesMaxDur" min="5" max="60" step="1" value="15">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_reels_n">Reels — кол-во</span> <span class="value" id="v-cfgClipsReelsCount">3</span></label>
+              <input type="range" id="cfgClipsReelsCount" min="0" max="10" step="1" value="3">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_reels_d">Reels — макс. сек</span> <span class="value" id="v-cfgClipsReelsMaxDur">60</span></label>
+              <input type="range" id="cfgClipsReelsMaxDur" min="15" max="180" step="5" value="60">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_long_n">Long reels — кол-во</span> <span class="value" id="v-cfgClipsLongCount">1</span></label>
+              <input type="range" id="cfgClipsLongCount" min="0" max="10" step="1" value="1">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_long_d">Long reels — макс. сек</span> <span class="value" id="v-cfgClipsLongMaxDur">180</span></label>
+              <input type="range" id="cfgClipsLongMaxDur" min="60" max="600" step="10" value="180">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_hl_n">Highlights — кол-во</span> <span class="value" id="v-cfgClipsHlCount">1</span></label>
+              <input type="range" id="cfgClipsHlCount" min="0" max="10" step="1" value="1">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_hl_m">Highlights — моментов</span> <span class="value" id="v-cfgClipsHlMoments">5</span></label>
+              <input type="range" id="cfgClipsHlMoments" min="1" max="20" step="1" value="5">
+            </div>
+          </div>
+          <div class="grid-3" style="margin-top: 16px;">
+            <div class="field">
+              <label><span data-i18n="clips_reels_count">Reels всего (reels_count)</span> <span class="value" id="v-cfgProcReelsCount">3</span></label>
+              <input type="range" id="cfgProcReelsCount" min="0" max="20" step="1" value="3">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_reel_min">Reel мин. сек</span> <span class="value" id="v-cfgProcReelMinDur">30</span></label>
+              <input type="range" id="cfgProcReelMinDur" min="5" max="120" step="1" value="30">
+            </div>
+            <div class="field">
+              <label><span data-i18n="clips_reel_max">Reel макс. сек</span> <span class="value" id="v-cfgProcReelMaxDur">60</span></label>
+              <input type="range" id="cfgProcReelMaxDur" min="15" max="300" step="5" value="60">
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- ========== SUBTITLES ========== -->
@@ -1070,13 +1516,13 @@
           </div>
         </div>
 
-        <div class="grid-2">
-          <div class="card">
-            <div class="card-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
-              <span data-i18n="sub_settings">Настройки субтитров</span>
-            </div>
-            <div class="field" style="margin-bottom: 16px;">
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+            <span data-i18n="sub_settings">Настройки субтитров</span>
+          </div>
+          <div class="grid-2">
+            <div class="field span-full">
               <label class="m3-switch">
                 <div>
                   <div class="m3-switch-text" data-i18n="sub_burn">Прошить субтитры</div>
@@ -1086,26 +1532,15 @@
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
               </label>
             </div>
-            <div class="field" style="margin-bottom: 16px;">
+            <div class="field span-full">
               <label data-i18n="sub_font">Шрифт</label>
               <input type="text" id="cfgSubsFont" value="assets/fonts/bignoodletoooblique.ttf">
             </div>
-            <div class="field" style="margin-bottom: 16px;">
+            <div class="field span-full">
               <label data-i18n="sub_ass">Файл ASS-стиля</label>
               <input type="text" id="cfgSubsAss" value="assets/subtitles/forge_subtitles.ass">
             </div>
-            <div class="field">
-              <label><span data-i18n="sub_font_size">Размер шрифта (px)</span> <span class="value" id="v-cfgSubsFontSize">36</span></label>
-              <input type="range" id="cfgSubsFontSize" min="16" max="120" step="1" value="36">
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
-              <span data-i18n="sub_layout">Раскладка и анимация</span>
-            </div>
-            <div class="field" style="margin-bottom: 16px;">
+            <div class="field span-full">
               <label class="m3-switch">
                 <div>
                   <div class="m3-switch-text" data-i18n="sub_wrap">Перенос слов</div>
@@ -1115,35 +1550,313 @@
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
               </label>
             </div>
-            <div class="grid-2" style="margin-bottom: 16px;">
-              <div class="field">
-                <label><span data-i18n="sub_max_lines">Макс. строк</span> <span class="value" id="v-cfgSubsMaxLines">2</span></label>
-                <input type="range" id="cfgSubsMaxLines" min="1" max="4" step="1" value="2">
-              </div>
-              <div class="field">
-                <label><span data-i18n="sub_max_width">Макс. ширина (доля)</span> <span class="value" id="v-cfgSubsMaxWidth">0.65</span></label>
-                <input type="range" id="cfgSubsMaxWidth" min="0.3" max="1.0" step="0.05" value="0.65">
-              </div>
+            <div class="field">
+              <label><span data-i18n="sub_max_lines">Макс. строк</span> <span class="value" id="v-cfgSubsMaxLines">2</span></label>
+              <input type="range" id="cfgSubsMaxLines" min="1" max="4" step="1" value="2">
             </div>
-            <div class="field" style="margin-bottom: 16px;">
-              <label data-i18n="sub_valign">Вертикальное выравнивание</label>
-              <div class="chip-group">
-                <button class="chip" data-field="cfgSubsVAlign" data-value="top" data-i18n="sub_top">Сверху</button>
-                <button class="chip" data-field="cfgSubsVAlign" data-value="center" data-i18n="sub_center">По центру</button>
-                <button class="chip active" data-field="cfgSubsVAlign" data-value="bottom" data-i18n="sub_bottom">Снизу</button>
-              </div>
-              <input type="hidden" id="cfgSubsVAlign" value="bottom">
+            <div class="field">
+              <label><span data-i18n="sub_max_width">Макс. ширина (доля)</span> <span class="value" id="v-cfgSubsMaxWidth">0.65</span></label>
+              <input type="range" id="cfgSubsMaxWidth" min="0.3" max="1.0" step="0.05" value="0.65">
             </div>
-            <div class="grid-2">
-              <div class="field">
-                <label><span data-i18n="sub_fade_in">Появление (сек)</span> <span class="value" id="v-cfgSubsFadeIn">0.18</span></label>
-                <input type="range" id="cfgSubsFadeIn" min="0" max="1.0" step="0.02" value="0.18">
-              </div>
-              <div class="field">
-                <label><span data-i18n="sub_fade_out">Исчезновение (сек)</span> <span class="value" id="v-cfgSubsFadeOut">0.12</span></label>
-                <input type="range" id="cfgSubsFadeOut" min="0" max="1.0" step="0.02" value="0.12">
-              </div>
+            <div class="field">
+              <label><span data-i18n="sub_fade_in">Появление (сек)</span> <span class="value" id="v-cfgSubsFadeIn">0.18</span></label>
+              <input type="range" id="cfgSubsFadeIn" min="0" max="1.0" step="0.02" value="0.18">
             </div>
+            <div class="field">
+              <label><span data-i18n="sub_fade_out">Исчезновение (сек)</span> <span class="value" id="v-cfgSubsFadeOut">0.12</span></label>
+              <input type="range" id="cfgSubsFadeOut" min="0" max="1.0" step="0.02" value="0.12">
+            </div>
+            <div class="field">
+              <label><span data-i18n="sub_word_x">Зазор слов X (px)</span> <span class="value" id="v-cfgSubsWordX">6</span></label>
+              <input type="range" id="cfgSubsWordX" min="0" max="40" step="1" value="6">
+            </div>
+            <div class="field">
+              <label><span data-i18n="sub_word_y">Зазор слов Y (px)</span> <span class="value" id="v-cfgSubsWordY">8</span></label>
+              <input type="range" id="cfgSubsWordY" min="0" max="40" step="1" value="8">
+            </div>
+            <div class="field span-full">
+              <label><span data-i18n="sub_voffset">Верт. смещение (доля)</span> <span class="value" id="v-cfgSubsVOffset">0.00</span></label>
+              <input type="range" id="cfgSubsVOffset" min="-1" max="1" step="0.05" value="0">
+            </div>
+          </div>
+          <p style="margin:14px 0 0; font-size:12px; color:var(--md-sys-color-outline); line-height:1.5;" data-i18n="sub_size_hint">Размер, цвет, контур и положение субтитров задаются ниже — в визуальном редакторе стиля (.ass).</p>
+        </div>
+
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+            <div class="card-title" style="margin:0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+              <span data-i18n="sub_editor">Визуальный редактор стиля (.ass)</span>
+            </div>
+            <div class="btn-group">
+              <button class="btn btn-outlined" id="btnEditorNewTab">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                <span data-i18n="sub_editor_newtab">Открыть в новой вкладке</span>
+              </button>
+            </div>
+          </div>
+          <p style="margin:0 0 12px; font-size:12px; color:var(--md-sys-color-outline); line-height:1.5;" data-i18n="sub_editor_note">
+            Редактор сохраняет оформление в файл «Файл ASS-стиля» выше — пайплайн берёт стиль субтитров из него. Нажмите «Выбрать папку» и «Сохранить файл ASS» внутри редактора.
+          </p>
+          <div id="assEditorRoot">
+<div class="app">
+    <aside class="panel sidebar">
+      <div class="sidebar-header">
+        <h1>Студия ASS</h1>
+        <p class="lede">Material 3.0 • Безопасные зоны и субтитры</p>
+      </div>
+
+      <div class="sidebar-body">
+        
+        <section class="section">
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg> Настройка платформы</div>
+          
+          <div class="preset-group">
+            <button class="preset-btn plat-btn active ripplable" data-platform="ig">IG Reels</button>
+            <button class="preset-btn plat-btn ripplable" data-platform="tiktok">TikTok</button>
+            <button class="preset-btn plat-btn ripplable" data-platform="yt">YT Shorts</button>
+          </div>
+
+          <div class="specs-info" id="specs-text">
+            <strong>IG Reels:</strong> Безопасная зона. Отступы: Верх 220px, Низ 420px, Справа 140px.
+          </div>
+
+          <label class="file-upload-box ripplable">
+            <input type="file" id="media-upload" accept="image/*,video/*">
+            <span>Загрузить фон (фото/видео)</span>
+          </label>
+          <button class="action-btn full ripplable" id="clearMediaBtn" style="margin-bottom:16px;">Очистить медиа</button>
+
+          <label class="m3-switch ripplable-switch">
+            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Интерфейс-макет</span>
+            <input type="checkbox" id="showUI" checked>
+            <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+          </label>
+          
+          <label class="m3-switch ripplable-switch">
+            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Контур безопасной зоны</span>
+            <input type="checkbox" id="showOutline" checked>
+            <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+          </label>
+
+          <label class="m3-switch ripplable-switch">
+            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Тёмная маска (небезопасная область)</span>
+            <input type="checkbox" id="showMask" checked>
+            <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+          </label>
+
+          <div class="field full" style="margin-top:8px;">
+            <label>Прозрачность маски <span class="value" id="v-maskOpacity"></span></label>
+            <input id="maskOpacity" type="range" min="0" max="100" step="1">
+          </div>
+        </section>
+
+        <!-- Typography -->
+        <section class="section span-2">
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg> Типографика</div>
+          <div class="preset-group">
+            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'hormozi')">Hormozi</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'mrbeast')">MrBeast</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'tiktok')">TikTok</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'minimal')">Минимал</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'impact')">Импакт</button>
+          </div>
+
+          <div class="field full"><label>Путь к шрифту</label><input id="fontPath" type="text" value="assets/fonts/bignoodletoooblique.ttf"></div>
+          <div class="grid-2">
+            <div class="field"><label>Размер шрифта <span class="value" id="v-fontSizePx"></span></label><input id="fontSizePx" type="range" min="16" max="150" step="1"></div>
+            <div class="field"><label>Межбуквенный интервал <span class="value" id="v-spacingPx"></span></label><input id="spacingPx" type="range" min="-10" max="30" step="1"></div>
+          </div>
+          
+          <div class="toggle-group" style="margin-top: 16px;">
+            <label class="toggle-btn ripplable">
+              <input type="checkbox" id="bold">
+              <div class="toggle-bg"></div>
+              <span class="toggle-content">Жирный</span>
+            </label>
+            <label class="toggle-btn ripplable">
+              <input type="checkbox" id="italic">
+              <div class="toggle-bg"></div>
+              <span class="toggle-content">Курсив</span>
+            </label>
+            <label class="toggle-btn ripplable">
+              <input type="checkbox" id="underline">
+              <div class="toggle-bg"></div>
+              <span class="toggle-content">Подчёрк</span>
+            </label>
+            <label class="toggle-btn ripplable">
+              <input type="checkbox" id="strikeout">
+              <div class="toggle-bg"></div>
+              <span class="toggle-content">Зачёрк</span>
+            </label>
+          </div>
+        </section>
+
+        <!-- Colors -->
+        <section class="section">
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path><path d="M2 12h20"></path></svg> Цветовая тема</div>
+          <div class="preset-group">
+            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'hormozi')">Hormozi</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'green')">Грин-скрин</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'tiktok')">TikTok</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'red')">Красный</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'white')">Белый</button>
+          </div>
+
+          <div class="grid-2">
+            <div class="field"><label>Основная заливка</label><input id="primaryColor" type="color"></div>
+            <div class="field"><label>Прозрачность <span class="value" id="v-primaryOp"></span></label><input id="primaryOp" type="range" min="0" max="1" step="0.05"></div>
+
+            <div class="field"><label>Вторичная заливка</label><input id="secondaryColor" type="color"></div>
+            <div class="field"><label>Прозрачность <span class="value" id="v-secondaryOp"></span></label><input id="secondaryOp" type="range" min="0" max="1" step="0.05"></div>
+          </div>
+        </section>
+
+        <!-- Borders -->
+        <section class="section">
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg> Контур и тень</div>
+          <div class="preset-group">
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'hormozi')">Hormozi</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'shadow')">Мягкая тень</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'box')">Блок</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'box_outline')">Блок + контур</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'neon')">Неон</button>
+          </div>
+
+          <div class="field full">
+            <label>Стиль границы</label>
+            <select id="borderStyle">
+              <option value="1">1: Контур + тень</option>
+              <option value="3">3: Непрозрачный блок</option>
+            </select>
+          </div>
+          <div class="grid-2">
+            <div class="field"><label>Цвет контура</label><input id="outlineColor" type="color"></div>
+            <div class="field"><label>Прозрачность <span class="value" id="v-outlineOp"></span></label><input id="outlineOp" type="range" min="0" max="1" step="0.05"></div>
+            <div class="field full"><label>Толщина контура <span class="value" id="v-outline"></span></label><input id="outline" type="range" min="0" max="20" step="1"></div>
+
+            <div class="field"><label>Тень/блок</label><input id="backColor" type="color"></div>
+            <div class="field"><label>Прозрачность <span class="value" id="v-backOp"></span></label><input id="backOp" type="range" min="0" max="1" step="0.05"></div>
+            <div class="field full"><label>Смещение тени <span class="value" id="v-shadow"></span></label><input id="shadow" type="range" min="0" max="20" step="1"></div>
+          </div>
+        </section>
+
+        <!-- Geometry -->
+        <section class="section">
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg> Размещение</div>
+          <div class="preset-group">
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'reels')">Reels низ</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'shorts')">Shorts низ</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'center')">Центр</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'top')">Верх</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'tiktok')">TikTok</button>
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
+              <label>Сетка выравнивания</label>
+              <select id="alignment">
+                <option value="7">7 — Верх Л</option><option value="8">8 — Верх Ц</option><option value="9">9 — Верх П</option>
+                <option value="4">4 — Центр Л</option><option value="5">5 — Центр Ц</option><option value="6">6 — Центр П</option>
+                <option value="1">1 — Низ Л</option><option value="2">2 — Низ Ц</option><option value="3">3 — Низ П</option>
+              </select>
+            </div>
+            <div class="field"><label>Отступ В <span class="value" id="v-marginV"></span></label><input id="marginV" type="range" min="0" max="800" step="5"></div>
+            <div class="field"><label>Отступ Л <span class="value" id="v-marginL"></span></label><input id="marginL" type="range" min="0" max="300" step="5"></div>
+            <div class="field"><label>Отступ П <span class="value" id="v-marginR"></span></label><input id="marginR" type="range" min="0" max="300" step="5"></div>
+            <div class="field"><label>Масштаб X <span class="value" id="v-scaleX"></span></label><input id="scaleX" type="range" min="50" max="200" step="5"></div>
+            <div class="field"><label>Масштаб Y <span class="value" id="v-scaleY"></span></label><input id="scaleY" type="range" min="50" max="200" step="5"></div>
+            <div class="field full"><label>Угол (Z) <span class="value" id="v-angle"></span></label><input id="angle" type="range" min="-180" max="180" step="1"></div>
+          </div>
+        </section>
+
+        <!-- Preview & Output -->
+        <section class="section span-2">
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Экспорт конфигурации</div>
+          <textarea id="sampleText" rows="2" style="margin-bottom:16px;">Разбираемся, почему этот выпуск вызывает споры.</textarea>
+          
+          <label class="m3-switch ripplable-switch" style="margin-bottom: 16px;">
+            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Симуляция караоке \kf</span>
+            <input type="checkbox" id="autoAnimate" checked>
+            <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+          </label>
+          
+          <div style="display:flex; gap:10px;">
+            <button id="applyBtn" class="action-btn primary ripplable" style="flex:1;">Сохранить файл ASS</button>
+            <button id="connectBtn" class="action-btn ripplable" style="flex:1;">Выбрать папку</button>
+          </div>
+          
+          <div class="code-card">
+            <label style="margin-bottom: 8px; color: var(--md-sys-color-primary);">[V4+ Styles] Конфигурация</label>
+            <textarea id="assOutput" class="code" readonly></textarea>
+          </div>
+        </section>
+      </div>
+    </aside>
+
+    <main class="panel workspace">
+      <div class="workspace-body" id="workspaceBody">
+        
+        <!-- Ambient Backlight -->
+        <div class="ambient-glow" id="ambientGlow"></div>
+
+        <!-- Слой 1: Расчёт макета (пустышка правильного размера) -->
+        <div class="device-scaler" id="deviceScaler">
+            
+            <!-- Слой 2: Левитация и парение -->
+            <div class="device-floater">
+                
+                <!-- Слой 3: Монолитный фрейм iPhone (Масштабирование и Наклон 3D) -->
+                <div class="device-frame" id="deviceFrame">
+                  
+                  <div class="device-btn btn-power"></div>
+                  <div class="device-btn btn-vol-up"></div>
+                  <div class="device-btn btn-vol-down"></div>
+
+                  <!-- Экран телефона (СТРОГО 1080x1920) -->
+                  <div class="preview-container">
+                      
+                      <div class="device-camera"></div>
+
+                      <div class="placeholder-text" id="placeholder">
+                        <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom: 20px; opacity: 0.9;">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>
+                        </svg><br><span style="font-size: 36px;">Загрузите медиа</span>
+                      </div>
+                      
+                      <img id="preview-img" class="media-layer" alt="Превью">
+                      <video id="preview-vid" class="media-layer" autoplay loop muted playsinline></video>
+
+                      <!-- SUBTITLES LAYER (HTML, 1080x1920) -->
+                      <div class="ass-subtitle-container" id="subContainer"></div>
+
+                      <!-- STATIC SVG MASTER LAYER (1080x1920) -->
+                      <svg class="overlay-layer" viewBox="0 0 1080 1920" preserveAspectRatio="xMidYMid meet">
+                          <defs>
+                              <style>
+                                .svg-t { fill: white; font-family: 'Roboto', -apple-system, sans-serif; font-weight: bold; text-shadow: 0 4px 12px rgba(0,0,0,0.6); }
+                                .svg-i { filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5)); }
+                              </style>
+                              <mask id="unsafe-mask">
+                                  <rect width="1080" height="1920" fill="white" />
+                                  <polygon id="mask-polygon" points="35,220 1045,220 1045,800 940,800 940,1500 35,1500" fill="black" />
+                              </mask>
+                          </defs>
+                          <rect id="darkness-rect" width="1080" height="1920" fill="#000000" opacity="0.6" mask="url(#unsafe-mask)" />
+                          <g id="uiLayer"></g>
+                          <polygon id="safe-outline" fill="none" stroke="var(--brand-color)" stroke-width="6" stroke-dasharray="24 24" style="filter: drop-shadow(0 0 12px var(--brand-color));" />
+                      </svg>
+                      
+                  </div>
+                </div>
+            </div>
+        </div>
+        
+      </div>
+    </main>
+  </div>
+
+  <style id="dynamic-font-face"></style>
           </div>
         </div>
       </div>
@@ -1255,6 +1968,16 @@
                 <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
               </label>
             </div>
+            <div class="field">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="set_no_progress">Без прогресс-бара</div>
+                  <div class="m3-switch-desc" data-i18n="set_no_progress_desc">Отключить UI прогресса (для логов/CI)</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsNoProgress">
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
           </div>
         </div>
 
@@ -1346,6 +2069,7 @@
         // Nav
         nav_home: 'Главная', nav_transcribe: 'Транскрибация', nav_analyze: 'Анализ',
         nav_cut: 'Нарезка', nav_subtitles: 'Субтитры', nav_settings: 'Настройки', nav_logs: 'Логи',
+        nav_dashboard: 'Главная', nav_subs: 'Субтитры',
         // Dashboard
         dash_title: 'Панель управления', dash_desc: 'Управление очередью пайплайна и мониторинг прогресса',
         dash_pipeline_status: 'Статус пайплайна',
@@ -1471,12 +2195,37 @@
         log_forge_all_done: '[forge] все файлы обработаны',
         log_error_occurred: 'Произошла ошибка',
         log_pipeline_complete: 'Пайплайн завершён',
+        // Analyze — service tuning & extras
+        an_scout_par: 'Параллелизм разведчика', an_wd_log: 'Интервал логов (сек)',
+        an_service_tuning: 'Сервис llama.cpp — VRAM и производительность',
+        an_ngpu: 'Слои на GPU (n_gpu_layers)', an_ctx: 'Размер контекста (ctx_size)',
+        an_startup: 'Таймаут старта (сек)', an_lbatch: 'Размер батча (batch_size)',
+        an_ubatch: 'Микро-батч (ubatch_size)', an_lthreads: 'Потоки CPU (threads)',
+        an_parallel: 'Параллельные слоты (parallel)', an_main_gpu: 'Основной GPU (main_gpu)',
+        an_cache_k: 'KV-кэш K (cache_type_k)', an_cache_v: 'KV-кэш V (cache_type_v)',
+        an_fallback: 'Фоллбэк-модели (через запятую)', an_fallback_ph: 'например: gemma4:12b, gemma4',
+        // Cut — clips
+        cut_clips: 'Типы клипов и количество',
+        clips_stories_n: 'Stories — кол-во', clips_stories_d: 'Stories — макс. сек',
+        clips_reels_n: 'Reels — кол-во', clips_reels_d: 'Reels — макс. сек',
+        clips_long_n: 'Long reels — кол-во', clips_long_d: 'Long reels — макс. сек',
+        clips_hl_n: 'Highlights — кол-во', clips_hl_m: 'Highlights — моментов',
+        clips_reels_count: 'Reels всего (reels_count)', clips_reel_min: 'Reel мин. сек',
+        clips_reel_max: 'Reel макс. сек',
+        // Subtitles — extras
+        sub_voffset: 'Верт. смещение (доля)', sub_word_x: 'Зазор слов X (px)', sub_word_y: 'Зазор слов Y (px)',
+        sub_editor: 'Визуальный редактор стиля (.ass)', sub_editor_newtab: 'Открыть в новой вкладке',
+        sub_editor_note: 'Редактор сохраняет оформление в файл «Файл ASS-стиля» выше — пайплайн берёт стиль субтитров из него. Нажмите «Выбрать папку» и «Сохранить файл ASS» внутри редактора.',
+        sub_size_hint: 'Размер, цвет, контур и положение субтитров задаются ниже — в визуальном редакторе стиля (.ass).',
+        // Settings — extra
+        set_no_progress: 'Без прогресс-бара', set_no_progress_desc: 'Отключить UI прогресса (для логов/CI)',
         // FAB tooltip
         fab_run: 'Запустить пайплайн',
       },
       en: {
         nav_home: 'Home', nav_transcribe: 'Transcribe', nav_analyze: 'Analyze',
         nav_cut: 'Cut', nav_subtitles: 'Subtitles', nav_settings: 'Settings', nav_logs: 'Logs',
+        nav_dashboard: 'Dashboard', nav_subs: 'Subtitles',
         dash_title: 'Dashboard', dash_desc: 'Manage your pipeline queue and monitor progress',
         dash_pipeline_status: 'Pipeline Status',
         stage_transcribe: 'Transcribe', stage_diarize: 'Diarize', stage_analyze: 'LLM Analyze',
@@ -1592,6 +2341,26 @@
         log_forge_all_done: '[forge] all files processed',
         log_error_occurred: 'Error occurred',
         log_pipeline_complete: 'Pipeline complete',
+        an_scout_par: 'Scout Parallelism', an_wd_log: 'Log Interval (sec)',
+        an_service_tuning: 'llama.cpp Service — VRAM & Performance',
+        an_ngpu: 'GPU Layers (n_gpu_layers)', an_ctx: 'Context Size (ctx_size)',
+        an_startup: 'Startup Timeout (sec)', an_lbatch: 'Batch Size (batch_size)',
+        an_ubatch: 'Micro-batch (ubatch_size)', an_lthreads: 'CPU Threads (threads)',
+        an_parallel: 'Parallel Slots (parallel)', an_main_gpu: 'Main GPU (main_gpu)',
+        an_cache_k: 'KV Cache K (cache_type_k)', an_cache_v: 'KV Cache V (cache_type_v)',
+        an_fallback: 'Fallback Models (comma-separated)', an_fallback_ph: 'e.g. gemma4:12b, gemma4',
+        cut_clips: 'Clip Types & Counts',
+        clips_stories_n: 'Stories — count', clips_stories_d: 'Stories — max sec',
+        clips_reels_n: 'Reels — count', clips_reels_d: 'Reels — max sec',
+        clips_long_n: 'Long reels — count', clips_long_d: 'Long reels — max sec',
+        clips_hl_n: 'Highlights — count', clips_hl_m: 'Highlights — moments',
+        clips_reels_count: 'Total Reels (reels_count)', clips_reel_min: 'Reel min sec',
+        clips_reel_max: 'Reel max sec',
+        sub_voffset: 'Vertical Offset (ratio)', sub_word_x: 'Word Gap X (px)', sub_word_y: 'Word Gap Y (px)',
+        sub_editor: 'Visual Style Editor (.ass)', sub_editor_newtab: 'Open in New Tab',
+        sub_editor_note: 'The editor saves the look into the "ASS Style File" above; the pipeline takes the subtitle style from it. Use "Set Directory" and "Save ASS File" inside the editor.',
+        sub_size_hint: 'Size, color, outline and position of subtitles are set below — in the visual style editor (.ass).',
+        set_no_progress: 'No Progress Bar', set_no_progress_desc: 'Disable progress UI (for logs/CI)',
         fab_run: 'Run Pipeline',
       }
     };
@@ -1646,7 +2415,7 @@
     // =====================================================================
     //  CONFIGURATION STATE
     // =====================================================================
-    const STORAGE_KEY = 'forge.pipeline_gui.v1';
+    const STORAGE_KEY = 'forge.pipeline_gui.v2';
 
     const DEFAULTS = {
       transcribeModel: 'large-v3', transcribeDevice: 'auto', transcribeComputeType: 'auto',
@@ -1659,20 +2428,33 @@
       analyzeScout: 'gemma4:26b', analyzeCleanup: 'gemma4:26b', analyzeJudge: 'gemma4:26b',
       analyzeTemp: 0.2, analyzeTimeout: 600, analyzeChunk: 900, analyzeMaxChars: 7000,
       analyzeWatchdog: true, analyzeFirstToken: 90, analyzeStall: 120, analyzeRetries: 4,
+      analyzeLogInterval: 10, analyzeScoutParallelism: 1, analyzeFallback: '',
       analyzeLang: 'auto', analyzeVariant: 'default',
+      // llama.cpp service tuning (VRAM / performance)
+      llamaNgpu: 0, llamaCtx: 8192, llamaBatch: 1024, llamaUbatch: 512,
+      llamaThreads: 4, llamaParallel: 1, llamaMainGpu: 0, llamaStartupTimeout: 120,
+      llamaCacheK: 'q8_0', llamaCacheV: 'q8_0',
       cutNvenc: true, cutVBitrate: '8M', cutABitrate: '192k', cutPreset: 'fast',
       cutNvencCq: 21, cutNvencPreset: 'p5', cutMinScore: 7, cutMinDur: 15,
       cutMaxDur: 180, cutFaceRatio: 0.3, cutVertical: true, cutSmartCrop: true,
       cutFaceSamples: 9, cutFaceMinSize: 72, cutWebm: false, cutGif: false,
       cutAudio: false, cutThreads: 4, cutPadding: 5,
+      // Clip selection / output mix (processing.clips + reels_*)
+      procReelsCount: 3, procReelMinDur: 30, procReelMaxDur: 60,
+      clipsStoriesCount: 2, clipsStoriesMaxDur: 15,
+      clipsReelsCount: 3, clipsReelsMaxDur: 60,
+      clipsLongCount: 1, clipsLongMaxDur: 180,
+      clipsHlCount: 1, clipsHlMoments: 5,
       subsEnabled: true, subsFont: 'assets/fonts/bignoodletoooblique.ttf',
-      subsAss: 'assets/subtitles/forge_subtitles.ass', subsFontSize: 36,
-      subsWrap: true, subsMaxLines: 2, subsMaxWidth: 0.65, subsVAlign: 'bottom',
+      subsAss: 'assets/subtitles/forge_subtitles.ass',
+      subsWrap: true, subsMaxLines: 2, subsMaxWidth: 0.65,
+      subsVOffset: 0.0, subsWordX: 6, subsWordY: 8,
       subsFadeIn: 0.18, subsFadeOut: 0.12,
       settingsInputDir: 'input', settingsOutputDir: 'output',
       settingsCache: true, settingsValidateJson: true, settingsDiarization: false,
       settingsDiarModel: 'pyannote/speaker-diarization',
       settingsQuiet: false, settingsVerbose: false, settingsSkipExisting: true,
+      settingsNoProgress: false,
     };
 
     const state = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') };
@@ -1725,6 +2507,7 @@
     }
 
     document.querySelectorAll('input[type="range"]').forEach(el => {
+      if (!el.id || !el.id.startsWith('cfg')) return;  // leave the embedded ASS editor's sliders alone
       el.addEventListener('input', () => {
         state[el.id.replace('cfg', '').replace(/^./, c => c.toLowerCase())] = parseFloat(el.value);
         updateSliderValue(el);
@@ -1851,6 +2634,8 @@
 
     // ---- Config Export ----
     function generateConfig() {
+      const fb = String(state.analyzeFallback || '').split(',').map(s => s.trim()).filter(Boolean);
+      const fbYaml = fb.length ? '\n' + fb.map(m => `    - "${m}"`).join('\n') : ' []';
       return `# Podcast Reels Forge — Generated by Pipeline GUI
 # ${new Date().toISOString()}
 
@@ -1883,13 +2668,17 @@ llama_cpp:
   service:
     auto_start: ${state.analyzeAutoStart}
     model_path: "${state.analyzeModelPath}"
-    n_gpu_layers: 0
-    ctx_size: 8192
-    batch_size: 1024
-    ubatch_size: 512
-    threads: 4
-    parallel: 1
-  scout_parallelism: 1
+    startup_timeout: ${state.llamaStartupTimeout}
+    n_gpu_layers: ${state.llamaNgpu}
+    ctx_size: ${state.llamaCtx}
+    batch_size: ${state.llamaBatch}
+    ubatch_size: ${state.llamaUbatch}
+    threads: ${state.llamaThreads}
+    main_gpu: ${state.llamaMainGpu}
+    parallel: ${state.llamaParallel}
+    cache_type_k: "${state.llamaCacheK}"
+    cache_type_v: "${state.llamaCacheV}"
+  scout_parallelism: ${state.analyzeScoutParallelism}
   roles:
     scout: "${state.analyzeScout}"
     cleanup_refine: "${state.analyzeCleanup}"
@@ -1902,7 +2691,9 @@ llama_cpp:
     enabled: ${state.analyzeWatchdog}
     first_token_timeout: ${state.analyzeFirstToken}
     stall_timeout: ${state.analyzeStall}
+    log_interval: ${state.analyzeLogInterval}
     max_retries: ${state.analyzeRetries}
+  fallback_models:${fbYaml}
 prompts:
   language: "${state.analyzeLang}"
   variant: "${state.analyzeVariant}"
@@ -1912,6 +2703,22 @@ processing:
     min_duration: ${state.cutMinDur}
     max_duration: ${state.cutMaxDur}
     face_min_ratio: ${state.cutFaceRatio}
+  clips:
+    stories:
+      count: ${state.clipsStoriesCount}
+      max_duration: ${state.clipsStoriesMaxDur}
+    reels:
+      count: ${state.clipsReelsCount}
+      max_duration: ${state.clipsReelsMaxDur}
+    long_reels:
+      count: ${state.clipsLongCount}
+      max_duration: ${state.clipsLongMaxDur}
+    highlights:
+      count: ${state.clipsHlCount}
+      moments_count: ${state.clipsHlMoments}
+  reels_count: ${state.procReelsCount}
+  reel_min_duration: ${state.procReelMinDur}
+  reel_max_duration: ${state.procReelMaxDur}
   reel_padding: ${state.cutPadding}
 exports:
   webm: ${state.cutWebm}
@@ -1921,11 +2728,14 @@ subtitles:
   enabled: ${state.subsEnabled}
   font: "${state.subsFont}"
   ass_style: "${state.subsAss}"
-  font_size_px: ${state.subsFontSize}
+  font_size_px: 96  # запас, если нет .ass; реальный размер берёт редактор стиля
   wrap_words: ${state.subsWrap}
   max_lines: ${state.subsMaxLines}
   max_width_ratio: ${state.subsMaxWidth}
-  vertical_align: "${state.subsVAlign}"
+  vertical_align: "bottom"
+  vertical_offset: ${state.subsVOffset}
+  word_x_space: ${state.subsWordX}
+  word_y_space: ${state.subsWordY}
   fade_in_duration: ${state.subsFadeIn}
   fade_out_duration: ${state.subsFadeOut}
 video:
@@ -2024,9 +2834,12 @@ diarization:
       saveState();
     });
 
-    document.getElementById('btnOpenStyleEditor').addEventListener('click', () => {
-      window.open('../assets/subtitles/style-editor.html', '_blank');
-    });
+    const EDITOR_SRC = '../assets/subtitles/style-editor.html';
+    const subsNav = document.querySelector('.nav-rail-item[data-tab="subtitles"]');
+    subsNav.addEventListener('click', () => setTimeout(() => window.dispatchEvent(new Event('resize')), 80));
+    document.getElementById('btnOpenStyleEditor').addEventListener('click', () => subsNav.click());
+    const _btnNewTab = document.getElementById('btnEditorNewTab');
+    if (_btnNewTab) _btnNewTab.addEventListener('click', () => window.open(EDITOR_SRC, '_blank'));
 
     // ---- Init ----
     applyLang(currentLang);
@@ -2034,6 +2847,486 @@ diarization:
     updateStats();
     addLog(t('log_loaded'), 'info');
     addLog(`${t('log_config_loaded')} (${Object.keys(state).length})`, 'info');
+  </script>
+
+  <!-- Inlined ASS style editor logic -->
+  <script>
+  (function(){
+
+    const STORAGE_KEY = "forge.assStyleStudio.m3_readable";
+    
+    const PLATFORMS = {
+        ig: { 
+            color: '#E1306C', 
+            points: '35,220 1045,220 1045,800 940,800 940,1500 35,1500', 
+            desc: '<strong>IG Reels:</strong> Безопасная зона. Отступы: Верх 220px, Низ 420px, Справа 140px.',
+            ui: `
+                <text x="40" y="120" font-size="55" class="svg-t">Reels</text>
+                <g transform="translate(970, 70) scale(1.8)" class="svg-i" stroke="white" stroke-width="2" fill="none">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle>
+                </g>
+                <g transform="translate(970, 850) scale(2)" class="svg-i" fill="none" stroke="white" stroke-width="2">
+                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                </g>
+                <text x="995" y="930" font-size="24" class="svg-t" text-anchor="middle">345K</text>
+                <g transform="translate(970, 980) scale(2)" class="svg-i" fill="none" stroke="white" stroke-width="2">
+                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                </g>
+                <text x="995" y="1060" font-size="24" class="svg-t" text-anchor="middle">1,234</text>
+                <g transform="translate(970, 1110) scale(2)" class="svg-i" fill="none" stroke="white" stroke-width="2">
+                    <line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </g>
+                <text x="995" y="1190" font-size="24" class="svg-t" text-anchor="middle">12K</text>
+                <g transform="translate(970, 1260) scale(2)" class="svg-i" fill="white">
+                    <circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="19" r="2"></circle>
+                </g>
+                <rect x="955" y="1360" width="80" height="80" rx="15" fill="#333" stroke="white" stroke-width="4" class="svg-i" />
+                <circle cx="80" cy="1580" r="40" fill="#555" stroke="rgba(255,255,255,0.4)" stroke-width="2" class="svg-i" />
+                <text x="140" y="1595" font-size="38" class="svg-t">@username</text>
+                <rect x="375" y="1555" width="180" height="50" rx="15" stroke="white" stroke-width="2" fill="rgba(0,0,0,0.3)"/>
+                <text x="465" y="1590" font-size="26" class="svg-t" text-anchor="middle">Подписаться</text>
+                <text x="40" y="1670" font-size="36" class="svg-t">Ваша классная подпись будет здесь. Она переносится...</text>
+                <g transform="translate(40, 1700) scale(1.4)" fill="white" class="svg-i">
+                    <path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>
+                </g>
+                <text x="95" y="1725" font-size="30" class="svg-t">Оригинальный звук — Исполнитель</text>
+            `
+        },
+        tiktok: { 
+            color: '#00E6E6', 
+            points: '44,150 1036,150 1036,630 920,630 920,1440 44,1440', 
+            desc: '<strong>TikTok:</strong> Безопасная зона. Отступы: Верх 150px, Низ 480px, Справа 160px.',
+            ui: `
+                <text x="450" y="100" font-size="42" class="svg-t" opacity="0.6">Подписки</text>
+                <text x="650" y="100" font-size="42" class="svg-t">Для вас</text>
+                <rect x="670" y="120" width="55" height="8" fill="white" rx="4" class="svg-i" />
+                <g transform="translate(970, 50) scale(1.8)" class="svg-i" fill="none" stroke="white" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </g>
+                <g transform="translate(965, 650)">
+                    <circle cx="25" cy="25" r="45" fill="white" class="svg-i"/>
+                    <circle cx="25" cy="25" r="40" fill="#333" />
+                    <circle cx="25" cy="65" r="18" fill="#FE2C55" class="svg-i"/>
+                    <text x="25" y="76" font-size="32" class="svg-t" text-anchor="middle">+</text>
+                </g>
+                <g transform="translate(945, 800) scale(2.2)" class="svg-i" fill="white">
+                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path>
+                </g>
+                <text x="990" y="880" font-size="24" class="svg-t" text-anchor="middle">1.2M</text>
+                <g transform="translate(945, 930) scale(2.2)" class="svg-i" fill="white">
+                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                </g>
+                <text x="990" y="1010" font-size="24" class="svg-t" text-anchor="middle">4564</text>
+                <g transform="translate(945, 1060) scale(2.2)" class="svg-i" fill="white">
+                    <path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2z"></path>
+                </g>
+                <text x="990" y="1140" font-size="24" class="svg-t" text-anchor="middle">123K</text>
+                <g transform="translate(945, 1190) scale(2.2)" class="svg-i" fill="white">
+                    <path d="M15 5l-1.41 1.41L18.17 11H2v2h16.17l-4.59 4.59L15 19l7-7-7-7z"></path>
+                </g>
+                <text x="990" y="1270" font-size="24" class="svg-t" text-anchor="middle">78K</text>
+                <circle cx="990" cy="1380" r="45" fill="#222" class="svg-i"/>
+                <circle cx="990" cy="1380" r="28" fill="#333" />
+                <text x="44" y="1520" font-size="42" class="svg-t">@username</text>
+                <text x="44" y="1575" font-size="38" class="svg-t">Текст подписи TikTok прямо здесь #viral</text>
+                <g transform="translate(44, 1610) scale(1.5)" fill="white" class="svg-i">
+                    <path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>
+                </g>
+                <text x="95" y="1638" font-size="32" class="svg-t">Оригинальный звук — Автор</text>
+            `
+        },
+        yt: { 
+            color: '#FF0000', 
+            points: '40,200 1040,200 1040,700 920,700 920,1550 40,1550', 
+            desc: '<strong>YouTube Shorts:</strong> Безопасная зона. Отступы: Верх 200px, Низ 370px, Справа 160px.',
+            ui: `
+                <g transform="translate(860, 60) scale(1.8)" class="svg-i" fill="none" stroke="white" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </g>
+                <g transform="translate(970, 60) scale(1.8)" class="svg-i" fill="white">
+                    <circle cx="12" cy="12" r="2"></circle><circle cx="12" cy="5" r="2"></circle><circle cx="12" cy="19" r="2"></circle>
+                </g>
+                <g transform="translate(945, 720) scale(2.2)" class="svg-i" fill="white">
+                    <path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"></path>
+                </g>
+                <text x="995" y="805" font-size="22" class="svg-t" text-anchor="middle">320K</text>
+                <g transform="translate(945, 850) scale(2.2)" class="svg-i" fill="white">
+                    <path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"></path>
+                </g>
+                <text x="995" y="935" font-size="22" class="svg-t" text-anchor="middle">Не нравится</text>
+                <g transform="translate(945, 980) scale(2.2)" class="svg-i" fill="white">
+                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                </g>
+                <text x="995" y="1065" font-size="22" class="svg-t" text-anchor="middle">1,234</text>
+                <g transform="translate(945, 1110) scale(2.2)" class="svg-i" fill="white">
+                    <path d="M15 5l-1.41 1.41L18.17 11H2v2h16.17l-4.59 4.59L15 19l7-7-7-7z"></path>
+                </g>
+                <text x="995" y="1195" font-size="22" class="svg-t" text-anchor="middle">Поделиться</text>
+                <g transform="translate(945, 1240) scale(2.2) rotate(90 12 12)" class="svg-i" fill="white">
+                    <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm-8 8c0-1.01.25-1.97.7-2.8L3.24 7.74C2.46 8.97 2 10.43 2 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3c-3.31 0-6-2.69-6-6z"></path>
+                </g>
+                <text x="995" y="1325" font-size="22" class="svg-t" text-anchor="middle">Ремикс</text>
+                <rect x="950" y="1380" width="90" height="90" rx="15" fill="#333" stroke="white" stroke-width="4" class="svg-i"/>
+                <circle cx="85" cy="1590" r="45" fill="#555" stroke="rgba(255,255,255,0.4)" stroke-width="2" class="svg-i" />
+                <text x="145" y="1605" font-size="40" class="svg-t">@НазваниеКанала</text>
+                <rect x="470" y="1565" width="260" height="60" rx="30" fill="white" class="svg-i"/>
+                <text x="600" y="1605" font-size="30" fill="black" font-weight="bold" font-family="'Roboto', sans-serif" text-anchor="middle">Подписаться</text>
+                <text x="40" y="1690" font-size="40" class="svg-t">Это цепляющий заголовок YouTube Shorts...</text>
+            `
+        }
+    };
+
+    const DEFAULTS = {
+      fontPath: "assets/fonts/bignoodletoooblique.ttf",
+      fontSizePx: 96, spacingPx: 0, bold: true, italic: false, underline: false, strikeout: false,
+      primaryColor: "#FFFFFF", primaryOp: 1.0, secondaryColor: "#FFFFFF", secondaryOp: 1.0,
+      borderStyle: 1, outlineColor: "#000000", outlineOp: 1.0, outline: 5,
+      backColor: "#000000", backOp: 0.5, shadow: 2,
+      alignment: 2, marginV: 500, marginL: 45, marginR: 45,
+      scaleX: 100, scaleY: 100, angle: 0,
+      sampleText: "Разбираемся, почему этот выпуск вызывает споры.", autoAnimate: true,
+      platform: "ig", showUI: true, showMask: true, showOutline: true, maskOpacity: 60
+    };
+
+    // Пресеты, вдохновлённые самыми вирусными форматами роликов
+    const PRESETS = {
+      typo: {
+        // Alex Hormozi: огромный жирный текст, слегка вытянутый по вертикали
+        hormozi: { fontSizePx: 72, spacingPx: -1, bold: true, italic: false, scaleX: 100, scaleY: 108, angle: 0 },
+        // MrBeast: максимально крупный, энергичный
+        mrbeast: { fontSizePx: 84, spacingPx: 0, bold: true, italic: false, scaleX: 105, scaleY: 100, angle: 0 },
+        // TikTok auto-caption / караоке
+        tiktok: { fontSizePx: 60, spacingPx: 1, bold: true, italic: false, scaleX: 100, scaleY: 100, angle: 0 },
+        // Минималистичный «Apple-style» тонкий шрифт
+        minimal: { fontSizePx: 44, spacingPx: 3, bold: false, italic: false, scaleX: 100, scaleY: 100, angle: 0 },
+        // Динамичный курсив с наклоном
+        impact: { fontSizePx: 58, spacingPx: 0, bold: true, italic: true, scaleX: 100, scaleY: 100, angle: 4 }
+      },
+      colors: {
+        hormozi: { primaryColor: "#FFD60A", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 },
+        green: { primaryColor: "#39FF14", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 },
+        tiktok: { primaryColor: "#00F2EA", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 },
+        red: { primaryColor: "#FF2D2D", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 },
+        white: { primaryColor: "#FFFFFF", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 }
+      },
+      borders: {
+        // Hormozi: толстый чёрный контур без тени
+        hormozi: { borderStyle: 1, outline: 9, outlineColor: "#000000", outlineOp: 1.0, shadow: 0, backColor: "#000000", backOp: 0.8 },
+        // Мягкая drop-shadow
+        shadow: { borderStyle: 1, outline: 3, outlineColor: "#000000", outlineOp: 1.0, shadow: 7, backColor: "#000000", backOp: 0.75 },
+        // Непрозрачная плашка (как авто-субтитры TikTok/YouTube)
+        box: { borderStyle: 3, outline: 0, outlineColor: "#000000", outlineOp: 0.0, backColor: "#000000", backOp: 0.9, shadow: 0 },
+        // Плашка + белый контур
+        box_outline: { borderStyle: 3, outline: 2, outlineColor: "#FFFFFF", outlineOp: 1.0, backColor: "#000000", backOp: 0.85, shadow: 0 },
+        // Неоновое свечение
+        neon: { borderStyle: 1, outline: 4, outlineColor: "#000000", outlineOp: 1.0, shadow: 10, backColor: "#00F2EA", backOp: 0.9 }
+      },
+      geometry: {
+        reels: { alignment: 2, marginV: 470 },
+        shorts: { alignment: 2, marginV: 360 },
+        center: { alignment: 5, marginV: 0 },
+        top: { alignment: 8, marginV: 250 },
+        tiktok: { alignment: 2, marginV: 560 }
+      }
+    };
+
+    const state = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") };
+    let projHandle = null, activeIdx = 0, objectUrl = null;
+
+    // --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ АНИМАЦИИ ---
+    let currentScale = 0.35;
+    let rotX = 0;
+    let rotY = 0;
+
+    // ЕДИНАЯ функция применения трансформаций (убирает конфликты!)
+    function applyTransforms() {
+        const frame = document.getElementById('deviceFrame');
+        if(!frame) return;
+        frame.style.transform = `scale(${currentScale}) rotateX(${rotX}deg) rotateY(${rotY}deg)`;
+    }
+
+    // --- PARALLAX 3D HOVER EFFECT ON PHONE ---
+    const workspace = document.getElementById('workspaceBody');
+    workspace.addEventListener('mousemove', (e) => {
+      const rect = workspace.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      
+      // Вычисляем угол наклона (макс 6 градусов)
+      rotX = ((y - centerY) / centerY) * -6; 
+      rotY = ((x - centerX) / centerX) * 6;
+      
+      applyTransforms();
+    });
+    
+    workspace.addEventListener('mouseleave', () => {
+      rotX = 0; rotY = 0;
+      applyTransforms();
+    });
+
+    // ТОЧНОЕ МАТЕМАТИЧЕСКОЕ МАСШТАБИРОВАНИЕ (Без багов)
+    function resizePreview() {
+      const body = document.getElementById('workspaceBody');
+      const scaler = document.getElementById('deviceScaler');
+      
+      // Жестко зашитые физические размеры оболочки:
+      // Экран 1080x1920 + Padding(34*2) + Borders(6*2)
+      const frameW = 1160; 
+      const frameH = 2000; 
+      
+      const rect = body.getBoundingClientRect();
+      const maxW = rect.width - 40;
+      const maxH = rect.height - 40;
+      
+      let scale = Math.min(maxW / frameW, maxH / frameH);
+      if (scale <= 0 || isNaN(scale)) scale = 0.35;
+      
+      // Передаем размеры в резервный контейнер для Flex-центровки
+      scaler.style.width = `${frameW * scale}px`;
+      scaler.style.height = `${frameH * scale}px`;
+      
+      // Сохраняем глобальный масштаб и применяем
+      currentScale = scale;
+      applyTransforms();
+    }
+
+    window.applyPreset = function(category, name) {
+      if(PRESETS[category] && PRESETS[category][name]) {
+        Object.assign(state, PRESETS[category][name]);
+        sync();
+      }
+    };
+
+    function toASSColor(hex, opacity) {
+      hex = hex.replace('#', '');
+      if (hex.length === 3) hex = hex.split('').map(c => c+c).join('');
+      let r = hex.substring(0,2).toUpperCase();
+      let g = hex.substring(2,4).toUpperCase();
+      let b = hex.substring(4,6).toUpperCase();
+      let a = Math.round((1 - opacity) * 255).toString(16).padStart(2, '0').toUpperCase();
+      return `&H${a}${b}${g}${r}`;
+    }
+
+    function toRGBA(hex, op) {
+      hex = hex.replace('#', '');
+      if (hex.length === 3) hex = hex.split('').map(c => c+c).join('');
+      return `rgba(${parseInt(hex.substring(0,2),16)}, ${parseInt(hex.substring(2,4),16)}, ${parseInt(hex.substring(4,6),16)}, ${op})`;
+    }
+
+    function updatePreview() {
+      const c = document.getElementById('subContainer');
+      
+      let fUrl = state.fontPath;
+      if (fUrl.startsWith("assets/")) fUrl = "../../" + fUrl; 
+      document.getElementById('dynamic-font-face').innerHTML = `@font-face { font-family: 'AssPreview'; src: url('${fUrl}'); }`;
+
+      c.style.setProperty('--css-font', "'AssPreview'");
+      c.style.setProperty('--css-font-size', `${state.fontSizePx}px`);
+      c.style.setProperty('--css-spacing', `${state.spacingPx}px`);
+      c.style.setProperty('--css-weight', state.bold ? 'bold' : 'normal');
+      c.style.setProperty('--css-style', state.italic ? 'italic' : 'normal');
+      
+      let decor = [];
+      if (state.underline) decor.push('underline');
+      if (state.strikeout) decor.push('line-through');
+      c.style.setProperty('--css-decoration', decor.join(' ') || 'none');
+
+      c.style.setProperty('--css-color-pri', toRGBA(state.primaryColor, state.primaryOp));
+      c.style.setProperty('--css-color-sec', toRGBA(state.secondaryColor, state.secondaryOp));
+
+      let align = parseInt(state.alignment);
+      let mV = state.marginV + "px", mL = state.marginL + "px", mR = state.marginR + "px";
+      
+      c.style.setProperty('--css-top', 'auto'); c.style.setProperty('--css-bottom', 'auto');
+      c.style.setProperty('--css-left', 'auto'); c.style.setProperty('--css-right', 'auto');
+      c.style.setProperty('--css-transform-container', 'none');
+
+      if ([7,8,9].includes(align)) { c.style.setProperty('--css-top', mV); }
+      else if ([4,5,6].includes(align)) { c.style.setProperty('--css-top', '50%'); c.style.setProperty('--css-transform-container', 'translateY(-50%)'); }
+      else { c.style.setProperty('--css-bottom', mV); }
+
+      if ([1,4,7].includes(align)) { 
+        c.style.setProperty('--css-left', mL); c.style.setProperty('--css-align-items', 'flex-start'); c.style.setProperty('--css-text-align', 'left'); c.style.setProperty('--css-justify', 'flex-start');
+      } else if ([3,6,9].includes(align)) { 
+        c.style.setProperty('--css-right', mR); c.style.setProperty('--css-align-items', 'flex-end'); c.style.setProperty('--css-text-align', 'right'); c.style.setProperty('--css-justify', 'flex-end');
+      } else { 
+        c.style.setProperty('--css-left', mL); c.style.setProperty('--css-right', mR); c.style.setProperty('--css-align-items', 'center'); c.style.setProperty('--css-text-align', 'center'); c.style.setProperty('--css-justify', 'center');
+      }
+
+      c.style.setProperty('--css-transform-word', `scale(${state.scaleX/100}, ${state.scaleY/100}) rotate(${-state.angle}deg)`);
+
+      let oC = toRGBA(state.outlineColor, state.outlineOp);
+      let bC = toRGBA(state.backColor, state.backOp);
+      let oPx = state.outline;
+      let sPx = state.shadow;
+
+      c.style.setProperty('--css-box-bg', 'transparent'); c.style.setProperty('--css-box-pad', '0');
+      c.style.setProperty('--css-text-stroke', '0'); c.style.setProperty('--css-text-shadow', 'none');
+
+      if (state.borderStyle == 1) { 
+        let shadows = [];
+        if (oPx > 0) c.style.setProperty('--css-text-stroke', `${oPx*2}px ${oC}`);
+        if (sPx > 0) shadows.push(`${sPx}px ${sPx}px 0 ${bC}`);
+        c.style.setProperty('--css-text-shadow', shadows.join(', ') || 'none');
+      } else { 
+        c.style.setProperty('--css-box-bg', bC);
+        c.style.setProperty('--css-box-pad', `25px 40px`);
+        if (oPx > 0) c.style.setProperty('--css-text-stroke', `${oPx*2}px ${oC}`);
+      }
+
+      let words = state.sampleText.trim().split(/\s+/).filter(Boolean);
+      c.innerHTML = '';
+      let lineDiv = document.createElement('div');
+      lineDiv.className = 'ass-line';
+      words.forEach((w, i) => {
+        let span = document.createElement('span'); span.className = 'ass-word';
+        if (state.autoAnimate && i < activeIdx) span.classList.add('active');
+        span.textContent = w; lineDiv.appendChild(span);
+      });
+      c.appendChild(lineDiv);
+
+      const platData = PLATFORMS[state.platform] || PLATFORMS.ig;
+      document.getElementById('assEditorRoot').style.setProperty('--brand-color', platData.color);
+      document.getElementById('ambientGlow').style.background = platData.color;
+      document.getElementById('specs-text').innerHTML = platData.desc;
+      
+      const uiLayer = document.getElementById('uiLayer');
+      uiLayer.innerHTML = state.showUI ? platData.ui : '';
+      
+      document.getElementById('mask-polygon').setAttribute('points', platData.points);
+      document.getElementById('safe-outline').setAttribute('points', platData.points);
+      
+      document.getElementById('darkness-rect').setAttribute('opacity', state.showMask ? state.maskOpacity / 100 : '0');
+      document.getElementById('safe-outline').style.opacity = state.showOutline ? '1' : '0';
+      
+      document.querySelectorAll('.plat-btn').forEach(b => b.classList.remove('active'));
+      document.querySelector(`.plat-btn[data-platform="${state.platform}"]`).classList.add('active');
+      
+      resizePreview();
+    }
+
+    function getASS() {
+      let fname = state.fontPath.split('/').pop().replace(/\.[^/.]+$/, "");
+      let style = `Style: Default,${fname},${state.fontSizePx},` +
+                  `${toASSColor(state.primaryColor, state.primaryOp)},` +
+                  `${toASSColor(state.secondaryColor, state.secondaryOp)},` +
+                  `${toASSColor(state.outlineColor, state.outlineOp)},` +
+                  `${toASSColor(state.backColor, state.backOp)},` +
+                  `${state.bold?-1:0},${state.italic?-1:0},${state.underline?-1:0},${state.strikeout?-1:0},` +
+                  `${state.scaleX},${state.scaleY},${state.spacingPx},${state.angle},` +
+                  `${state.borderStyle},${state.outline},${state.shadow},${state.alignment},` +
+                  `${state.marginL},${state.marginR},${state.marginV},1`;
+      return `[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${style}`;
+    }
+
+    function sync() {
+      Object.keys(DEFAULTS).forEach(id => {
+        let el = document.getElementById(id);
+        if(!el) return;
+        
+        if(el.type === 'checkbox') el.checked = state[id];
+        else el.value = state[id];
+        
+        let valEl = document.getElementById('v-'+id);
+        if(valEl) valEl.innerText = state[id];
+      });
+      
+      updatePreview();
+      document.getElementById('assOutput').value = getASS();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    Object.keys(DEFAULTS).forEach(id => {
+      let el = document.getElementById(id);
+      if(!el) return;
+      el.addEventListener('input', e => {
+        if(el.type === 'checkbox') state[id] = e.target.checked;
+        else if(el.type === 'range' || el.type === 'number') state[id] = parseFloat(e.target.value);
+        else state[id] = e.target.value;
+        sync();
+      });
+    });
+
+    document.querySelectorAll('.plat-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        state.platform = e.target.getAttribute('data-platform');
+        sync();
+      });
+    });
+
+    const fileInput = document.getElementById('media-upload');
+    const imgPreview = document.getElementById('preview-img');
+    const vidPreview = document.getElementById('preview-vid');
+    const placeholder = document.getElementById('placeholder');
+    
+    fileInput.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = URL.createObjectURL(file);
+      placeholder.style.display = 'none';
+
+      if (file.type.startsWith('video/')) {
+          imgPreview.style.display = 'none';
+          vidPreview.src = objectUrl; vidPreview.style.display = 'block';
+      } else if (file.type.startsWith('image/')) {
+          vidPreview.style.display = 'none'; vidPreview.pause();
+          imgPreview.src = objectUrl; imgPreview.style.display = 'block';
+      }
+    });
+
+    document.getElementById('clearMediaBtn').addEventListener('click', function() {
+      fileInput.value = '';
+      imgPreview.style.display = 'none'; vidPreview.style.display = 'none'; vidPreview.pause();
+      placeholder.style.display = 'block';
+      if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+    });
+
+    window.addEventListener('resize', resizePreview);
+    
+    setInterval(() => {
+      if(state.autoAnimate) {
+        let max = state.sampleText.trim().split(/\s+/).filter(Boolean).length;
+        activeIdx = (activeIdx + 1) % (max + 1);
+        updatePreview();
+      }
+    }, 400);
+
+    document.getElementById('connectBtn').addEventListener('click', async () => {
+      try {
+        projHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+        document.getElementById('connectBtn').innerText = projHandle.name + " \u2714";
+      } catch(e) { alert(e); }
+    });
+
+    document.getElementById('applyBtn').addEventListener('click', async () => {
+      if (!projHandle) return alert("Сначала выберите папку проекта!");
+      try {
+        let dir = projHandle;
+        for (let p of ["assets", "subtitles"]) dir = await dir.getDirectoryHandle(p, { create: true });
+        let file = await dir.getFileHandle("forge_subtitles.ass", { create: true });
+        let writable = await file.createWritable();
+        await writable.write(getASS());
+        await writable.close();
+        
+        let btn = document.getElementById('applyBtn');
+        btn.innerText = "\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043e! \u2714";
+        btn.style.background = "var(--md-sys-color-primary-container)"; 
+        btn.style.color = "var(--md-sys-color-on-primary-container)";
+        setTimeout(() => { 
+            btn.innerText = "Сохранить файл ASS";
+            btn.style.background = "var(--md-sys-color-primary)"; 
+            btn.style.color = "var(--md-sys-color-on-primary)";
+        }, 2000);
+      } catch(e) { alert("Ошибка: " + e); }
+    });
+
+    // Initial sync and calculation
+    setTimeout(() => { sync(); resizePreview(); }, 100);
+  
+  })();
   </script>
 </body>
 </html>

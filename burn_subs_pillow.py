@@ -199,7 +199,7 @@ def main():
             output_path,
         ]
 
-        print(f"\nRunning ffmpeg...")
+        print("\nRunning ffmpeg...")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0:
             print(f"FFmpeg error:\n{result.stderr[-3000:]}")

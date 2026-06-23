@@ -14,7 +14,6 @@ import argparse
 import asyncio
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import sys
 from dataclasses import asdict

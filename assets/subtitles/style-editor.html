@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Ultimate ASS Subtitle Studio - Material 3</title>
+  <title>Продвинутая студия субтитров ASS — Material 3</title>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -51,10 +51,15 @@
     }
 
     .app {
-      display: grid; grid-template-columns: minmax(0, 2.15fr) minmax(400px, 0.85fr);
-      gap: 16px; padding: 16px; height: 100vh;
+      display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(420px, 1fr);
+      gap: 12px; padding: 12px; height: 100vh;
     }
 
+    /* Collapse the bento to a single column before the panel gets too cramped */
+    @media (max-width: 1100px) {
+      .sidebar-body { grid-template-columns: 1fr; }
+      .section.span-2 { grid-column: auto; }
+    }
     @media (max-width: 900px) {
       .app { grid-template-columns: 1fr; grid-template-rows: auto 80vh; height: auto; }
       .sidebar { max-height: 60vh; }
@@ -68,22 +73,26 @@
       box-shadow: var(--md-elevation-1);
     }
 
-    .sidebar-header { 
-      padding: 24px 24px 16px; 
+    .sidebar-header {
+      padding: 16px 20px 12px;
       background: var(--md-sys-color-surface-container);
       border-bottom: 1px solid var(--md-sys-color-outline-variant);
       z-index: 10;
     }
-    h1 { margin: 0 0 4px; font-size: 22px; font-weight: 500; letter-spacing: 0px; color: var(--md-sys-color-on-background); }
-    .lede { margin: 0; color: var(--md-sys-color-outline); font-size: 14px; font-weight: 400; letter-spacing: 0.25px;}
+    h1 { margin: 0 0 2px; font-size: 18px; font-weight: 500; letter-spacing: 0px; color: var(--md-sys-color-on-background); }
+    .lede { margin: 0; color: var(--md-sys-color-outline); font-size: 12.5px; font-weight: 400; letter-spacing: 0.25px;}
 
-    .sidebar-body { 
-      padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; 
+    /* M3 BENTO GRID — two columns with full-width bands */
+    .sidebar-body {
+      padding: 12px; overflow-y: auto;
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-auto-flow: dense; align-content: start; gap: 10px;
     }
-    
+    .section.span-2 { grid-column: 1 / -1; }
+
     /* M3 CARDS (Sections) */
     .section {
-      padding: 20px; border-radius: 24px; 
+      padding: 14px 16px; border-radius: 18px;
       background: var(--md-sys-color-surface-container);
       border: 1px solid transparent;
       transition: box-shadow 0.3s var(--ease-standard), transform 0.3s var(--ease-standard), border-color 0.3s;
@@ -104,22 +113,27 @@
       to { opacity: 1; transform: translateY(0); }
     }
 
-    .section-title { 
-      font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; 
-      color: var(--md-sys-color-primary); margin: 0 0 16px 0; font-weight: 500;
-      display: flex; align-items: center; gap: 8px;
+    .section-title {
+      font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--md-sys-color-primary); margin: 0 0 10px 0; font-weight: 500;
+      display: flex; align-items: center; gap: 6px;
     }
-    
+    .section-title svg { width: 16px; height: 16px; }
+
     /* M3 FILTER CHIPS (Presets) */
-    .preset-group { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+    .preset-group { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
     .preset-btn {
-      position: relative;
-      font-size: 14px; font-weight: 500; padding: 0 16px; height: 32px; border-radius: 8px; 
+      position: relative; overflow: hidden;
+      font-size: 13px; font-weight: 500; padding: 0 12px; height: 28px; border-radius: 8px;
       background: transparent; border: 1px solid var(--md-sys-color-outline); 
       color: var(--md-sys-color-on-surface-variant); cursor: pointer;
       transition: all 0.2s var(--ease-standard);
       display: inline-flex; align-items: center; justify-content: center;
     }
+    .preset-btn::after {
+      content: ''; position: absolute; inset: 0; background: currentColor; opacity: 0; transition: opacity 0.2s;
+    }
+    .preset-btn:hover::after { opacity: 0.08; }
     
     .preset-btn.active { 
       background: var(--md-sys-color-secondary-container); 
@@ -131,9 +145,9 @@
     }
 
     /* GRIDS & FIELDS */
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-    .field { display: flex; flex-direction: column; gap: 8px; position: relative;}
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .field { display: flex; flex-direction: column; gap: 5px; position: relative;}
     .field.full { grid-column: 1 / -1; }
     
     label { font-size: 12px; color: var(--md-sys-color-on-surface-variant); font-weight: 500; display: flex; justify-content: space-between; align-items: center;}
@@ -142,21 +156,21 @@
     /* M3 TEXT FIELDS & SELECTS */
     input[type="text"], textarea, select {
       width: 100%; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 4px;
-      background: transparent; color: var(--md-sys-color-on-background); padding: 12px 16px; font-size: 15px; outline: none;
+      background: transparent; color: var(--md-sys-color-on-background); padding: 9px 12px; font-size: 14px; outline: none;
       transition: all 0.2s var(--ease-standard); font-family: inherit;
     }
     input[type="text"]:focus, textarea:focus, select:focus {
-      border-color: var(--md-sys-color-primary); border-width: 2px; padding: 11px 15px;
+      border-color: var(--md-sys-color-primary); border-width: 2px; padding: 8px 11px;
     }
 
-    input[type="color"] { width: 100%; height: 40px; padding: 0; border: none; border-radius: 12px; cursor: pointer; background: transparent;}
+    input[type="color"] { width: 100%; height: 34px; padding: 0; border: none; border-radius: 10px; cursor: pointer; background: transparent;}
     input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
     input[type="color"]::-webkit-color-swatch { border: 2px solid var(--md-sys-color-outline-variant); border-radius: 12px; transition: 0.2s; }
     input[type="color"]:hover::-webkit-color-swatch { border-color: var(--md-sys-color-primary); }
 
     /* M3 SLIDERS */
-    input[type="range"] { 
-      -webkit-appearance: none; width: 100%; height: 40px; background: transparent; cursor: pointer; outline: none; margin: 0;
+    input[type="range"] {
+      -webkit-appearance: none; width: 100%; height: 30px; background: transparent; cursor: pointer; outline: none; margin: 0;
     }
     input[type="range"]::-webkit-slider-runnable-track {
       width: 100%; height: 8px; background: var(--md-sys-color-surface-container-highest); border-radius: 4px; transition: 0.2s;
@@ -171,7 +185,7 @@
     /* M3 SWITCHES */
     .m3-switch {
       display: flex; align-items: center; justify-content: space-between; width: 100%; cursor: pointer;
-      padding: 8px 0;
+      padding: 4px 0;
     }
     .m3-switch input { display: none; }
     .m3-switch-track {
@@ -191,7 +205,7 @@
     .m3-switch input:checked:hover + .m3-switch-track .m3-switch-thumb { box-shadow: 0 0 0 10px rgba(56, 30, 114, 0.12); }
 
     /* M3 TOGGLE BUTTONS */
-    .toggle-group { display: flex; border: 1px solid var(--md-sys-color-outline); border-radius: 20px; overflow: hidden; height: 40px;}
+    .toggle-group { display: flex; border: 1px solid var(--md-sys-color-outline); border-radius: 18px; overflow: hidden; height: 34px;}
     .toggle-btn {
       flex: 1; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer;
       border-right: 1px solid var(--md-sys-color-outline); background: transparent; transition: 0.2s;
@@ -202,219 +216,342 @@
     .toggle-bg { position: absolute; inset: 0; background: var(--md-sys-color-secondary-container); opacity: 0; transition: 0.2s; z-index: 1;}
     .toggle-btn input:checked ~ .toggle-bg { opacity: 1; }
     .toggle-btn input:checked ~ .toggle-content { color: var(--md-sys-color-on-secondary-container); }
+    .toggle-btn:hover .toggle-bg { opacity: 0.08; }
+    .toggle-btn input:checked:hover ~ .toggle-bg { opacity: 0.85; }
 
     /* M3 BUTTONS */
     button.action-btn {
-      position: relative;
-      border: none; border-radius: 20px; height: 40px; font-size: 14px; font-weight: 500; cursor: pointer;
+      position: relative; overflow: hidden;
+      border: none; border-radius: 18px; height: 36px; font-size: 13.5px; font-weight: 500; cursor: pointer;
       display: flex; align-items: center; justify-content: center; gap: 8px; transition: transform 0.1s, box-shadow 0.2s;
       background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
     }
     button.action-btn:active { transform: scale(0.96); }
     button.primary { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
     
-    .file-upload-box { 
+    .file-upload-box {
       position: relative; overflow: hidden;
-      border: 2px dashed var(--md-sys-color-outline); border-radius: 16px; padding: 16px; text-align: center; cursor: pointer; 
-      background: transparent; transition: 0.3s; margin-bottom: 12px;
+      border: 2px dashed var(--md-sys-color-outline); border-radius: 14px; padding: 11px; text-align: center; cursor: pointer;
+      background: transparent; transition: 0.3s; margin-bottom: 10px;
       color: var(--md-sys-color-on-surface-variant);
     }
     .file-upload-box:hover { border-color: var(--md-sys-color-primary); background: rgba(208,188,255,0.05); color: var(--md-sys-color-primary); }
-    .file-upload-box span { font-weight: 500; font-size: 14px; }
+    .file-upload-box span { font-weight: 500; font-size: 13px; }
 
-    .specs-info { 
-      font-size: 12px; color: var(--md-sys-color-on-surface-variant); background: var(--md-sys-color-surface-container-highest); 
-      padding: 12px 16px; border-radius: 12px; border-left: 4px solid var(--brand-color); 
-      line-height: 1.5; transition: border-color 0.5s; margin-bottom: 16px; 
+    .specs-info {
+      font-size: 11.5px; color: var(--md-sys-color-on-surface-variant); background: var(--md-sys-color-surface-container-highest);
+      padding: 9px 12px; border-radius: 10px; border-left: 4px solid var(--brand-color);
+      line-height: 1.45; transition: border-color 0.5s; margin-bottom: 12px;
     }
 
+    /* ========================================= */
+    /* WORKSPACE & CANVAS ARCHITECTURE (PERFECT) */
+    /* ========================================= */
+    
+    .workspace-body { 
+      position: relative; padding: 20px; display: flex; justify-content: center; align-items: center; 
+      height: 100%; border-radius: 28px; overflow: hidden; 
+      background-color: var(--md-sys-color-background);
+      background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+      background-size: 24px 24px;
+      perspective: 1500px; /* Важно для 3D наклона */
+    }
+
+    /* AMBIENT GLOW BEHIND PHONE */
+    .ambient-glow {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 400px; height: 800px; border-radius: 50%;
+      background: var(--brand-color); opacity: 0.15; filter: blur(120px);
+      transition: background 1s ease; pointer-events: none;
+      animation: pulseGlow 6s infinite alternate;
+    }
+    @keyframes pulseGlow { 0% { transform: translate(-50%, -50%) scale(1); opacity: 0.15; } 100% { transform: translate(-50%, -50%) scale(1.1); opacity: 0.25; } }
+
+    /* 1. Слой бронирования места (Scaling Wrapper) */
+    .device-scaler {
+      position: relative;
+      /* Ширина и высота сюда пробрасываются через JS (например, 400x700px), чтобы работал Flex-centering */
+    }
+
+    /* 2. Слой парения (Float Wrapper) */
+    .device-floater {
+      position: absolute;
+      top: 50%; left: 50%;
+      /* Фиксированные оригинальные размеры телефона: 1080 + 34*2 + 6*2 = 1160px */
+      width: 1160px; height: 2000px;
+      margin-left: -580px; margin-top: -1000px; /* Четко центрируем внутри Scaler */
+      animation: float 6s ease-in-out infinite;
+      transition: transform 0.3s cubic-bezier(0.2, 0, 0, 1);
+      transform-style: preserve-3d;
+      pointer-events: none; /* Пропускаем клики к фрейму */
+    }
+    .device-floater:hover {
+      transform: scale(1.02); /* Эффект приближения при наведении */
+      animation-play-state: paused;
+    }
+    
+    @keyframes float {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-16px); }
+    }
+
+    /* 3. Слой фрейма смартфона (Apply Scale & Parallax Here) */
+    .device-frame {
+      position: absolute; top: 0; left: 0; box-sizing: content-box;
+      background: #0f0f11; width: 1080px; height: 1920px; padding: 34px; 
+      border-radius: 160px; border: 6px solid #2a2a2c;
+      box-shadow: inset 0 0 12px rgba(255,255,255,0.05), 0 0 0 2px #000, 0 50px 100px -20px rgba(0,0,0,0.8);
+      transform-origin: center center;
+      transition: box-shadow 0.3s;
+      pointer-events: auto; /* Включаем клики обратно */
+    }
+
+    /* Экран устройства (всегда ровно 1080x1920) */
+    .preview-container {
+      position: relative; width: 1080px; height: 1920px; overflow: hidden;
+      border-radius: 126px; background: #000;
+      /* APPLE-STYLE GRADIENT ONSCREEN */
+      background-image: 
+        radial-gradient(circle at 20% -10%, #3b1b6d 0%, transparent 45%),
+        radial-gradient(circle at 80% 15%, #d82b6b 0%, transparent 40%),
+        radial-gradient(circle at 50% 100%, #17428f 0%, transparent 55%),
+        radial-gradient(circle at -10% 70%, #0d1e3d 0%, transparent 40%);
+      box-shadow: inset 0 0 80px rgba(0,0,0,0.8);
+    }
+
+    .device-camera {
+      position: absolute; top: 25px; left: 50%; transform: translateX(-50%);
+      width: 300px; height: 90px; background: #000; border-radius: 45px; z-index: 50;
+      box-shadow: inset -2px -2px 6px rgba(255,255,255,0.1), inset 2px 2px 6px rgba(0,0,0,1);
+    }
+
+    .device-btn { position: absolute; background: #2c2c2e; border: 1px solid #111; }
+    .btn-power { right: -14px; top: 580px; width: 8px; height: 220px; border-radius: 0 8px 8px 0; }
+    .btn-vol-up { left: -14px; top: 480px; width: 8px; height: 160px; border-radius: 8px 0 0 8px; }
+    .btn-vol-down { left: -14px; top: 680px; width: 8px; height: 160px; border-radius: 8px 0 0 8px; }
+
+    .media-layer { position: absolute; top: 0; left: 0; width: 1080px; height: 1920px; object-fit: cover; display: none; z-index: 1;}
+    .placeholder-text { 
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+      color: rgba(255,255,255,0.95); text-align: center; font-weight: 500; line-height: 1.5; z-index: 2; pointer-events: none; width: 100%;
+      text-shadow: 0 8px 24px rgba(0,0,0,0.8);
+    }
+    
+    .ass-subtitle-container {
+      position: absolute; display: flex; flex-direction: column; pointer-events: none; z-index: 10;
+      left: var(--css-left); right: var(--css-right); top: var(--css-top); bottom: var(--css-bottom);
+      align-items: var(--css-align-items); text-align: var(--css-text-align); transform: var(--css-transform-container);
+    }
+    .ass-line { display: inline-flex; flex-wrap: wrap; justify-content: var(--css-justify); column-gap: var(--css-spacing); background-color: var(--css-box-bg); padding: var(--css-box-pad); }
+    .ass-word {
+      font-family: var(--css-font), sans-serif; font-size: var(--css-font-size); font-weight: var(--css-weight);
+      font-style: var(--css-style); text-decoration: var(--css-decoration); letter-spacing: var(--css-spacing);
+      color: var(--css-color-sec); text-shadow: var(--css-text-shadow); -webkit-text-stroke: var(--css-text-stroke);
+      /* Рисуем обводку ПОЗАДИ заливки — как это делает libass (контур снаружи глифа),
+         иначе толстый stroke «съедает» буквы и текст превращается в чёрное месиво. */
+      paint-order: stroke fill;
+      transform: var(--css-transform-word); white-space: nowrap; line-height: 1.1; transition: color 0.1s;
+    }
+    .ass-word.active { color: var(--css-color-pri); }
+
+    .overlay-layer { position: absolute; top: 0; left: 0; width: 1080px; height: 1920px; pointer-events: none; z-index: 20; }
+    .overlay-layer polygon { transition: all 0.5s var(--ease-standard); }
+    
+    .code-card { padding: 12px; border-radius: 16px; background: var(--md-sys-color-surface-container-highest); border: 1px solid var(--md-sys-color-outline-variant); margin-top: 10px;}
+    textarea.code { font-family: var(--font-code); font-size: 11px; min-height: 120px; background: transparent; color: var(--md-sys-color-secondary); border: none; padding: 0;}
+    textarea.code:focus { border:none; padding:0; }
   </style>
 </head>
 <body>
   <div class="app">
     <aside class="panel sidebar">
       <div class="sidebar-header">
-        <h1>Ultimate ASS Studio</h1>
-        <p class="lede">Material 3.0 Edition • Safe Zones & Subtitles</p>
+        <h1>Студия ASS</h1>
+        <p class="lede">Material 3.0 • Безопасные зоны и субтитры</p>
       </div>
 
       <div class="sidebar-body">
         
         <section class="section">
-          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg> Platform Setup</div>
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg> Настройка платформы</div>
           
           <div class="preset-group">
-            <button class="preset-btn plat-btn active" data-platform="ig">IG Reels</button>
-            <button class="preset-btn plat-btn" data-platform="tiktok">TikTok</button>
-            <button class="preset-btn plat-btn" data-platform="yt">YT Shorts</button>
+            <button class="preset-btn plat-btn active ripplable" data-platform="ig">IG Reels</button>
+            <button class="preset-btn plat-btn ripplable" data-platform="tiktok">TikTok</button>
+            <button class="preset-btn plat-btn ripplable" data-platform="yt">YT Shorts</button>
           </div>
 
           <div class="specs-info" id="specs-text">
-            <strong>Instagram Reels:</strong> Safe Zone. Отступы: Верх 220px, Низ 420px, Справа 140px.
+            <strong>IG Reels:</strong> Безопасная зона. Отступы: Верх 220px, Низ 420px, Справа 140px.
           </div>
 
-          <label class="file-upload-box ">
+          <label class="file-upload-box ripplable">
             <input type="file" id="media-upload" accept="image/*,video/*">
-            <span>Upload Background (Photo/Video)</span>
+            <span>Загрузить фон (фото/видео)</span>
           </label>
-          <button class="action-btn full " id="clearMediaBtn" style="margin-bottom:16px;">Clear Media</button>
+          <button class="action-btn full ripplable" id="clearMediaBtn" style="margin-bottom:16px;">Очистить медиа</button>
 
-          <label class="m3-switch">
-            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Mockup UI</span>
+          <label class="m3-switch ripplable-switch">
+            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Интерфейс-макет</span>
             <input type="checkbox" id="showUI" checked>
             <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
           </label>
           
-          <label class="m3-switch">
-            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Safe Zone Outline</span>
+          <label class="m3-switch ripplable-switch">
+            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Контур безопасной зоны</span>
             <input type="checkbox" id="showOutline" checked>
             <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
           </label>
 
-          <label class="m3-switch">
-            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Dark Mask (Unsafe Area)</span>
+          <label class="m3-switch ripplable-switch">
+            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Тёмная маска (небезопасная область)</span>
             <input type="checkbox" id="showMask" checked>
             <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
           </label>
 
           <div class="field full" style="margin-top:8px;">
-            <label>Mask Opacity <span class="value" id="v-maskOpacity"></span></label>
+            <label>Прозрачность маски <span class="value" id="v-maskOpacity"></span></label>
             <input id="maskOpacity" type="range" min="0" max="100" step="1">
           </div>
         </section>
 
         <!-- Typography -->
-        <section class="section">
-          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg> Typography</div>
+        <section class="section span-2">
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg> Типографика</div>
           <div class="preset-group">
-            <button class="preset-btn " onclick="applyPreset('typo', 'tiktok')">TikTok Huge</button>
-            <button class="preset-btn " onclick="applyPreset('typo', 'clean')">Clean Normal</button>
-            <button class="preset-btn " onclick="applyPreset('typo', 'dynamic')">Italic Impact</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'hormozi')">Hormozi</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'mrbeast')">MrBeast</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'tiktok')">TikTok</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'minimal')">Минимал</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('typo', 'impact')">Импакт</button>
           </div>
 
-          <div class="field full"><label>Font Path</label><input id="fontPath" type="text" value="assets/fonts/bignoodletoooblique.ttf"></div>
+          <div class="field full"><label>Путь к шрифту</label><input id="fontPath" type="text" value="assets/fonts/bignoodletoooblique.ttf"></div>
           <div class="grid-2">
-            <div class="field"><label>Font Size <span class="value" id="v-fontSizePx"></span></label><input id="fontSizePx" type="range" min="16" max="150" step="1"></div>
-            <div class="field"><label>Letter Spacing <span class="value" id="v-spacingPx"></span></label><input id="spacingPx" type="range" min="-10" max="30" step="1"></div>
+            <div class="field"><label>Размер шрифта <span class="value" id="v-fontSizePx"></span></label><input id="fontSizePx" type="range" min="16" max="150" step="1"></div>
+            <div class="field"><label>Межбуквенный интервал <span class="value" id="v-spacingPx"></span></label><input id="spacingPx" type="range" min="-10" max="30" step="1"></div>
           </div>
           
           <div class="toggle-group" style="margin-top: 16px;">
-            <label class="toggle-btn ">
+            <label class="toggle-btn ripplable">
               <input type="checkbox" id="bold">
               <div class="toggle-bg"></div>
-              <span class="toggle-content">Bold</span>
+              <span class="toggle-content">Жирный</span>
             </label>
-            <label class="toggle-btn ">
+            <label class="toggle-btn ripplable">
               <input type="checkbox" id="italic">
               <div class="toggle-bg"></div>
-              <span class="toggle-content">Italic</span>
+              <span class="toggle-content">Курсив</span>
             </label>
-            <label class="toggle-btn ">
+            <label class="toggle-btn ripplable">
               <input type="checkbox" id="underline">
               <div class="toggle-bg"></div>
-              <span class="toggle-content">Under</span>
+              <span class="toggle-content">Подчёрк</span>
             </label>
-            <label class="toggle-btn ">
+            <label class="toggle-btn ripplable">
               <input type="checkbox" id="strikeout">
               <div class="toggle-bg"></div>
-              <span class="toggle-content">Strike</span>
+              <span class="toggle-content">Зачёрк</span>
             </label>
           </div>
         </section>
 
         <!-- Colors -->
         <section class="section">
-          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path><path d="M2 12h20"></path></svg> Color Theme</div>
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path><path d="M2 12h20"></path></svg> Цветовая тема</div>
           <div class="preset-group">
-            <button class="preset-btn " onclick="applyPreset('colors', 'yellow')">Yellow</button>
-            <button class="preset-btn " onclick="applyPreset('colors', 'green')">Hormozi</button>
-            <button class="preset-btn " onclick="applyPreset('colors', 'red')">Red</button>
-            <button class="preset-btn " onclick="applyPreset('colors', 'cyan')">Cyan</button>
-            <button class="preset-btn " onclick="applyPreset('colors', 'classic')">White</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'hormozi')">Hormozi</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'green')">Грин-скрин</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'tiktok')">TikTok</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'red')">Красный</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('colors', 'white')">Белый</button>
           </div>
 
           <div class="grid-2">
-            <div class="field"><label>Primary Fill</label><input id="primaryColor" type="color"></div>
-            <div class="field"><label>Opacity <span class="value" id="v-primaryOp"></span></label><input id="primaryOp" type="range" min="0" max="1" step="0.05"></div>
-            
-            <div class="field"><label>Secondary Fill</label><input id="secondaryColor" type="color"></div>
-            <div class="field"><label>Opacity <span class="value" id="v-secondaryOp"></span></label><input id="secondaryOp" type="range" min="0" max="1" step="0.05"></div>
+            <div class="field"><label>Основная заливка</label><input id="primaryColor" type="color"></div>
+            <div class="field"><label>Прозрачность <span class="value" id="v-primaryOp"></span></label><input id="primaryOp" type="range" min="0" max="1" step="0.05"></div>
+
+            <div class="field"><label>Вторичная заливка</label><input id="secondaryColor" type="color"></div>
+            <div class="field"><label>Прозрачность <span class="value" id="v-secondaryOp"></span></label><input id="secondaryOp" type="range" min="0" max="1" step="0.05"></div>
           </div>
         </section>
 
         <!-- Borders -->
         <section class="section">
-          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg> Border & Shadow</div>
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg> Контур и тень</div>
           <div class="preset-group">
-            <button class="preset-btn " onclick="applyPreset('borders', 'heavy_outline')">Heavy Outline</button>
-            <button class="preset-btn " onclick="applyPreset('borders', 'soft_shadow')">Soft Shadow</button>
-            <button class="preset-btn " onclick="applyPreset('borders', 'opaque_box')">Black Box</button>
-            <button class="preset-btn " onclick="applyPreset('borders', 'box_outline')">Box + Outline</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'hormozi')">Hormozi</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'shadow')">Мягкая тень</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'box')">Блок</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'box_outline')">Блок + контур</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'neon')">Неон</button>
           </div>
 
           <div class="field full">
-            <label>Border Style</label>
+            <label>Стиль границы</label>
             <select id="borderStyle">
-              <option value="1">1: Outline + DropShadow</option>
-              <option value="3">3: Opaque Box</option>
+              <option value="1">1: Контур + тень</option>
+              <option value="3">3: Непрозрачный блок</option>
             </select>
           </div>
           <div class="grid-2">
-            <div class="field"><label>Outline Col</label><input id="outlineColor" type="color"></div>
-            <div class="field"><label>Opacity <span class="value" id="v-outlineOp"></span></label><input id="outlineOp" type="range" min="0" max="1" step="0.05"></div>
-            <div class="field full"><label>Outline Width <span class="value" id="v-outline"></span></label><input id="outline" type="range" min="0" max="20" step="1"></div>
-            
-            <div class="field"><label>Shadow/Box</label><input id="backColor" type="color"></div>
-            <div class="field"><label>Opacity <span class="value" id="v-backOp"></span></label><input id="backOp" type="range" min="0" max="1" step="0.05"></div>
-            <div class="field full"><label>Shadow Drop <span class="value" id="v-shadow"></span></label><input id="shadow" type="range" min="0" max="20" step="1"></div>
+            <div class="field"><label>Цвет контура</label><input id="outlineColor" type="color"></div>
+            <div class="field"><label>Прозрачность <span class="value" id="v-outlineOp"></span></label><input id="outlineOp" type="range" min="0" max="1" step="0.05"></div>
+            <div class="field full"><label>Толщина контура <span class="value" id="v-outline"></span></label><input id="outline" type="range" min="0" max="20" step="1"></div>
+
+            <div class="field"><label>Тень/блок</label><input id="backColor" type="color"></div>
+            <div class="field"><label>Прозрачность <span class="value" id="v-backOp"></span></label><input id="backOp" type="range" min="0" max="1" step="0.05"></div>
+            <div class="field full"><label>Смещение тени <span class="value" id="v-shadow"></span></label><input id="shadow" type="range" min="0" max="20" step="1"></div>
           </div>
         </section>
 
         <!-- Geometry -->
         <section class="section">
-          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg> Placement</div>
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg> Размещение</div>
           <div class="preset-group">
-            <button class="preset-btn " onclick="applyPreset('geometry', 'bottom')">Reels Bottom</button>
-            <button class="preset-btn " onclick="applyPreset('geometry', 'top')">Shorts Top</button>
-            <button class="preset-btn " onclick="applyPreset('geometry', 'center')">Dead Center</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'reels')">Reels низ</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'shorts')">Shorts низ</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'center')">Центр</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'top')">Верх</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'tiktok')">TikTok</button>
           </div>
 
           <div class="grid-2">
             <div class="field">
-              <label>Alignment Grid</label>
+              <label>Сетка выравнивания</label>
               <select id="alignment">
-                <option value="7">7 - Top L</option><option value="8">8 - Top C</option><option value="9">9 - Top R</option>
-                <option value="4">4 - Mid L</option><option value="5">5 - Mid C</option><option value="6">6 - Mid R</option>
-                <option value="1">1 - Bot L</option><option value="2">2 - Bot C</option><option value="3">3 - Bot R</option>
+                <option value="7">7 — Верх Л</option><option value="8">8 — Верх Ц</option><option value="9">9 — Верх П</option>
+                <option value="4">4 — Центр Л</option><option value="5">5 — Центр Ц</option><option value="6">6 — Центр П</option>
+                <option value="1">1 — Низ Л</option><option value="2">2 — Низ Ц</option><option value="3">3 — Низ П</option>
               </select>
             </div>
-            <div class="field"><label>Margin V <span class="value" id="v-marginV"></span></label><input id="marginV" type="range" min="0" max="800" step="5"></div>
-            <div class="field"><label>Margin L <span class="value" id="v-marginL"></span></label><input id="marginL" type="range" min="0" max="300" step="5"></div>
-            <div class="field"><label>Margin R <span class="value" id="v-marginR"></span></label><input id="marginR" type="range" min="0" max="300" step="5"></div>
-            <div class="field"><label>Scale X <span class="value" id="v-scaleX"></span></label><input id="scaleX" type="range" min="50" max="200" step="5"></div>
-            <div class="field"><label>Scale Y <span class="value" id="v-scaleY"></span></label><input id="scaleY" type="range" min="50" max="200" step="5"></div>
-            <div class="field full"><label>Angle (Z) <span class="value" id="v-angle"></span></label><input id="angle" type="range" min="-180" max="180" step="1"></div>
+            <div class="field"><label>Отступ В <span class="value" id="v-marginV"></span></label><input id="marginV" type="range" min="0" max="800" step="5"></div>
+            <div class="field"><label>Отступ Л <span class="value" id="v-marginL"></span></label><input id="marginL" type="range" min="0" max="300" step="5"></div>
+            <div class="field"><label>Отступ П <span class="value" id="v-marginR"></span></label><input id="marginR" type="range" min="0" max="300" step="5"></div>
+            <div class="field"><label>Масштаб X <span class="value" id="v-scaleX"></span></label><input id="scaleX" type="range" min="50" max="200" step="5"></div>
+            <div class="field"><label>Масштаб Y <span class="value" id="v-scaleY"></span></label><input id="scaleY" type="range" min="50" max="200" step="5"></div>
+            <div class="field full"><label>Угол (Z) <span class="value" id="v-angle"></span></label><input id="angle" type="range" min="-180" max="180" step="1"></div>
           </div>
         </section>
 
         <!-- Preview & Output -->
-        <section class="section">
-          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Export Config</div>
+        <section class="section span-2">
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Экспорт конфигурации</div>
           <textarea id="sampleText" rows="2" style="margin-bottom:16px;">Разбираемся, почему этот выпуск вызывает споры.</textarea>
           
-          <label class="m3-switch " style="margin-bottom: 16px;">
-            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Karaoke \kf Simulation</span>
+          <label class="m3-switch ripplable-switch" style="margin-bottom: 16px;">
+            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)">Симуляция караоке \kf</span>
             <input type="checkbox" id="autoAnimate" checked>
             <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
           </label>
           
           <div style="display:flex; gap:10px;">
-            <button id="applyBtn" class="action-btn primary " style="flex:1;">Save ASS File</button>
-            <button id="connectBtn" class="action-btn " style="flex:1;">Set Directory</button>
+            <button id="applyBtn" class="action-btn primary ripplable" style="flex:1;">Сохранить файл ASS</button>
+            <button id="connectBtn" class="action-btn ripplable" style="flex:1;">Выбрать папку</button>
           </div>
           
           <div class="code-card">
-            <label style="margin-bottom: 8px; color: var(--md-sys-color-primary);">[V4+ Styles] Config</label>
+            <label style="margin-bottom: 8px; color: var(--md-sys-color-primary);">[V4+ Styles] Конфигурация</label>
             <textarea id="assOutput" class="code" readonly></textarea>
           </div>
         </section>
@@ -448,10 +585,10 @@
                       <div class="placeholder-text" id="placeholder">
                         <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom: 20px; opacity: 0.9;">
                             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>
-                        </svg><br><span style="font-size: 36px;">Upload Media</span>
+                        </svg><br><span style="font-size: 36px;">Загрузите медиа</span>
                       </div>
                       
-                      <img id="preview-img" class="media-layer" alt="Preview">
+                      <img id="preview-img" class="media-layer" alt="Превью">
                       <video id="preview-vid" class="media-layer" autoplay loop muted playsinline></video>
 
                       <!-- SUBTITLES LAYER (HTML, 1080x1920) -->
@@ -486,13 +623,13 @@
   <style id="dynamic-font-face"></style>
 
   <script>
-    const STORAGE_KEY = "forge.assStyleStudio.m3_fixed";
+    const STORAGE_KEY = "forge.assStyleStudio.m3_readable";
     
     const PLATFORMS = {
         ig: { 
             color: '#E1306C', 
             points: '35,220 1045,220 1045,800 940,800 940,1500 35,1500', 
-            desc: '<strong>Instagram Reels:</strong> Safe Zone. Отступы: Верх 220px, Низ 420px, Справа 140px.',
+            desc: '<strong>IG Reels:</strong> Безопасная зона. Отступы: Верх 220px, Низ 420px, Справа 140px.',
             ui: `
                 <text x="40" y="120" font-size="55" class="svg-t">Reels</text>
                 <g transform="translate(970, 70) scale(1.8)" class="svg-i" stroke="white" stroke-width="2" fill="none">
@@ -516,22 +653,22 @@
                 <rect x="955" y="1360" width="80" height="80" rx="15" fill="#333" stroke="white" stroke-width="4" class="svg-i" />
                 <circle cx="80" cy="1580" r="40" fill="#555" stroke="rgba(255,255,255,0.4)" stroke-width="2" class="svg-i" />
                 <text x="140" y="1595" font-size="38" class="svg-t">@username</text>
-                <rect x="375" y="1555" width="140" height="50" rx="15" stroke="white" stroke-width="2" fill="rgba(0,0,0,0.3)"/>
-                <text x="445" y="1590" font-size="26" class="svg-t" text-anchor="middle">Follow</text>
-                <text x="40" y="1670" font-size="36" class="svg-t">Your amazing caption goes here. It can wrap...</text>
+                <rect x="375" y="1555" width="180" height="50" rx="15" stroke="white" stroke-width="2" fill="rgba(0,0,0,0.3)"/>
+                <text x="465" y="1590" font-size="26" class="svg-t" text-anchor="middle">Подписаться</text>
+                <text x="40" y="1670" font-size="36" class="svg-t">Ваша классная подпись будет здесь. Она переносится...</text>
                 <g transform="translate(40, 1700) scale(1.4)" fill="white" class="svg-i">
                     <path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>
                 </g>
-                <text x="95" y="1725" font-size="30" class="svg-t">Original Audio - Some Artist</text>
+                <text x="95" y="1725" font-size="30" class="svg-t">Оригинальный звук — Исполнитель</text>
             `
         },
         tiktok: { 
             color: '#00E6E6', 
             points: '44,150 1036,150 1036,630 920,630 920,1440 44,1440', 
-            desc: '<strong>TikTok:</strong> Safe Zone. Отступы: Верх 150px, Низ 480px, Справа 160px.',
+            desc: '<strong>TikTok:</strong> Безопасная зона. Отступы: Верх 150px, Низ 480px, Справа 160px.',
             ui: `
-                <text x="450" y="100" font-size="42" class="svg-t" opacity="0.6">Following</text>
-                <text x="650" y="100" font-size="42" class="svg-t">For You</text>
+                <text x="450" y="100" font-size="42" class="svg-t" opacity="0.6">Подписки</text>
+                <text x="650" y="100" font-size="42" class="svg-t">Для вас</text>
                 <rect x="670" y="120" width="55" height="8" fill="white" rx="4" class="svg-i" />
                 <g transform="translate(970, 50) scale(1.8)" class="svg-i" fill="none" stroke="white" stroke-width="2">
                     <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -561,17 +698,17 @@
                 <circle cx="990" cy="1380" r="45" fill="#222" class="svg-i"/>
                 <circle cx="990" cy="1380" r="28" fill="#333" />
                 <text x="44" y="1520" font-size="42" class="svg-t">@username</text>
-                <text x="44" y="1575" font-size="38" class="svg-t">TikTok caption text goes right here #viral</text>
+                <text x="44" y="1575" font-size="38" class="svg-t">Текст подписи TikTok прямо здесь #viral</text>
                 <g transform="translate(44, 1610) scale(1.5)" fill="white" class="svg-i">
                     <path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>
                 </g>
-                <text x="95" y="1638" font-size="32" class="svg-t">Original Audio - Creator</text>
+                <text x="95" y="1638" font-size="32" class="svg-t">Оригинальный звук — Автор</text>
             `
         },
         yt: { 
             color: '#FF0000', 
             points: '40,200 1040,200 1040,700 920,700 920,1550 40,1550', 
-            desc: '<strong>YouTube Shorts:</strong> Safe Zone. Отступы: Верх 200px, Низ 370px, Справа 160px.',
+            desc: '<strong>YouTube Shorts:</strong> Безопасная зона. Отступы: Верх 200px, Низ 370px, Справа 160px.',
             ui: `
                 <g transform="translate(860, 60) scale(1.8)" class="svg-i" fill="none" stroke="white" stroke-width="2">
                     <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -586,7 +723,7 @@
                 <g transform="translate(945, 850) scale(2.2)" class="svg-i" fill="white">
                     <path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"></path>
                 </g>
-                <text x="995" y="935" font-size="22" class="svg-t" text-anchor="middle">Dislike</text>
+                <text x="995" y="935" font-size="22" class="svg-t" text-anchor="middle">Не нравится</text>
                 <g transform="translate(945, 980) scale(2.2)" class="svg-i" fill="white">
                     <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
                 </g>
@@ -594,56 +731,72 @@
                 <g transform="translate(945, 1110) scale(2.2)" class="svg-i" fill="white">
                     <path d="M15 5l-1.41 1.41L18.17 11H2v2h16.17l-4.59 4.59L15 19l7-7-7-7z"></path>
                 </g>
-                <text x="995" y="1195" font-size="22" class="svg-t" text-anchor="middle">Share</text>
+                <text x="995" y="1195" font-size="22" class="svg-t" text-anchor="middle">Поделиться</text>
                 <g transform="translate(945, 1240) scale(2.2) rotate(90 12 12)" class="svg-i" fill="white">
                     <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm-8 8c0-1.01.25-1.97.7-2.8L3.24 7.74C2.46 8.97 2 10.43 2 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3c-3.31 0-6-2.69-6-6z"></path>
                 </g>
-                <text x="995" y="1325" font-size="22" class="svg-t" text-anchor="middle">Remix</text>
+                <text x="995" y="1325" font-size="22" class="svg-t" text-anchor="middle">Ремикс</text>
                 <rect x="950" y="1380" width="90" height="90" rx="15" fill="#333" stroke="white" stroke-width="4" class="svg-i"/>
                 <circle cx="85" cy="1590" r="45" fill="#555" stroke="rgba(255,255,255,0.4)" stroke-width="2" class="svg-i" />
-                <text x="145" y="1605" font-size="40" class="svg-t">@ChannelName</text>
-                <rect x="470" y="1565" width="220" height="60" rx="30" fill="white" class="svg-i"/>
-                <text x="580" y="1605" font-size="30" fill="black" font-weight="bold" font-family="'Roboto', sans-serif" text-anchor="middle">Subscribe</text>
-                <text x="40" y="1690" font-size="40" class="svg-t">This is a catchy YouTube Shorts title...</text>
+                <text x="145" y="1605" font-size="40" class="svg-t">@НазваниеКанала</text>
+                <rect x="470" y="1565" width="260" height="60" rx="30" fill="white" class="svg-i"/>
+                <text x="600" y="1605" font-size="30" fill="black" font-weight="bold" font-family="'Roboto', sans-serif" text-anchor="middle">Подписаться</text>
+                <text x="40" y="1690" font-size="40" class="svg-t">Это цепляющий заголовок YouTube Shorts...</text>
             `
         }
     };
 
     const DEFAULTS = {
       fontPath: "assets/fonts/bignoodletoooblique.ttf",
-      fontSizePx: 64, spacingPx: 0, bold: true, italic: false, underline: false, strikeout: false,
-      primaryColor: "#FFD54A", primaryOp: 1.0, secondaryColor: "#FFFFFF", secondaryOp: 1.0,
-      borderStyle: 1, outlineColor: "#000000", outlineOp: 1.0, outline: 6,
-      backColor: "#000000", backOp: 0.8, shadow: 0,
+      fontSizePx: 96, spacingPx: 0, bold: true, italic: false, underline: false, strikeout: false,
+      primaryColor: "#FFFFFF", primaryOp: 1.0, secondaryColor: "#FFFFFF", secondaryOp: 1.0,
+      borderStyle: 1, outlineColor: "#000000", outlineOp: 1.0, outline: 5,
+      backColor: "#000000", backOp: 0.5, shadow: 2,
       alignment: 2, marginV: 500, marginL: 45, marginR: 45,
       scaleX: 100, scaleY: 100, angle: 0,
       sampleText: "Разбираемся, почему этот выпуск вызывает споры.", autoAnimate: true,
       platform: "ig", showUI: true, showMask: true, showOutline: true, maskOpacity: 60
     };
 
+    // Пресеты, вдохновлённые самыми вирусными форматами роликов
     const PRESETS = {
       typo: {
-        tiktok: { fontSizePx: 64, spacingPx: -2, bold: true, italic: false, scaleX: 100, scaleY: 100, angle: 0 },
-        clean: { fontSizePx: 42, spacingPx: 2, bold: false, italic: false, scaleX: 100, scaleY: 100, angle: 0 },
-        dynamic: { fontSizePx: 56, spacingPx: 0, bold: true, italic: true, scaleX: 100, scaleY: 100, angle: 3 }
+        // Alex Hormozi: огромный жирный текст, слегка вытянутый по вертикали
+        hormozi: { fontSizePx: 72, spacingPx: -1, bold: true, italic: false, scaleX: 100, scaleY: 108, angle: 0 },
+        // MrBeast: максимально крупный, энергичный
+        mrbeast: { fontSizePx: 84, spacingPx: 0, bold: true, italic: false, scaleX: 105, scaleY: 100, angle: 0 },
+        // TikTok auto-caption / караоке
+        tiktok: { fontSizePx: 60, spacingPx: 1, bold: true, italic: false, scaleX: 100, scaleY: 100, angle: 0 },
+        // Минималистичный «Apple-style» тонкий шрифт
+        minimal: { fontSizePx: 44, spacingPx: 3, bold: false, italic: false, scaleX: 100, scaleY: 100, angle: 0 },
+        // Динамичный курсив с наклоном
+        impact: { fontSizePx: 58, spacingPx: 0, bold: true, italic: true, scaleX: 100, scaleY: 100, angle: 4 }
       },
       colors: {
-        yellow: { primaryColor: "#FFD54A", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 },
+        hormozi: { primaryColor: "#FFD60A", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 },
         green: { primaryColor: "#39FF14", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 },
-        red: { primaryColor: "#FF2A2A", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 },
-        cyan: { primaryColor: "#00FFFF", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 },
-        classic: { primaryColor: "#FFFFFF", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 }
+        tiktok: { primaryColor: "#00F2EA", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 },
+        red: { primaryColor: "#FF2D2D", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 },
+        white: { primaryColor: "#FFFFFF", secondaryColor: "#FFFFFF", primaryOp: 1.0, secondaryOp: 1.0 }
       },
       borders: {
-        heavy_outline: { borderStyle: 1, outline: 8, outlineColor: "#000000", outlineOp: 1.0, shadow: 0 },
-        soft_shadow: { borderStyle: 1, outline: 2, outlineColor: "#000000", outlineOp: 1.0, shadow: 6, backColor: "#000000", backOp: 0.7 },
-        opaque_box: { borderStyle: 3, outline: 0, outlineColor: "#000000", outlineOp: 0.0, backColor: "#000000", backOp: 0.85, shadow: 0 },
-        box_outline: { borderStyle: 3, outline: 2, outlineColor: "#FFFFFF", outlineOp: 1.0, backColor: "#000000", backOp: 0.85, shadow: 0 }
+        // Hormozi: толстый чёрный контур без тени
+        hormozi: { borderStyle: 1, outline: 9, outlineColor: "#000000", outlineOp: 1.0, shadow: 0, backColor: "#000000", backOp: 0.8 },
+        // Мягкая drop-shadow
+        shadow: { borderStyle: 1, outline: 3, outlineColor: "#000000", outlineOp: 1.0, shadow: 7, backColor: "#000000", backOp: 0.75 },
+        // Непрозрачная плашка (как авто-субтитры TikTok/YouTube)
+        box: { borderStyle: 3, outline: 0, outlineColor: "#000000", outlineOp: 0.0, backColor: "#000000", backOp: 0.9, shadow: 0 },
+        // Плашка + белый контур
+        box_outline: { borderStyle: 3, outline: 2, outlineColor: "#FFFFFF", outlineOp: 1.0, backColor: "#000000", backOp: 0.85, shadow: 0 },
+        // Неоновое свечение
+        neon: { borderStyle: 1, outline: 4, outlineColor: "#000000", outlineOp: 1.0, shadow: 10, backColor: "#00F2EA", backOp: 0.9 }
       },
       geometry: {
-        bottom: { alignment: 2, marginV: 500 },
+        reels: { alignment: 2, marginV: 470 },
+        shorts: { alignment: 2, marginV: 360 },
+        center: { alignment: 5, marginV: 0 },
         top: { alignment: 8, marginV: 250 },
-        center: { alignment: 5, marginV: 0 }
+        tiktok: { alignment: 2, marginV: 560 }
       }
     };
 
@@ -919,7 +1072,7 @@
     });
 
     document.getElementById('applyBtn').addEventListener('click', async () => {
-      if (!projHandle) return alert("Select Project Folder First!");
+      if (!projHandle) return alert("Сначала выберите папку проекта!");
       try {
         let dir = projHandle;
         for (let p of ["assets", "subtitles"]) dir = await dir.getDirectoryHandle(p, { create: true });
@@ -929,15 +1082,15 @@
         await writable.close();
         
         let btn = document.getElementById('applyBtn');
-        btn.innerText = "Saved! \u2714"; 
+        btn.innerText = "\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043e! \u2714";
         btn.style.background = "var(--md-sys-color-primary-container)"; 
         btn.style.color = "var(--md-sys-color-on-primary-container)";
         setTimeout(() => { 
-            btn.innerText = "Save ASS File"; 
+            btn.innerText = "Сохранить файл ASS";
             btn.style.background = "var(--md-sys-color-primary)"; 
             btn.style.color = "var(--md-sys-color-on-primary)";
         }, 2000);
-      } catch(e) { alert("Error: " + e); }
+      } catch(e) { alert("Ошибка: " + e); }
     });
 
     // Initial sync and calculation

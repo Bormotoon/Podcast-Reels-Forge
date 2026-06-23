@@ -42,17 +42,6 @@ transcription:
   # initial_prompt: "Родительское собрание в школе. Программа, занятия, преподаватели."
   initial_prompt: ""
 
-# Proofread stage: fix Whisper transcription errors using local LLM (gemma4:26b).
-# Runs between transcription and diarization. Corrects orthographic, punctuation,
-# stylistic and grammatical errors WITHOUT changing the spoken text.
-# Also generates a readable markdown transcript with paragraphs and section headers.
-proofread:
-  enabled: true
-  temperature: 0.1       # low temperature for deterministic corrections
-  max_chars_chunk: 7000  # Russian text ~2-3 chars/token; 7000 chars ≈ 3500 tokens
-  markdown: true          # generate <stem>.md — readable markdown transcript
-  youtube_chapters: true  # generate <stem>_chapters.md — YouTube chapters with timestamps
-
 llama_cpp:
   url: "http://127.0.0.1:11440/completion"
   service:
@@ -147,7 +136,9 @@ subtitles:
   enabled: true
   font: "assets/fonts/bignoodletoooblique.ttf"
   ass_style: "assets/subtitles/forge_subtitles.ass"
-  font_size_px: 36
+  # ~9% of the 1080px-wide frame — a readable viral-caption size. Matches the
+  # style-editor default. The old 36 was ~3% of width → unreadably small.
+  font_size_px: 96
   wrap_words: true
   max_lines: 2
   max_width_ratio: 0.65

@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any
 
 from podcast_reels_forge.utils.burned_subtitles import (
-    DEFAULT_SUBTITLE_CSS_TEMPLATE,
     DEFAULT_SUBTITLE_FONT,
     ensure_reel_burned_subtitles,
     subtitle_settings_from_conf,
@@ -327,12 +326,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Font file for burned subtitles (defaults to config or assets/fonts/bignoodletoooblique.ttf)",
     )
     ap.add_argument(
-        "--subtitle-css",
-        type=Path,
-        default=None,
-        help="CSS template for burned subtitles (defaults to config or assets/subtitles/forge_subtitles.css)",
-    )
-    ap.add_argument(
         "--subtitle-wrap-words",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -371,11 +364,6 @@ def main(argv: list[str] | None = None) -> None:
             subtitle_settings,
             font_path=args.subtitle_font.resolve(),
         )
-    if args.subtitle_css is not None:
-        subtitle_settings = replace(
-            subtitle_settings,
-            css_path=args.subtitle_css.resolve(),
-        )
     if args.subtitle_wrap_words is not None:
         subtitle_settings = replace(
             subtitle_settings,
@@ -385,11 +373,6 @@ def main(argv: list[str] | None = None) -> None:
         subtitle_settings = replace(
             subtitle_settings,
             font_path=(Path.cwd() / DEFAULT_SUBTITLE_FONT).resolve(),
-        )
-    if not subtitle_settings.css_path.exists():
-        subtitle_settings = replace(
-            subtitle_settings,
-            css_path=(Path.cwd() / DEFAULT_SUBTITLE_CSS_TEMPLATE).resolve(),
         )
 
     settings = RenderSettings(

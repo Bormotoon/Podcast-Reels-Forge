@@ -33,7 +33,7 @@ def test_slice_segments_for_clip_rebases_and_clips() -> None:
 def test_subtitle_settings_defaults_are_conservative(tmp_path: Path) -> None:
     settings = bs.subtitle_settings_from_conf(None, repo_dir=tmp_path)
 
-    assert settings.font_size_px == 36
+    assert settings.font_size_px == 96
     assert settings.max_lines == 2
     assert settings.max_width_ratio == 0.65
     assert settings.wrap_words is True

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re as _re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +16,9 @@ LOG = logging.getLogger(__name__)
 
 DEFAULT_SUBTITLE_FONT = Path("assets/fonts/bignoodletoooblique.ttf")
 DEFAULT_SUBTITLE_CSS_TEMPLATE = Path("assets/subtitles/forge_subtitles.css")
-DEFAULT_FONT_SIZE_PX = 36
+# ~9% of the 1080px-wide frame: a readable viral-caption size that matches the
+# style-editor default. The previous 36 was ~3% of width → unreadably small.
+DEFAULT_FONT_SIZE_PX = 96
 DEFAULT_MAX_LINES = 2
 DEFAULT_MAX_WIDTH_RATIO = 0.65
 DEFAULT_WRAP_WORDS = True
@@ -603,8 +606,6 @@ def _enforce_timing_constraints(
 
     return result
 
-
-import re as _re
 
 _SENTENCE_END_RE = _re.compile(r"[.!?…]\s*$")
 

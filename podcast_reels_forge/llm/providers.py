@@ -15,7 +15,6 @@ from typing import Any, Protocol
 
 import aiohttp
 import requests
-from requests import exceptions as requests_exceptions
 
 
 LOGGER = logging.getLogger("forge")

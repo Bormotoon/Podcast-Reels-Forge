@@ -498,8 +498,8 @@ def main(argv: list[str] | None = None) -> None:
 
                     clip_segments = slice_segments_for_clip(
                         transcript_segments,
-                        clip_start=max(0.0, float(moment_match.get("start", 0)) - opts.padding),
-                        clip_end=float(moment_match.get("end", 0)) + opts.padding,
+                        clip_start=max(0.0, _coerce_float(moment_match.get("start"), default=0.0) - opts.padding),
+                        clip_end=_coerce_float(moment_match.get("end"), default=0.0) + opts.padding,
                     )
                     clip_segments = _prepare_subtitle_segments(clip_segments, settings=subtitle_settings)
                     if not clip_segments:
@@ -514,8 +514,8 @@ def main(argv: list[str] | None = None) -> None:
                     subtitled_path = reel_path.with_name(f"{stem}.subtitled.mp4")
                     success, _, _ = ffmpeg_cut(
                         args.input,
-                        float(moment_match.get("start", 0)),
-                        float(moment_match.get("end", 0)),
+                        _coerce_float(moment_match.get("start"), default=0.0),
+                        _coerce_float(moment_match.get("end"), default=0.0),
                         subtitled_path,
                         opts,
                         ass_path=ass_path,
@@ -533,30 +533,31 @@ def main(argv: list[str] | None = None) -> None:
                 LOG.info("preview ready: %s", sample_path)
 
         for mp4 in final_reels:
-            stem = mp4.with_suffix("")
+            stem_path = mp4.with_suffix("")
             if args.export_webm:
-                _export_webm(mp4, stem.with_suffix(".webm"))
+                _export_webm(mp4, stem_path.with_suffix(".webm"))
             if args.export_audio:
-                _export_audio(mp4, stem.with_suffix(".m4a"))
+                _export_audio(mp4, stem_path.with_suffix(".m4a"))
             if args.export_gif:
-                _export_gif(mp4, stem.with_suffix(".gif"))
+                _export_gif(mp4, stem_path.with_suffix(".gif"))
 
         # Write per-clip .txt (Instagram caption) and .md for every clip, including rejected.
-        for i, (reel_path, rejection_reasons) in enumerate(results):
-            if reel_path is None or i >= len(moments):
+        for i, (maybe_clip_path, rejection_reasons) in enumerate(results):
+            if maybe_clip_path is None or i >= len(moments):
                 continue
+            clip_path: Path = maybe_clip_path
             try:
                 write_reel_instagram_txt(
                     moments[i],
-                    reel_path,
+                    clip_path,
                     rejection_reasons=rejection_reasons or None,
                 )
             except OSError as exc:
-                LOG.warning("Failed to write instagram txt for %s: %s", reel_path.name, exc)
+                LOG.warning("Failed to write instagram txt for %s: %s", clip_path.name, exc)
             try:
-                write_reel_markdown(moments[i], reel_path)
+                write_reel_markdown(moments[i], clip_path)
             except OSError as exc:
-                LOG.warning("Failed to write reel markdown for %s: %s", reel_path.name, exc)
+                LOG.warning("Failed to write reel markdown for %s: %s", clip_path.name, exc)
 
     _status(f"[cut] done ({len(final_reels)} reels)", quiet=args.quiet)
 
