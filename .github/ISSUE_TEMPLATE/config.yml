@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Questions & discussion / Вопросы и обсуждение
+    url: https://github.com/Bormotoon/Podcast-Reels-Forge/discussions
+    about: Ask questions and share ideas. / Задавайте вопросы и делитесь идеями.
+  - name: 📖 Documentation / Документация
+    url: https://github.com/Bormotoon/Podcast-Reels-Forge#readme
+    about: Read the README and docs/ first. / Сначала загляните в README и docs/.

@@ -121,14 +121,22 @@ Face crop now uses multiple samples and median smoothing before FFmpeg renders t
 subtitles:
   enabled: true
   font: "assets/fonts/bignoodletoooblique.ttf"
-  css: "assets/subtitles/forge_subtitles.css"
-  font_size_px: 46
+  ass_style: "assets/subtitles/forge_subtitles.ass"
+  font_size_px: 96
   wrap_words: true
   max_lines: 2
-  max_width_ratio: 0.92
-  vertical_align: "bottom"
+  max_width_ratio: 0.65
   vertical_offset: 0.0
+  word_x_space: 6
+  word_y_space: 8
+  fade_in_duration: 0.18
+  fade_out_duration: 0.12
 ```
+
+Subtitles are rendered as **ASS** (Advanced SubStation Alpha) and burned in with
+ffmpeg's `ass` filter. The visual style lives in the `.ass` file referenced by
+`ass_style`; edit it through the GUI (Subtitles tab) or the standalone
+`assets/subtitles/style-editor.html`.
 
 The subtitle pipeline prefers `sentences` from the transcript JSON when available, then falls back to segment slicing.
 

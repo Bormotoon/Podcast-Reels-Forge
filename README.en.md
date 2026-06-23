@@ -19,6 +19,7 @@
 - [Output Layout](#output-layout)
 - [Command Line Arguments](#command-line-arguments)
 - [Configuration (config.yaml)](#configuration-configyaml)
+- [Graphical Interface (GUI)](#graphical-interface-gui)
 - [Face-Aware Smart Crop](#face-aware-smart-crop-optional)
 - [Rerendering Videos](#re-render-video-from-existing-momentsjson)
 - [Performance and Stability](#performance-and-stability)
@@ -51,6 +52,7 @@ Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 - **Hardware Acceleration**: **CUDA** (ctranslate2) for Whisper and **NVENC** for video rendering. The NVENC-capable ffmpeg is auto-detected.
 - **llama.cpp Watchdog**: Monitors model responsiveness and automatically retries stalled generations.
 - **Flexible Clip Types**: Configure specific counts and durations for Stories, Reels, and Highlights separately.
+- **Browser GUI**: Build `config.yaml` and edit ASS subtitles visually with a bilingual (RU/EN) interface, no server needed — see [Graphical Interface (GUI)](#graphical-interface-gui).
 
 ---
 
@@ -151,7 +153,7 @@ The orchestrator [start_forge.py](start_forge.py) runs [podcast_reels_forge/pipe
 1. **Transcription**: Uses `faster-whisper`. Output: `output/<file_stem>/audio.json` + `audio.srt`.
 2. **Diarization**: (If enabled) Creates `diarization.json` with speaker turns.
 3. **Analyze (Staged)**: One final pass over Gemma roles. By default, artifacts are written into `output/<file_stem>/gemma4/`.
-4. **Video Processing**: Cuts clips from the final `moments.json`. Forge burns subtitles into each reel with `pycaps`, adds a ready-to-post `reel_XX.md`, keeps a local `reel_XX.srt`, and builds `reels_preview.mp4`.
+4. **Video Processing**: Cuts clips from the final `moments.json`. Forge burns ASS subtitles into each reel with ffmpeg, adds a ready-to-post `reel_XX.md`, keeps a local `reel_XX.srt`, and builds `reels_preview.mp4`.
 
 
 ---
@@ -174,7 +176,7 @@ output/
       moments.json        # Final moment list
       reels.md            # Clip summary
       reels/              # Cut video clips .mp4
-        reel_01.srt       # Local subtitle timeline used by pycaps
+        reel_01.srt       # Local subtitle timeline (reference)
         reel_01.md        # Description + 5 hashtags for reel_01.mp4
       reels_preview.mp4   # Concatenated preview of all clips
 ```
@@ -223,13 +225,43 @@ Flags for the standalone transcriber `transcribe_input_audio.py`:
   - `nvenc_preset`: NVENC preset `p1`(faster)…`p7`(higher quality), default `p5`.
   - `video_bitrate`: Bitrate ceiling (for NVENC, caps the VBR peak).
 - **`subtitles`**:
-  - `enabled`: Toggle automatic burned subtitle rendering with `pycaps`.
+  - `enabled`: Toggle burned-in **ASS** subtitle rendering (via ffmpeg's `ass` filter).
   - `font`: Path to the subtitle font file. Default: `assets/fonts/bignoodletoooblique.ttf`.
-  - `css`: Path to the subtitle CSS template. Default: `assets/subtitles/forge_subtitles.css`.
+  - `ass_style`: Path to the `.ass` style file. Default: `assets/subtitles/forge_subtitles.ass`. If the file is missing, a built-in fallback style is used.
   - `wrap_words`: Toggle word wrapping for captions. When disabled, the caption stays on one line.
-  - `font_size_px`, `max_lines`, `vertical_align`, `vertical_offset`: Fine-tune subtitle styling/layout.
-  - Use `assets/subtitles/style-editor.html` for WYSIWYG style tuning; after selecting the project root, the Apply buttons write the current settings straight into `config.yaml` and `assets/subtitles/forge_subtitles.css`.
-- **`diarization`**: Enable and configure speaker detection (requires HuggingFace token).
+  - `font_size_px`, `max_lines`, `max_width_ratio`, `vertical_offset`, `word_x_space`, `word_y_space`, `fade_in_duration`, `fade_out_duration`: Fine-tune subtitle styling/timing.
+  - The easiest way to tune the style is the visual [GUI](#graphical-interface-gui) (Subtitles tab). The "Save ASS File" button writes the style straight into `assets/subtitles/forge_subtitles.ass`, which the pipeline reads.
+- **`diarization`**: Enable and configure speaker detection (requires a token in the `PYANNOTE_TOKEN` environment variable, see [`.env.example`](.env.example)).
+
+---
+
+## Graphical Interface (GUI)
+
+Besides the CLI, the project ships a full **browser GUI** for building `config.yaml`
+and tuning subtitles visually — no server required, just static pages (Material
+Design 3, dark theme, **RU/EN** toggle).
+
+Open [`gui/index.html`](gui/index.html) in your browser (double-click or via a file
+server). The interface is split into separate pages per pipeline stage, each with
+its own accent colour:
+
+| Page | Purpose |
+|---|---|
+| **Dashboard** | File queue, pipeline run (demo), stage status |
+| **Transcribe** | Whisper model, `fast`/`quality` mode, beam/batch, anti-hallucination |
+| **Analyze** | llama.cpp service & VRAM tuning, model roles, watchdog, per-role overrides |
+| **Cut** | NVENC/encoding, quality filters, smart crop, clip types & counts |
+| **Subtitles** | Render parameters + an embedded **visual ASS style editor** with a phone preview |
+| **Settings** | Paths, cache, diarization, CLI flags, and a **live `config.yaml` preview** |
+| **Logs** | Console output from the stages |
+
+The settings cover the pipeline config **1:1**: on the Settings page click "Export
+config.yaml" and drop the file into the project root. The embedded subtitle editor
+(Subtitles tab) saves the style to `assets/subtitles/forge_subtitles.ass` — exactly
+what the render stage reads. Form state is kept in the browser's `localStorage`.
+
+> A standalone style editor is still available at
+> [`assets/subtitles/style-editor.html`](assets/subtitles/style-editor.html).
 
 ---
 
@@ -238,7 +270,7 @@ Flags for the standalone transcriber `transcribe_input_audio.py`:
 When `smart_crop_face: true` is enabled in config:
 
 1. Several frames are sampled from each clip.
-2. OpenCV Haar cascades are used to detect faces across multiple sample points.
+2. **MediaPipe Face Detection** locates faces across multiple sample points.
 3. If faces are found, the 9:16 window is shifted with median smoothing so the speaker does not jitter around.
 4. If no faces are found, it falls back to a stable center crop with an explicit fallback log.
 

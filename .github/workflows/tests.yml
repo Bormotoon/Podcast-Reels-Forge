@@ -1,27 +1,56 @@
-name: tests
+name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
-  pytest:
+  # Fast feedback: static lint, no heavy ML deps needed.
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - name: Install
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install linters
+        run: python -m pip install --upgrade pip ruff
+      - name: Ruff
+        run: ruff check .
+
+  # Full test + type-check matrix.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
-      - name: Run tests
+      - name: Tests
         run: pytest -q
-
-      - name: Lint check
-        run: ruff check .
-
       - name: Type check
         run: mypy podcast_reels_forge --ignore-missing-imports

@@ -1,0 +1,23 @@
+name: ✨ Feature request / Запрос функции
+description: Suggest an idea or improvement / Предложить идею или улучшение
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Проблема
+      description: What are you trying to do? What's missing? / Что вы пытаетесь сделать? Чего не хватает?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution / Предлагаемое решение
+      description: How would you like it to work? / Как это должно работать?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / Альтернативы
+      description: Other approaches you considered. / Другие рассмотренные подходы.

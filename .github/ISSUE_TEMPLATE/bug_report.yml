@@ -1,0 +1,51 @@
+name: 🐛 Bug report / Сообщение об ошибке
+description: Report a reproducible problem / Сообщить о воспроизводимой проблеме
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Please fill in as much as you can.
+        Спасибо за отчёт! Заполните максимально подробно.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened? / Что произошло?
+      description: A clear description of the bug. / Чёткое описание проблемы.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce / Шаги воспроизведения
+      description: The exact command you ran and what you did. / Точная команда и действия.
+      placeholder: |
+        1. python start_forge.py ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / output — Логи / вывод
+      description: Paste the full error output. / Вставьте полный вывод ошибки.
+      render: shell
+  - type: input
+    id: os
+    attributes:
+      label: OS / ОС
+      placeholder: e.g. Ubuntu 24.04, Windows 11
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version / Версия Python
+      placeholder: e.g. 3.10.14
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU (if relevant) / GPU (если важно)
+      placeholder: e.g. RTX 5060 Ti 16GB, or CPU-only
