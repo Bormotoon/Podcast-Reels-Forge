@@ -23,6 +23,7 @@
 - [Smart Crop по лицу](#smart-crop-по-лицу)
 - [Перегенерация видео](#перегенерация-видео)
 - [Производительность и стабильность](#производительность-и-стабильность)
+- [Поддержать проект](#поддержать-проект)
 - [Лицензия](#лицензия)
 
 ---
@@ -293,6 +294,14 @@ python3 rerender_videos.py --smart-crop-face --replace
 - **GPU Blackwell (RTX 50xx)**: Требуется `torch>=2.7` со сборкой под CUDA 12.x. Предупреждение PyTorch о `sm_120` безвредно — инференс Whisper идёт через ctranslate2, а не через ядра PyTorch.
 - **ffmpeg / NVENC**: Forge ищет NVENC-сборку ffmpeg автоматически (`/usr/local/bin`, `/usr/bin`); путь можно задать через переменную окружения `FORGE_FFMPEG`. Если NVENC недоступен — кодирование идёт на CPU (libx264).
 - **llama.cpp**: Если модель отвечает слишком долго, увеличьте `llama_cpp.watchdog.first_token_timeout` в конфиге.
+
+---
+
+## Поддержать проект
+
+Forge бесплатен и работает полностью локально. Если он экономит вам часы монтажа — поддержите разработку:
+
+[![Поддержать Podcast Reels Forge](docs/images/donate_banner.png)](https://dalink.to/bormotoon)
 
 ---
 

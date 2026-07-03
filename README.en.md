@@ -23,6 +23,7 @@
 - [Face-Aware Smart Crop](#face-aware-smart-crop-optional)
 - [Rerendering Videos](#re-render-video-from-existing-momentsjson)
 - [Performance and Stability](#performance-and-stability)
+- [Support the Project](#support-the-project)
 - [License](#license)
 
 ---
@@ -294,6 +295,14 @@ python3 rerender_videos.py --smart-crop-face --replace
 - **Blackwell GPU (RTX 50xx)**: Requires `torch>=2.7` built for CUDA 12.x. The PyTorch `sm_120` warning is harmless — Whisper inference runs via ctranslate2, not PyTorch kernels.
 - **ffmpeg / NVENC**: Forge auto-detects an NVENC-capable ffmpeg (`/usr/local/bin`, `/usr/bin`); you can force a path via the `FORGE_FFMPEG` env var. If NVENC is unavailable, encoding falls back to CPU (libx264).
 - **llama.cpp**: If a model takes too long to respond, increase `llama_cpp.watchdog.first_token_timeout` in config.
+
+---
+
+## Support the Project
+
+Forge is free and runs fully local. If it saves you hours of editing — support development:
+
+[![Support Podcast Reels Forge](docs/images/donate_banner.png)](https://dalink.to/bormotoon)
 
 ---
 
