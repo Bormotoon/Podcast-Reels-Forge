@@ -37,6 +37,7 @@ from podcast_reels_forge.utils.ffmpeg import (
     build_video_codec_args,
     ffmpeg_bin,
     ffmpeg_has_nvenc,
+    resolve_ffmpeg_with_libass,
 )
 from podcast_reels_forge.utils.reel_markdown import write_reel_instagram_txt, write_reel_markdown
 
@@ -141,10 +142,22 @@ def ffmpeg_cut(
 
         filters.append(vf)
 
-    if ass_path and ass_path.exists():
+    burning_subtitles = bool(ass_path and ass_path.exists())
+    libass_ffmpeg: str | None = None
+    if burning_subtitles:
         # Escape path for FFmpeg filter
         safe_ass_path = str(ass_path.resolve()).replace('\\', '/').replace(':', '\\:')
         filters.append(f"ass='{safe_ass_path}'")
+        # The NVENC-preferred ffmpeg build may lack libass, which fails the 'ass'
+        # filter identically under NVENC and software libx264. Resolve a build that
+        # actually has libass and use it (software-only) for this pass.
+        libass_ffmpeg = resolve_ffmpeg_with_libass()
+        if libass_ffmpeg is None:
+            LOG.error(
+                "No ffmpeg build with libass found; cannot burn subtitles into %s",
+                out_path.name,
+            )
+            return False, out_path, face_rejection_reason
 
     if is_rejected and rejected_dir:
         out_path = rejected_dir / out_path.name
@@ -154,7 +167,7 @@ def ffmpeg_cut(
 
     def _build(use_nvenc: bool) -> list[str]:
         cmd = [
-            ffmpeg_bin(),
+            libass_ffmpeg if (burning_subtitles and libass_ffmpeg) else ffmpeg_bin(),
             "-y",
             "-ss",
             str(start_offset),
@@ -165,19 +178,29 @@ def ffmpeg_cut(
         ]
         if filters:
             cmd += ["-vf", ",".join(filters)]
-        cmd += build_video_codec_args(
-            use_nvenc=use_nvenc,
-            v_bitrate=opts.v_bitrate,
-            preset=opts.preset,
-            nvenc_cq=opts.nvenc_cq,
-            nvenc_preset=opts.nvenc_preset,
-        )
+        if burning_subtitles and libass_ffmpeg:
+            # The libass-capable build here has no NVENC; encode with libx264.
+            cmd += ["-c:v", "libx264", "-preset", opts.preset, "-b:v", opts.v_bitrate, "-pix_fmt", "yuv420p"]
+        else:
+            cmd += build_video_codec_args(
+                use_nvenc=use_nvenc,
+                v_bitrate=opts.v_bitrate,
+                preset=opts.preset,
+                nvenc_cq=opts.nvenc_cq,
+                nvenc_preset=opts.nvenc_preset,
+            )
         # +faststart moves the moov atom to the front for instant playback/upload.
         cmd += ["-c:a", "aac", "-b:a", opts.a_bitrate, "-movflags", "+faststart", str(out_path)]
         return cmd
 
     res = _run_subprocess(_build(opts.use_nvenc))
-    if res.returncode != 0 and opts.use_nvenc and ffmpeg_has_nvenc():
+    if res.returncode != 0 and burning_subtitles:
+        LOG.error(
+            "Subtitle-burn encode failed for %s: %s",
+            out_path.name,
+            (res.stderr or "").strip()[-800:],
+        )
+    elif res.returncode != 0 and opts.use_nvenc and ffmpeg_has_nvenc():
         # NVENC was attempted but failed; rebuild with software libx264.
         LOG.warning("NVENC encode failed for %s; retrying with software libx264", out_path.name)
         res = _run_subprocess(_build(False))
@@ -478,9 +501,12 @@ def main(argv: list[str] | None = None) -> None:
             raw_results = tqdm(raw_results, total=len(moments))
         results = list(raw_results)
 
-    # results[i] = (final_path | None, rejection_reasons)
+    # results[i] = (final_path | None, rejection_reasons); indices line up with moments.
     all_cut_paths = [path for path, _ in results]
     final_reels = [p for p in all_cut_paths if p is not None and "rejected" not in p.parts]
+    # Map each reel back to its original moment index (final_reels drops rejected
+    # entries, so its own position can't be used as an index into `moments`).
+    path_to_moment_idx = {p: i for i, p in enumerate(all_cut_paths) if p is not None}
 
     if any(p is not None for p in all_cut_paths):
         if subtitle_settings is not None:
@@ -488,13 +514,10 @@ def main(argv: list[str] | None = None) -> None:
                 transcript_segments = load_transcript_segments(args.transcript_json)
                 for reel_path in final_reels:
                     stem = reel_path.stem
-                    moment_match = None
-                    for idx_p, rp in enumerate(final_reels):
-                        if rp == reel_path and idx_p < len(moments):
-                            moment_match = moments[idx_p]
-                            break
-                    if moment_match is None:
+                    moment_idx = path_to_moment_idx.get(reel_path)
+                    if moment_idx is None or moment_idx >= len(moments):
                         continue
+                    moment_match = moments[moment_idx]
 
                     clip_segments = slice_segments_for_clip(
                         transcript_segments,
@@ -521,8 +544,18 @@ def main(argv: list[str] | None = None) -> None:
                         ass_path=ass_path,
                     )
                     if success and subtitled_path.exists():
-                        reel_path.unlink(missing_ok=True)
+                        # Export both versions: reel_XX.mp4 keeps the burned-in
+                        # subtitles (the primary deliverable); the original
+                        # no-subtitles cut is preserved alongside it rather than
+                        # discarded, for platforms/edits that want clean footage.
+                        nosubs_path = reel_path.with_name(f"{stem}.nosubs.mp4")
+                        reel_path.replace(nosubs_path)
                         subtitled_path.rename(reel_path)
+                    else:
+                        LOG.error(
+                            "Subtitle burn failed for %s; keeping the no-subtitles cut as-is",
+                            reel_path.name,
+                        )
             except Exception as exc:
                 LOG.error("Failed to burn subtitles: %s", exc)
                 sys.exit(1)
