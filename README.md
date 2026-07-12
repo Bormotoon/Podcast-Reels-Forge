@@ -4,8 +4,12 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![педобраз.рф](https://img.shields.io/badge/%D0%BF%D0%B5%D0%B4%D0%BE%D0%B1%D1%80%D0%B0%D0%B7.%D1%80%D1%84-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0_%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D0%B0-D64500)](https://xn--80abidn3bem.xn--p1ai/projects/podcast-reels-forge/)
+[![Поддержать](https://img.shields.io/badge/%E2%9D%A4-%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C%20%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82-E53935)](https://dalink.to/bormotoon)
 
 [English](README.en.md) | **Русский**
+
+🌐 **Страница проекта:** [педобраз.рф/projects/podcast-reels-forge](https://xn--80abidn3bem.xn--p1ai/projects/podcast-reels-forge/)
 
 ---
 
