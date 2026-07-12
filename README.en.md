@@ -4,8 +4,12 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![педобраз.рф](https://img.shields.io/badge/%D0%BF%D0%B5%D0%B4%D0%BE%D0%B1%D1%80%D0%B0%D0%B7.%D1%80%D1%84-project_page-D64500)](https://xn--80abidn3bem.xn--p1ai/projects/podcast-reels-forge/)
+[![Donate](https://img.shields.io/badge/%E2%9D%A4-Support%20the%20project-E53935)](https://dalink.to/bormotoon)
 
 **English** | [Русский](README.md)
+
+🌐 **Project page:** [педобраз.рф/projects/podcast-reels-forge](https://xn--80abidn3bem.xn--p1ai/projects/podcast-reels-forge/)
 
 ---
 
