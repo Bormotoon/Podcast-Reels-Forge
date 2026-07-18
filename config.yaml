@@ -46,12 +46,13 @@ llama_cpp:
   url: "http://127.0.0.1:11440/completion"
   service:
     auto_start: true
-    model_path: "/opt/llamacpp/models/gemma4-26b.gguf"
+    model_path: "/opt/llamacpp/models/gemma4-26b-IQ4_XS.gguf"
     startup_timeout: 120
-    # RTX 5060 Ti 16GB: gemma4:26b (Q4_K_M, ~17GB) — weights are ~15.5GB on GPU.
-    # n_gpu_layers=0 → llama-server auto-fit fills VRAM maximally without OOM.
-    # Non-zero values disable auto-fit; use 999 to try full offload (may OOM).
-    n_gpu_layers: 0
+    # RTX 5060 Ti 16GB: gemma4:26b (IQ4_XS, ~14GB) — weights are ~13GB on GPU.
+    # 999 = full offload of all layers to the GPU. IQ4_XS fits in the 15.5GB of
+    # free VRAM alongside the q8_0 KV cache, so full offload is the fast path.
+    # n_gpu_layers=0 leaves the model on CPU (~6 tok/s) with this llama.cpp build.
+    n_gpu_layers: 999
     ctx_size: 8192
     batch_size: 1024
     ubatch_size: 512
@@ -70,9 +71,13 @@ llama_cpp:
   timeout: 600
   temperature: 0.2
   chunk_seconds: 900
-  # Russian text ~2-3 chars/token. 7000 chars ≈ 2800-3500 tokens.
-  # With instructions (~350 tokens) + n_predict (2048) = ~6250 total < ctx 8192.
+  # Russian text ~2-3 chars/token. 7000-char input chunk ≈ 2800-3500 tokens.
   max_chars_chunk: 7000
+  # Max tokens for the JSON *response*. A rich scout answer (many moments with
+  # Russian quotes/hooks/captions) easily exceeds 2000 tokens; too low a value
+  # truncates the JSON mid-token and breaks parsing. Keep input + n_predict
+  # under ctx_size (8192): ~3500 input + 4096 output ≈ 7600 < 8192.
+  n_predict: 4096
   watchdog:
     enabled: true
     first_token_timeout: 90

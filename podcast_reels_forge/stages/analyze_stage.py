@@ -320,6 +320,7 @@ def create_provider(
     llama_cpp_stall_timeout_s: int = 120,
     llama_cpp_log_interval_s: int = 10,
     llama_cpp_max_retries: int = 2,
+    llama_cpp_n_predict: int = 4096,
 ) -> LLMProvider:
     """Create an LLM provider.
 
@@ -337,6 +338,7 @@ def create_provider(
                 stall_timeout_s=int(llama_cpp_stall_timeout_s),
                 log_interval_s=int(llama_cpp_log_interval_s),
                 max_retries=int(llama_cpp_max_retries),
+                n_predict=int(llama_cpp_n_predict),
                 fallback_models=tuple(llama_cpp_fallback_models or []),
             ),
         )
@@ -395,6 +397,7 @@ def _provider_for_role(
         llama_cpp_max_retries=int(
             watchdog.get("max_retries", conf.get("max_retries", 2)),
         ),
+        llama_cpp_n_predict=int(conf.get("n_predict", 4096)),
     )
 
 
@@ -565,7 +568,13 @@ def _prompt_payload(
 ) -> dict[str, str]:
     payload: dict[str, str] = {"requirements": requirements}
     if chunk is not None:
-        payload["chunk_json"] = json.dumps(chunk, ensure_ascii=False)
+        # Send the chunk text exactly once. The prompt carries the transcript in
+        # its own {transcript} section, so keep only metadata/timecodes in
+        # {chunk_json}; duplicating the text here doubled the scout input and,
+        # at ctx=8192, forced llama.cpp to left-truncate the prompt (the model
+        # lost the start of each chunk) while the output still hit n_predict.
+        chunk_meta = {key: value for key, value in chunk.items() if key != "text"}
+        payload["chunk_json"] = json.dumps(chunk_meta, ensure_ascii=False)
         payload["transcript"] = str(chunk.get("text", ""))
     if transcript is not None:
         payload["transcript"] = transcript

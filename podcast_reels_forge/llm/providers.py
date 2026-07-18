@@ -43,6 +43,10 @@ class LlamaCppConfig:
     url: str
     model: str
 
+    # Maximum tokens to generate. Must leave room for the response inside the
+    # server ctx_size; too low truncates the JSON mid-token and breaks parsing.
+    n_predict: int = 4096
+
     # Retry / logging controls
     max_retries: int = 2
     log_interval_s: int = 10
@@ -161,7 +165,7 @@ class LlamaCppProvider:
             "prompt": wrapped,
             "stream": False,
             "temperature": float(temperature),
-            "n_predict": 2048,
+            "n_predict": int(self.cfg.n_predict),
             "json_schema": {"type": "object"},
         }
 
@@ -210,6 +214,24 @@ class LlamaCppProvider:
             elapsed,
             len(text),
         )
+
+        # llama.cpp sets stopped_limit=True when it hit n_predict before the
+        # model was done, so the JSON tail is cut off. This is expected and
+        # benign for the scout stage (it is told to emit as many moments as
+        # possible and simply fills its budget): the JSON salvage in
+        # extract_first_json_value recovers every complete moment, and the
+        # pipeline over-generates then filters down anyway. Log at INFO so it is
+        # visible under --verbose for tuning but does not read as an error.
+        if data.get("stopped_limit") or data.get("truncated"):
+            LOGGER.info(
+                "llama.cpp output reached the n_predict=%d token budget and was "
+                "truncated; complete JSON items are still recovered "
+                "(endpoint=%s, chars=%d)",
+                int(self.cfg.n_predict),
+                self._endpoint,
+                len(text),
+            )
+
         return text
 
 
