@@ -70,6 +70,10 @@ class MomentRecord:
     speaker_focus: float | None = None
     subtitle_readability_score: float | None = None
     crop_confidence: float | None = None
+    # How well `quote` matches what was actually said in [start, end]. None
+    # when verification did not run (no word timings, or disabled).
+    quote_match_ratio: float | None = None
+    speech_rate_wps: float | None = None
     selection_stage: str = ""
     source_chunk_ids: tuple[str, ...] = ()
     speaker: str = ""
@@ -97,6 +101,8 @@ class MomentRecord:
             "speaker_focus": self.speaker_focus,
             "subtitle_readability_score": self.subtitle_readability_score,
             "crop_confidence": self.crop_confidence,
+            "quote_match_ratio": self.quote_match_ratio,
+            "speech_rate_wps": self.speech_rate_wps,
             "selection_stage": self.selection_stage,
             "source_chunk_ids": list(self.source_chunk_ids),
             "speaker": self.speaker,
@@ -167,6 +173,8 @@ def coerce_moment_record(raw: Mapping[str, Any]) -> MomentRecord | None:
             "speaker_focus",
             "subtitle_readability_score",
             "crop_confidence",
+            "quote_match_ratio",
+            "speech_rate_wps",
             "selection_stage",
             "source_chunk_ids",
             "speaker",
@@ -194,6 +202,8 @@ def coerce_moment_record(raw: Mapping[str, Any]) -> MomentRecord | None:
             raw.get("subtitle_readability_score"),
         ),
         crop_confidence=_float_or_none(raw.get("crop_confidence")),
+        quote_match_ratio=_float_or_none(raw.get("quote_match_ratio")),
+        speech_rate_wps=_float_or_none(raw.get("speech_rate_wps")),
         selection_stage=str(raw.get("selection_stage", "")).strip(),
         source_chunk_ids=source_chunk_ids,
         speaker=str(raw.get("speaker", "")).strip(),

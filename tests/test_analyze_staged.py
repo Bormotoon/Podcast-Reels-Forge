@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from typing import Any, Callable
 
@@ -40,6 +41,53 @@ class FakeProvider:
 
 def _moments_json(*moments: dict[str, Any]) -> str:
     return json.dumps({"moments": list(moments)}, ensure_ascii=False)
+
+
+def chunk_window(prompt: str) -> tuple[float, float]:
+    """Read the chunk's [start, end] out of a rendered scout prompt.
+
+    Real scouts answer with timecodes from the window they were shown, and the
+    stage now drops anything outside it, so the fakes have to do the same.
+    """
+
+    # The prompt shows a response-schema example with its own start/end, so
+    # anchor on the chunk section instead of the first numbers in the text.
+    _head, separator, tail = prompt.partition("# Кусок транскрипта")
+    assert separator, "scout prompt should carry a chunk section"
+    chunk_meta, _rest = json.JSONDecoder().raw_decode(tail.strip())
+    return float(chunk_meta["start"]), float(chunk_meta["end"])
+
+
+def _moment_in_chunk(prompt: str, title: str, *, offset: float = 5.0, length: float = 45.0) -> dict[str, Any]:
+    """A candidate placed inside the chunk the prompt describes."""
+
+    start, end = chunk_window(prompt)
+    clip_start = min(start + offset, max(start, end - length))
+    return _moment(clip_start, min(clip_start + length, end), title)
+
+
+def prompt_candidates(prompt: str) -> list[dict[str, Any]]:
+    """Read the candidate list a cleanup/judge prompt was rendered with."""
+
+    # The prompt also contains a response-schema example, so anchor on the
+    # candidates section rather than the first JSON-looking span.
+    _head, separator, tail = prompt.rpartition("# Кандидаты")
+    assert separator, "cleanup/judge prompt should carry a candidates section"
+    parsed, _rest = json.JSONDecoder().raw_decode(tail.strip())
+    assert isinstance(parsed, list)
+    return parsed
+
+
+def _refine_first(prompt: str, title: str, score: float = 8.0) -> str:
+    """Echo back the first input candidate, retitled and re-rated.
+
+    Real cleanup/judge stages filter and re-rate what they were given, and the
+    stage now drops output that overlaps none of its input, so the fakes have
+    to stay anchored to the candidates in their prompt.
+    """
+
+    first = prompt_candidates(prompt)[0]
+    return _moments_json(_moment(first["start"], first["end"], title, score))
 
 
 def _moment(start: float, end: float, title: str, score: float = 8.0) -> dict[str, Any]:
@@ -120,8 +168,8 @@ def _run_analysis(
     outdir = tmp_path / "out"
     outdir.mkdir()
 
-    default_cleanup = cleanup or (lambda _p, _i: _moments_json(_moment(0, 45, "Чистый")))
-    default_judge = judge or (lambda _p, _i: _moments_json(_moment(0, 45, "Финальный", 9.0)))
+    default_cleanup = cleanup or (lambda p, _i: _refine_first(p, "Чистый"))
+    default_judge = judge or (lambda p, _i: _refine_first(p, "Финальный", 9.0))
 
     providers = {
         "scout": FakeProvider(scout),
@@ -171,7 +219,7 @@ def test_staged_analysis_writes_artifacts(
     moments, _providers, outdir = _run_analysis(
         monkeypatch,
         tmp_path,
-        scout=lambda _p, _i: _moments_json(_moment(0, 45, "Найденный")),
+        scout=lambda p, _i: _moments_json(_moment_in_chunk(p, "Найденный")),
     )
 
     assert moments
@@ -201,10 +249,10 @@ def test_one_failing_chunk_does_not_abort_the_run(
     the bare asyncio.gather used to do.
     """
 
-    def scout(_prompt: str, call_index: int) -> str:
+    def scout(prompt: str, call_index: int) -> str:
         if call_index == 2:
             raise RuntimeError("llama.cpp connection reset")
-        return _moments_json(_moment(60 * call_index, 60 * call_index + 45, f"Чанк {call_index}"))
+        return _moments_json(_moment_in_chunk(prompt, f"Чанк {call_index}"))
 
     moments, providers, outdir = _run_analysis(monkeypatch, tmp_path, scout=scout)
 
@@ -236,12 +284,12 @@ def test_unparseable_json_is_retried_once(
         seen.append(prompt)
         if call_index == 1:
             return "Sure! Here are the clips, but not as JSON."
-        return _moments_json(_moment(0, 45, "После ретрая", 9.0))
+        return _refine_first(prompt, "После ретрая", 9.0)
 
     moments, providers, _outdir = _run_analysis(
         monkeypatch,
         tmp_path,
-        scout=lambda _p, _i: _moments_json(_moment(0, 45, "Найденный")),
+        scout=lambda p, _i: _moments_json(_moment_in_chunk(p, "Найденный")),
         judge=judge,
     )
 
@@ -259,12 +307,23 @@ def test_deduped_before_the_cleanup_cap(
     see a de-duplicated list.
     """
 
-    def scout(_prompt: str, call_index: int) -> str:
-        # Every chunk reports the same moment plus one of its own.
-        return _moments_json(
-            _moment(10, 55, "Повторяющийся"),
-            _moment(600 * call_index, 600 * call_index + 45, f"Уникальный {call_index}"),
-        )
+    # Adjacent chunks overlap, so a moment sitting in the shared tail is
+    # reported by both — exactly the duplication the pre-cleanup dedupe exists
+    # to absorb. Anchor it to the first chunk's tail, which the second chunk
+    # also covers.
+    repeated: dict[str, float] = {}
+
+    def scout(prompt: str, call_index: int) -> str:
+        start, end = chunk_window(prompt)
+        # Keep the unique moment well clear of the shared tail, so it is not
+        # itself deduped against the repeat.
+        moments = [_moment_in_chunk(prompt, f"Уникальный {call_index}", offset=120.0)]
+        if not repeated:
+            repeated["start"] = end - 60.0
+            repeated["end"] = end - 15.0
+        if start <= repeated["start"] and repeated["end"] <= end:
+            moments.append(_moment(repeated["start"], repeated["end"], "Повторяющийся"))
+        return _moments_json(*moments)
 
     _moments, providers, outdir = _run_analysis(monkeypatch, tmp_path, scout=scout)
 

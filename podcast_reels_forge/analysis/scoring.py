@@ -23,7 +23,30 @@ DEFAULT_SCORING_WEIGHTS: dict[str, float] = {
     "speaker": 0.6,
     "duration": 1.4,
     "mid_thought": 1.0,
+    "quote": 0.8,
 }
+
+# RU: Нейтральное значение для факторов, которые не удалось измерить.
+# EN: Neutral stand-in for factors that could not be measured, so records with
+# and without the signal stay comparable instead of the missing one losing.
+NEUTRAL_FACTOR = 0.5
+
+
+def quote_grounding_score(moment: Mapping[str, Any]) -> float:
+    """RU: Насколько цитата подтверждена транскриптом.
+
+    EN: How well the moment's quote is grounded in the transcript. Every other
+    heuristic scores prose the model wrote about itself; this is the one
+    factor tied to what was actually said.
+    """
+
+    ratio = moment.get("quote_match_ratio")
+    if ratio is None:
+        return NEUTRAL_FACTOR
+    try:
+        return max(0.0, min(1.0, float(ratio)))
+    except (TypeError, ValueError):
+        return NEUTRAL_FACTOR
 
 
 def resolve_scoring_weights(overrides: Mapping[str, Any] | None = None) -> dict[str, float]:
@@ -185,6 +208,7 @@ def combined_priority_score(
         + complete * w["completeness"]
         + speaker * w["speaker"]
         + duration * w["duration"]
+        + quote_grounding_score(moment) * w["quote"]
         # Clips that open or close mid-thought are the most common complaint
         # about auto-cut reels, so the penalty has to actually land here.
         - penalize_mid_thought(moment) * w["mid_thought"]
@@ -233,5 +257,6 @@ def scoring_breakdown(
             target_min=target_min,
             target_max=target_max,
         ),
+        "quote_grounding_score": quote_grounding_score(moment),
         "mid_thought_penalty": penalize_mid_thought(moment),
     }

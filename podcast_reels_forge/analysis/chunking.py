@@ -31,8 +31,66 @@ def _coerce_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _segment_word_timings(segment: Mapping[str, Any]) -> list[tuple[float, float, str]]:
+    """Usable (start, end, text) triples from a segment's word list."""
+
+    raw_words = segment.get("words")
+    if not isinstance(raw_words, list):
+        return []
+
+    words: list[tuple[float, float, str]] = []
+    for raw_word in raw_words:
+        if not isinstance(raw_word, Mapping):
+            continue
+        text = str(raw_word.get("word", "")).strip()
+        start = _coerce_float(raw_word.get("start"), -1.0)
+        end = _coerce_float(raw_word.get("end"), -1.0)
+        if not text or start < 0 or end < start:
+            return []
+        words.append((start, end, text))
+    return words
+
+
+def _sentence_spans_from_words(
+    sentence_parts: Sequence[str],
+    words: Sequence[tuple[float, float, str]],
+) -> list[tuple[float, float]] | None:
+    """Map sentences onto real word timings by consuming words in order.
+
+    Returns None when the split does not line up with the word list, so the
+    caller can fall back to interpolation rather than emit bogus timings.
+    """
+
+    if not words:
+        return None
+
+    spans: list[tuple[float, float]] = []
+    cursor = 0
+    for part in sentence_parts:
+        part_word_count = len(part.split())
+        if part_word_count <= 0 or cursor + part_word_count > len(words):
+            return None
+        first = words[cursor]
+        last = words[cursor + part_word_count - 1]
+        if last[1] <= first[0]:
+            return None
+        spans.append((first[0], last[1]))
+        cursor += part_word_count
+
+    # Every word must be accounted for; a leftover tail means the sentence
+    # split and the word list disagree.
+    if cursor != len(words):
+        return None
+    return spans
+
+
 def transcript_units_from_segments(segments: Sequence[Mapping[str, Any]]) -> list[AnalysisChunkUnit]:
-    """Split transcript segments into sentence-aware units."""
+    """Split transcript segments into sentence-aware units.
+
+    Sentence boundaries are taken from real word timings when the transcript
+    carries them (timing_version 2), and only fall back to distributing the
+    segment duration by character count when it does not.
+    """
 
     units: list[AnalysisChunkUnit] = []
     for idx, segment in enumerate(segments):
@@ -54,6 +112,20 @@ def transcript_units_from_segments(segments: Sequence[Mapping[str, Any]]) -> lis
                     speaker=speaker,
                 ),
             )
+            continue
+
+        spans = _sentence_spans_from_words(sentence_parts, _segment_word_timings(segment))
+        if spans is not None:
+            for part, (part_start, part_end) in zip(sentence_parts, spans):
+                units.append(
+                    AnalysisChunkUnit(
+                        source_segment_index=idx,
+                        start=round(part_start, 3),
+                        end=round(part_end, 3),
+                        text=part,
+                        speaker=speaker,
+                    ),
+                )
             continue
 
         duration = max(0.01, end - start)

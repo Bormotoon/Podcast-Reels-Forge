@@ -40,6 +40,16 @@ from podcast_reels_forge.analysis.ranking import (
     ranking_value,
 )
 from podcast_reels_forge.analysis.serializers import atomic_write_json
+from podcast_reels_forge.analysis.transcript_index import TranscriptIndex
+from podcast_reels_forge.analysis.validation import (
+    annotate_speech_rate,
+    apply_quote_verification,
+    clamp_record_to_window,
+    clamp_records_to_episode,
+    filter_nonoverlapping_outputs,
+    quote_verification_settings,
+    snap_records,
+)
 
 from podcast_reels_forge.config import (
     LlamaCppRoleMapping,
@@ -719,6 +729,7 @@ async def scout_candidates(
     progress: bool = False,
     parallelism: int = 1,
     json_retries: int = 0,
+    chunk_tolerance_s: float = 3.0,
 ) -> list[MomentRecord]:
     """Scout each chunk for candidates.
 
@@ -761,14 +772,35 @@ async def scout_candidates(
                 return []
 
             chunk_candidates = _parse_candidate_response(resp, stage="scout")
+            window_start = getattr(chunk, "start", None)
+            window_end = getattr(chunk, "end", None)
             out: list[MomentRecord] = []
+            dropped = 0
             for candidate in chunk_candidates:
+                # Keep candidates inside the window the model was actually
+                # shown; anything further out is a hallucinated timecode.
+                if window_start is not None and window_end is not None:
+                    clamped = clamp_record_to_window(
+                        candidate,
+                        float(window_start),
+                        float(window_end),
+                        tolerance_s=chunk_tolerance_s,
+                    )
+                    if clamped is None:
+                        dropped += 1
+                        continue
+                    candidate = clamped
                 out.append(
                     _attach_chunk_metadata(
                         candidate,
                         chunk_id=chunk_id,
                         speaker_set=getattr(chunk, "speaker_set", ()),
                     ),
+                )
+            if dropped:
+                LOGGER.info(
+                    "%s: dropped %d candidate(s) outside the chunk window",
+                    chunk_id, dropped,
                 )
             if progress:
                 LOGGER.info(
@@ -870,6 +902,38 @@ async def judge_candidates(
     return [_keep_judge_score(record) for record in judged]
 
 
+def _guard_stage_output(
+    outputs: Sequence[MomentRecord],
+    inputs: Sequence[MomentRecord],
+    *,
+    stage: str,
+    enabled: bool,
+) -> list[MomentRecord]:
+    """Drop records a filtering stage invented rather than selected.
+
+    Falls back to the stage input if the guard would empty the list, so a
+    misbehaving model costs precision rather than the whole episode.
+    """
+
+    if not enabled or not outputs:
+        return list(outputs)
+
+    kept = filter_nonoverlapping_outputs(outputs, inputs)
+    if len(kept) == len(outputs):
+        return kept
+    if not kept:
+        LOGGER.warning(
+            "%s returned %d record(s), none overlapping its input; keeping the input",
+            stage, len(outputs),
+        )
+        return list(inputs)
+    LOGGER.warning(
+        "%s: dropped %d record(s) that overlapped no input candidate",
+        stage, len(outputs) - len(kept),
+    )
+    return kept
+
+
 def _ensure_prompt_text(stage: str, lang: str, variant: str) -> str:
     return _load_prompt(lang=lang, variant=variant, name=_stage_name_to_prompt_name(stage))
 
@@ -915,6 +979,10 @@ async def run_staged_analysis(
     if diar:
         _assign_speakers(segments, diar, prefix=False)
 
+    # Word- and sentence-level timings, used to ground quotes and to anchor
+    # clip boundaries to real speech.
+    index = TranscriptIndex.from_transcript(data)
+
     prompt_lang = _normalize_prompt_lang(
         str(prompts_conf.get("language", "auto")),
         str(data.get("language") or ""),
@@ -937,6 +1005,15 @@ async def run_staged_analysis(
         if _conf_bool(analysis_conf, "strict_json_schema", True)
         else None
     )
+    validation_conf = analysis_conf_section(processing_conf, "validation")
+    chunk_tolerance_s = _conf_float(validation_conf, "chunk_tolerance_s", 3.0)
+    require_overlap = _conf_bool(validation_conf, "require_candidate_overlap", True)
+    quote_conf = quote_verification_settings(
+        analysis_conf_section(processing_conf, "quote_verification"),
+    )
+    snap_conf = analysis_conf_section(processing_conf, "boundary_snap")
+    snap_enabled = _conf_bool(snap_conf, "enabled", True)
+    snap_max_shift_s = _conf_float(snap_conf, "max_shift_s", 3.0)
     scoring_weights = analysis_conf_section(processing_conf, "scoring").get("weights")
     if not isinstance(scoring_weights, Mapping):
         scoring_weights = None
@@ -1030,6 +1107,7 @@ async def run_staged_analysis(
         progress=bool(progress and verbose and not quiet),
         parallelism=scout_parallelism,
         json_retries=json_retries,
+        chunk_tolerance_s=chunk_tolerance_s,
     )
     atomic_write_json(outdir / "scout_candidates.json", build_candidate_json(scouted_candidates))
 
@@ -1056,6 +1134,9 @@ async def run_staged_analysis(
         max_items=max(12, target_total * 3),
         json_retries=json_retries,
     )
+    cleaned_candidates = _guard_stage_output(
+        cleaned_candidates, cleanup_input, stage="cleanup", enabled=require_overlap,
+    )
     atomic_write_json(outdir / "cleaned_candidates.json", build_candidate_json(cleaned_candidates))
 
     judged_candidates = await judge_candidates(
@@ -1069,6 +1150,19 @@ async def run_staged_analysis(
     )
     if not judged_candidates:
         judged_candidates = list(cleaned_candidates)
+    judged_candidates = _guard_stage_output(
+        judged_candidates, cleaned_candidates, stage="judge", enabled=require_overlap,
+    )
+
+    # Ground the quotes in the transcript, then anchor the bounds to real
+    # speech boundaries. Order matters: quote refinement may widen a clip, and
+    # snapping should act on the widened bounds.
+    judged_candidates = apply_quote_verification(judged_candidates, index, **quote_conf)
+    judged_candidates = snap_records(
+        judged_candidates, index, enabled=snap_enabled, max_shift_s=snap_max_shift_s,
+    )
+    judged_candidates = clamp_records_to_episode(judged_candidates, float(duration))
+    judged_candidates = annotate_speech_rate(judged_candidates, index)
 
     # Rank and finalize exactly once. Ranking twice used to feed the combined
     # priority back in as the next pass's base score.
