@@ -116,6 +116,11 @@
               <label data-i18n="set_diar_model">Модель диаризации</label>
               <input type="text" id="cfgSettingsDiarModel" value="pyannote/speaker-diarization">
             </div>
+            <div class="field">
+              <label data-i18n="set_diar_num_speakers">Количество спикеров</label>
+              <input type="number" id="cfgSettingsDiarNumSpeakers" min="1" step="1" placeholder="авто">
+              <div class="m3-switch-desc" data-i18n="set_diar_num_speakers_desc">Оставьте пустым, чтобы pyannote определял число спикеров автоматически</div>
+            </div>
           </div>
         </div>
 

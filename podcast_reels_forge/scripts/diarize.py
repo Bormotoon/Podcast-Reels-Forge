@@ -60,6 +60,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument(
         "--model", default="pyannote/speaker-diarization", help="pyannote model id",
     )
+    ap.add_argument(
+        "--num-speakers", type=int, default=None,
+        help="Exact number of speakers, if known (curbs over-clustering on noise/overlap)",
+    )
     ap.add_argument("--quiet", action="store_true", help="Suppress non-error output")
     ap.add_argument("--verbose", action="store_true", help="Verbose output")
     return ap.parse_args(argv)
@@ -96,11 +100,32 @@ def main(argv: list[str] | None = None) -> None:
     if args.verbose:
         _status(f"[diarize] model={args.model}", quiet=args.quiet)
 
-    pipeline = Pipeline.from_pretrained(args.model, use_auth_token=token)
-    diarization = pipeline(str(args.input))
+    try:
+        pipeline = Pipeline.from_pretrained(args.model, token=token)
+    except TypeError:
+        # RU: pyannote.audio <4.0 использует старое имя аргумента.
+        # EN: pyannote.audio <4.0 uses the old argument name.
+        pipeline = Pipeline.from_pretrained(args.model, use_auth_token=token)
+
+    try:
+        import torch
+        if torch.cuda.is_available():
+            pipeline.to(torch.device("cuda"))
+    except ImportError:
+        pass
+
+    pipeline_kwargs = {}
+    if args.num_speakers:
+        pipeline_kwargs["num_speakers"] = args.num_speakers
+    diarization = pipeline(str(args.input), **pipeline_kwargs)
+    # RU: pyannote.audio>=4.0 возвращает DiarizeOutput (.speaker_diarization),
+    #     а не Annotation напрямую.
+    # EN: pyannote.audio>=4.0 returns a DiarizeOutput (.speaker_diarization)
+    #     instead of an Annotation directly.
+    annotation = getattr(diarization, "speaker_diarization", diarization)
 
     items: list[dict[str, object]] = []
-    for turn, _track, speaker in diarization.itertracks(yield_label=True):
+    for turn, _track, speaker in annotation.itertracks(yield_label=True):
         try:
             items.append(
                 {

@@ -584,6 +584,9 @@ def run_pipeline(
                     "--model",
                     str(diar_conf.get("model", "pyannote/speaker-diarization")),
                 ]
+                num_speakers = diar_conf.get("num_speakers")
+                if num_speakers:
+                    diarize_args += ["--num-speakers", str(int(num_speakers))]
                 if quiet:
                     diarize_args.append("--quiet")
                 if verbose:

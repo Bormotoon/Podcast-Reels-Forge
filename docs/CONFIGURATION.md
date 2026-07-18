@@ -146,6 +146,9 @@ The subtitle pipeline prefers `sentences` from the transcript JSON when availabl
 diarization:
   enabled: false
   model: "pyannote/speaker-diarization"
+  # Exact number of speakers, if known (curbs over-clustering on noise/overlap).
+  # Leave empty/null to let pyannote estimate it automatically.
+  num_speakers: null
 ```
 
 ## Examples / Примеры

@@ -100,6 +100,8 @@
         set_validate: 'Валидация JSON', set_validate_desc: 'Проверять целостность JSON-вывода',
         set_diar: 'Диаризация (ID спикеров)', set_diar_desc: 'Определять спикеров в аудио',
         set_diar_model: 'Модель диаризации',
+        set_diar_num_speakers: 'Количество спикеров',
+        set_diar_num_speakers_desc: 'Оставьте пустым, чтобы pyannote определял число спикеров автоматически',
         set_cli: 'Параметры CLI',
         set_quiet: 'Тихий режим', set_quiet_desc: 'Скрывать всё, кроме ошибок',
         set_verbose: 'Подробный режим', set_verbose_desc: 'Показывать подробные логи',
@@ -285,6 +287,8 @@
         set_validate: 'Validate JSON', set_validate_desc: 'Verify output JSON integrity',
         set_diar: 'Diarization (Speaker ID)', set_diar_desc: 'Identify speakers in the audio',
         set_diar_model: 'Diarization Model',
+        set_diar_num_speakers: 'Number of Speakers',
+        set_diar_num_speakers_desc: 'Leave empty to let pyannote estimate the speaker count automatically',
         set_cli: 'CLI Options',
         set_quiet: 'Quiet Mode', set_quiet_desc: 'Suppress non-error output',
         set_verbose: 'Verbose Mode', set_verbose_desc: 'Show detailed logs',
@@ -475,7 +479,7 @@
       subsFadeIn: 0.18, subsFadeOut: 0.12,
       settingsInputDir: 'input', settingsOutputDir: 'output',
       settingsCache: true, settingsValidateJson: true, settingsDiarization: false,
-      settingsDiarModel: 'pyannote/speaker-diarization',
+      settingsDiarModel: 'pyannote/speaker-diarization', settingsDiarNumSpeakers: '',
       settingsQuiet: false, settingsVerbose: false, settingsSkipExisting: true,
       settingsNoProgress: false,
     };
@@ -821,6 +825,7 @@ video:
 diarization:
   enabled: ${state.settingsDiarization}
   model: "${state.settingsDiarModel}"
+  num_speakers: ${state.settingsDiarNumSpeakers ? parseInt(state.settingsDiarNumSpeakers, 10) : 'null'}
 `;
     }
 
