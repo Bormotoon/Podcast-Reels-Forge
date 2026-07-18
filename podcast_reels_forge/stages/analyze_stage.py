@@ -31,6 +31,10 @@ from podcast_reels_forge.analysis.candidate_extraction import (
     build_candidate_json,
     normalize_candidate_list,
 )
+from podcast_reels_forge.analysis.audio_features import (
+    annotate_records_with_audio,
+    resolve_source_audio,
+)
 from podcast_reels_forge.analysis.chunking import build_analysis_chunks
 from podcast_reels_forge.analysis.contracts import MomentRecord, coerce_moment_record
 from podcast_reels_forge.analysis.metadata import finalize_moment_list
@@ -1193,6 +1197,11 @@ async def run_staged_analysis(
     quote_conf = quote_verification_settings(
         analysis_conf_section(processing_conf, "quote_verification"),
     )
+    audio_conf = analysis_conf_section(processing_conf, "audio_features")
+    audio_enabled = _conf_bool(audio_conf, "enabled", True)
+    audio_noise_db = _conf_float(audio_conf, "silence_noise_db", -30.0)
+    audio_silence_min_s = _conf_float(audio_conf, "silence_min_s", 0.35)
+    audio_timeout_s = _conf_int(audio_conf, "timeout_s", 30)
     context_conf = analysis_conf_section(processing_conf, "episode_context")
     context_enabled = _conf_bool(context_conf, "enabled", True)
     context_max_digest = _conf_int(context_conf, "max_digest_chars", 4000)
@@ -1345,6 +1354,20 @@ async def run_staged_analysis(
     cleaned_candidates = _guard_stage_output(
         cleaned_candidates, cleanup_input, stage="cleanup", enabled=require_overlap,
     )
+    # Measure the audio once the list is short: the judge and the final
+    # ranking both get to use it.
+    if audio_enabled:
+        source_audio = resolve_source_audio(data)
+        if source_audio is None:
+            LOGGER.info("no source audio next to the transcript; skipping audio features")
+        else:
+            cleaned_candidates = annotate_records_with_audio(
+                cleaned_candidates,
+                source_audio,
+                noise_db=audio_noise_db,
+                silence_min_s=audio_silence_min_s,
+                timeout_s=audio_timeout_s,
+            )
     atomic_write_json(outdir / "cleaned_candidates.json", build_candidate_json(cleaned_candidates))
 
     judged_candidates = await judge_candidates(

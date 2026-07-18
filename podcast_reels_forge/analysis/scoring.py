@@ -24,6 +24,8 @@ DEFAULT_SCORING_WEIGHTS: dict[str, float] = {
     "duration": 1.4,
     "mid_thought": 1.0,
     "quote": 0.8,
+    "audio": 0.7,
+    "speech_rate": 0.4,
 }
 
 # RU: Нейтральное значение для факторов, которые не удалось измерить.
@@ -110,6 +112,60 @@ def hook_strength(moment: Mapping[str, Any]) -> float:
     if hook[:1].isupper():
         score += 0.07
     return min(1.0, score)
+
+
+def audio_quality_score(moment: Mapping[str, Any]) -> float:
+    """RU: Оценка по звуку: громкость и доля тишины на отрезке.
+
+    EN: Score the span's audio: how loud it is and how much of it is silence.
+    A quiet, pause-heavy stretch makes a limp clip regardless of how well the
+    model described it. Neutral when nothing was measured.
+    """
+
+    energy = moment.get("audio_energy_db")
+    silence = moment.get("audio_silence_ratio")
+    if energy is None and silence is None:
+        return NEUTRAL_FACTOR
+
+    score = 0.0
+    weight = 0.0
+    if energy is not None:
+        try:
+            # Podcast speech typically sits around -25..-15 dBFS mean.
+            loudness = (float(energy) + 35.0) / 20.0
+            score += max(0.0, min(1.0, loudness)) * 0.6
+        except (TypeError, ValueError):
+            return NEUTRAL_FACTOR
+        weight += 0.6
+    if silence is not None:
+        try:
+            ratio = max(0.0, min(1.0, float(silence)))
+        except (TypeError, ValueError):
+            return NEUTRAL_FACTOR
+        # Up to ~35% pauses is normal speech rhythm; beyond that it drags.
+        score += (1.0 - max(0.0, (ratio - 0.35) / 0.65)) * 0.4
+        weight += 0.4
+
+    return round(score / weight, 4) if weight else NEUTRAL_FACTOR
+
+
+def speech_rate_score(moment: Mapping[str, Any]) -> float:
+    """RU: Темп речи: слишком медленно — скучно, слишком быстро — не читается.
+
+    EN: Speech rate. Too slow drags; too fast outruns the burned subtitles.
+    Neutral when the transcript carried no word timings.
+    """
+
+    rate = moment.get("speech_rate_wps")
+    if rate is None:
+        return NEUTRAL_FACTOR
+    try:
+        value = float(rate)
+    except (TypeError, ValueError):
+        return NEUTRAL_FACTOR
+    if value <= 0:
+        return 0.0
+    return round(_bounded_score(value, 1.6, 3.4), 4)
 
 
 def readability_score(moment: Mapping[str, Any]) -> float:
@@ -209,6 +265,8 @@ def combined_priority_score(
         + speaker * w["speaker"]
         + duration * w["duration"]
         + quote_grounding_score(moment) * w["quote"]
+        + audio_quality_score(moment) * w["audio"]
+        + speech_rate_score(moment) * w["speech_rate"]
         # Clips that open or close mid-thought are the most common complaint
         # about auto-cut reels, so the penalty has to actually land here.
         - penalize_mid_thought(moment) * w["mid_thought"]
@@ -258,5 +316,7 @@ def scoring_breakdown(
             target_max=target_max,
         ),
         "quote_grounding_score": quote_grounding_score(moment),
+        "audio_quality_score": audio_quality_score(moment),
+        "speech_rate_score": speech_rate_score(moment),
         "mid_thought_penalty": penalize_mid_thought(moment),
     }

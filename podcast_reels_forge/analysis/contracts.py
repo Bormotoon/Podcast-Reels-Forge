@@ -74,6 +74,9 @@ class MomentRecord:
     # when verification did not run (no word timings, or disabled).
     quote_match_ratio: float | None = None
     speech_rate_wps: float | None = None
+    # Measured from the source audio; None when it was unavailable.
+    audio_energy_db: float | None = None
+    audio_silence_ratio: float | None = None
     selection_stage: str = ""
     source_chunk_ids: tuple[str, ...] = ()
     speaker: str = ""
@@ -103,6 +106,8 @@ class MomentRecord:
             "crop_confidence": self.crop_confidence,
             "quote_match_ratio": self.quote_match_ratio,
             "speech_rate_wps": self.speech_rate_wps,
+            "audio_energy_db": self.audio_energy_db,
+            "audio_silence_ratio": self.audio_silence_ratio,
             "selection_stage": self.selection_stage,
             "source_chunk_ids": list(self.source_chunk_ids),
             "speaker": self.speaker,
@@ -175,6 +180,8 @@ def coerce_moment_record(raw: Mapping[str, Any]) -> MomentRecord | None:
             "crop_confidence",
             "quote_match_ratio",
             "speech_rate_wps",
+            "audio_energy_db",
+            "audio_silence_ratio",
             "selection_stage",
             "source_chunk_ids",
             "speaker",
@@ -204,6 +211,8 @@ def coerce_moment_record(raw: Mapping[str, Any]) -> MomentRecord | None:
         crop_confidence=_float_or_none(raw.get("crop_confidence")),
         quote_match_ratio=_float_or_none(raw.get("quote_match_ratio")),
         speech_rate_wps=_float_or_none(raw.get("speech_rate_wps")),
+        audio_energy_db=_float_or_none(raw.get("audio_energy_db")),
+        audio_silence_ratio=_float_or_none(raw.get("audio_silence_ratio")),
         selection_stage=str(raw.get("selection_stage", "")).strip(),
         source_chunk_ids=source_chunk_ids,
         speaker=str(raw.get("speaker", "")).strip(),
