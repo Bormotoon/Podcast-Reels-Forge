@@ -76,6 +76,10 @@ LOGGER = setup_logging()
 
 Moment = MomentRecord
 
+# Upper bound on candidates handed to the cleanup stage, so the rendered
+# prompt stays inside ctx_size=8192.
+_CLEANUP_CAP = 25
+
 _STAGE_FILES = {
     "scout": "chunk",
     "cleanup_refine": "cleanup",
@@ -871,14 +875,17 @@ async def run_staged_analysis(
     )
     atomic_write_json(outdir / "scout_candidates.json", build_candidate_json(scouted_candidates))
 
-    # Limit total candidates before cleanup to stay within ctx=8192.
-    _CLEANUP_CAP = 25
-    cleanup_input = scouted_candidates
-    if len(scouted_candidates) > _CLEANUP_CAP:
-        cleanup_input = sorted(scouted_candidates, key=lambda m: m.score, reverse=True)[:_CLEANUP_CAP]
+    # Limit total candidates before cleanup to stay within ctx=8192. Dedupe
+    # first: chunks overlap by design, so the same strong moment is scouted
+    # twice and would otherwise burn two of the capped slots, crowding out
+    # candidates that were only found once.
+    cleanup_input = dedupe_moments(scouted_candidates)
+    if len(cleanup_input) > _CLEANUP_CAP:
+        cleanup_input = sorted(cleanup_input, key=lambda m: m.score, reverse=True)[:_CLEANUP_CAP]
+    if len(cleanup_input) < len(scouted_candidates):
         LOGGER.info(
-            "pre-cleanup cap: reduced %d -> %d candidates (top by score)",
-            len(scouted_candidates), _CLEANUP_CAP,
+            "pre-cleanup: %d scouted -> %d candidates (deduped, capped at %d)",
+            len(scouted_candidates), len(cleanup_input), _CLEANUP_CAP,
         )
 
     cleaned_candidates = await cleanup_and_refine_candidates(

@@ -9,7 +9,41 @@ from typing import Any
 _QUESTION_RE = re.compile(r"[?？]")
 _EXCLAMATION_RE = re.compile(r"[!！]")
 _NUMERIC_RE = re.compile(r"\b\d+(?:[.,]\d+)?\b")
-_SHORT_COMMON_RE = re.compile(r"\b(?:why|how|what|why|лучше|почему|как|что)\b", re.IGNORECASE)
+_SHORT_COMMON_RE = re.compile(r"\b(?:why|how|what|лучше|почему|как|что)\b", re.IGNORECASE)
+
+# RU: Веса факторов итогового приоритета. Переопределяются через
+# processing.analysis.scoring.weights.
+# EN: Weights of the combined priority factors. Overridable through
+# processing.analysis.scoring.weights.
+DEFAULT_SCORING_WEIGHTS: dict[str, float] = {
+    "base": 0.55,
+    "hook": 1.8,
+    "readability": 1.2,
+    "completeness": 1.0,
+    "speaker": 0.6,
+    "duration": 1.4,
+    "mid_thought": 1.0,
+}
+
+
+def resolve_scoring_weights(overrides: Mapping[str, Any] | None = None) -> dict[str, float]:
+    """RU: Сливает пользовательские веса с дефолтными, игнорируя мусор.
+
+    EN: Merge caller-supplied weights over the defaults, ignoring unknown or
+    non-numeric entries so a malformed config cannot break ranking.
+    """
+
+    weights = dict(DEFAULT_SCORING_WEIGHTS)
+    if not overrides:
+        return weights
+    for key, value in overrides.items():
+        if key not in weights:
+            continue
+        try:
+            weights[key] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return weights
 
 
 def _word_count(text: str) -> int:
@@ -127,7 +161,17 @@ def combined_priority_score(
     *,
     target_min: float,
     target_max: float,
+    weights: Mapping[str, Any] | None = None,
 ) -> float:
+    """RU: Итоговый приоритет момента для ранжирования.
+
+    EN: Combined ranking priority for a moment. This is deliberately not the
+    moment's ``score``: ``score`` stays on the LLM's 1-10 scale that the cut
+    stage filters on, while this value only orders candidates against each
+    other.
+    """
+
+    w = resolve_scoring_weights(weights)
     base_score = float(moment.get("score", 0.0) or 0.0)
     hook = hook_strength(moment)
     readable = readability_score(moment)
@@ -135,14 +179,17 @@ def combined_priority_score(
     speaker = speaker_focus_score(moment)
     duration = clip_duration_score(moment, target_min=target_min, target_max=target_max)
     total = (
-        base_score * 0.55
-        + hook * 1.8
-        + readable * 1.2
-        + complete * 1.0
-        + speaker * 0.6
-        + duration * 1.4
+        base_score * w["base"]
+        + hook * w["hook"]
+        + readable * w["readability"]
+        + complete * w["completeness"]
+        + speaker * w["speaker"]
+        + duration * w["duration"]
+        # Clips that open or close mid-thought are the most common complaint
+        # about auto-cut reels, so the penalty has to actually land here.
+        - penalize_mid_thought(moment) * w["mid_thought"]
     )
-    return round(total, 4)
+    return round(max(0.0, total), 4)
 
 
 def clip_type_target_bounds(clip_type: str) -> tuple[float, float]:

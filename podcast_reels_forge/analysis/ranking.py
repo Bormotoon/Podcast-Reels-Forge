@@ -121,6 +121,11 @@ def rank_moments(
 
     deduped = dedupe_moments(scored)
     quotas = {key.lower(): max(0, int(value)) for key, value in clip_type_quotas.items()}
+    # A quota of 0 — or a bucket missing from the mapping — excludes that clip
+    # type entirely. Callers that configure no quotas at all still expect
+    # results, so treat an empty/all-zero mapping as "reels, unlimited".
+    if not any(quotas.values()):
+        quotas = {"reel": len(deduped)}
 
     def _bucket_name(clip_type: str) -> str:
         ct = clip_type.lower()
@@ -137,7 +142,9 @@ def rank_moments(
     for record in sorted(deduped, key=lambda r: (-float(r.score), r.start, r.end)):
         bucket = _bucket_name(record.clip_type)
         limit = quotas.get(bucket, 0)
-        if limit > 0 and bucket_counts.get(bucket, 0) >= limit:
+        if limit <= 0:
+            continue
+        if bucket_counts.get(bucket, 0) >= limit:
             continue
         if any(_overlap_seconds(record, existing) > 0 for existing in selected):
             continue
