@@ -664,8 +664,15 @@ def _prompt_payload(
     chunk: Mapping[str, Any] | None = None,
     candidates: Sequence[MomentRecord] | None = None,
     transcript: str | None = None,
+    episode_context: str = "",
+    candidates_payload: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, str]:
-    payload: dict[str, str] = {"requirements": requirements}
+    # Always supply the key so an unused {episode_context} placeholder does not
+    # survive into the rendered prompt.
+    payload: dict[str, str] = {
+        "requirements": requirements,
+        "episode_context": episode_context,
+    }
     if chunk is not None:
         # Send the chunk text exactly once. The prompt carries the transcript in
         # its own {transcript} section, so keep only metadata/timecodes in
@@ -677,7 +684,12 @@ def _prompt_payload(
         payload["transcript"] = str(chunk.get("text", ""))
     if transcript is not None:
         payload["transcript"] = transcript
-    if candidates is not None:
+    if candidates_payload is not None:
+        payload["candidates_json"] = json.dumps(
+            list(candidates_payload),
+            ensure_ascii=False,
+        )
+    elif candidates is not None:
         payload["candidates_json"] = json.dumps(
             build_candidate_json(candidates),
             ensure_ascii=False,
@@ -730,6 +742,7 @@ async def scout_candidates(
     parallelism: int = 1,
     json_retries: int = 0,
     chunk_tolerance_s: float = 3.0,
+    episode_context: str = "",
 ) -> list[MomentRecord]:
     """Scout each chunk for candidates.
 
@@ -758,6 +771,7 @@ async def scout_candidates(
                     _prompt_payload(
                         requirements=requirements,
                         chunk=chunk.to_prompt_dict() if hasattr(chunk, "to_prompt_dict") else None,
+                        episode_context=episode_context,
                     ),
                 )
                 resp = await get_llm_json(
@@ -875,6 +889,8 @@ async def judge_candidates(
     temperature: float,
     timeout: int,
     json_retries: int = 0,
+    episode_context: str = "",
+    candidates_payload: Sequence[Mapping[str, Any]] | None = None,
 ) -> list[MomentRecord]:
     """Re-rate candidates globally.
 
@@ -891,6 +907,8 @@ async def judge_candidates(
         _prompt_payload(
             requirements=requirements,
             candidates=candidates,
+            candidates_payload=candidates_payload,
+            episode_context=episode_context,
         ),
     )
     resp = await get_llm_json(
@@ -900,6 +918,170 @@ async def judge_candidates(
     if not judged:
         return list(candidates)
     return [_keep_judge_score(record) for record in judged]
+
+
+def build_transcript_digest(index: TranscriptIndex, *, max_chars: int = 4000) -> str:
+    """RU: Выжимка эпизода: по одному предложению на окно ~2 минуты.
+
+    EN: An episode digest: roughly one sentence per two-minute window, so the
+    whole episode fits into a single context-sized prompt.
+    """
+
+    if not index.sentences:
+        return ""
+
+    episode_end = index.sentences[-1].end
+    window = max(60.0, episode_end / 40.0)
+    picked: list[str] = []
+    next_slot = index.sentences[0].start
+    for sentence in index.sentences:
+        if sentence.start < next_slot:
+            continue
+        picked.append(sentence.text)
+        next_slot = sentence.start + window
+
+    digest = " ".join(picked).strip()
+    if len(digest) > max_chars:
+        digest = digest[:max_chars].rsplit(" ", 1)[0] + "…"
+    return digest
+
+
+def format_episode_context(payload: Mapping[str, Any]) -> str:
+    """Render the episode overview as a prompt section."""
+
+    summary = str(payload.get("summary", "")).strip()
+    topics = payload.get("topics")
+    tone = str(payload.get("tone", "")).strip()
+    speakers = payload.get("speakers")
+
+    lines: list[str] = []
+    if summary:
+        lines.append(summary)
+    if isinstance(topics, list) and topics:
+        joined = ", ".join(str(topic).strip() for topic in topics if str(topic).strip())
+        if joined:
+            lines.append(f"Темы эпизода / Episode topics: {joined}")
+    if tone:
+        lines.append(f"Тональность / Tone: {tone}")
+    if isinstance(speakers, list) and speakers:
+        joined = ", ".join(str(name).strip() for name in speakers if str(name).strip())
+        if joined:
+            lines.append(f"Участники / Speakers: {joined}")
+
+    if not lines:
+        return ""
+    return "# Контекст эпизода / Episode context\n" + "\n".join(lines)
+
+
+async def build_episode_context(
+    provider: LLMProvider,
+    index: TranscriptIndex,
+    *,
+    outdir: Path,
+    lang: str,
+    variant: str,
+    temperature: float,
+    timeout: int,
+    max_digest_chars: int = 4000,
+    json_retries: int = 0,
+) -> str:
+    """Summarize the episode once, so the scout can judge moments in context.
+
+    A moment can look striking inside its own chunk and be unremarkable for
+    the episode; the scout has no way to tell without this. Entirely
+    best-effort: any failure returns an empty string and the prompts render
+    without the section.
+    """
+
+    cache_path = outdir / "episode_context.json"
+    cached = _read_json_if_valid(cache_path)
+    if isinstance(cached, dict) and cached.get("summary"):
+        return format_episode_context(cached)
+
+    digest = build_transcript_digest(index, max_chars=max_digest_chars)
+    if not digest:
+        return ""
+
+    try:
+        prompt = _load_prompt(lang=lang, variant=variant, name="context")
+    except FileNotFoundError:
+        LOGGER.info("no episode-context prompt for lang=%s; skipping", lang)
+        return ""
+
+    try:
+        resp = await get_llm_json(
+            provider,
+            _render_prompt(prompt, {"transcript_digest": digest}),
+            temperature,
+            timeout,
+            retries=json_retries,
+        )
+    except Exception as exc:
+        LOGGER.warning("episode context failed; continuing without it: %s", exc)
+        return ""
+
+    if not isinstance(resp, dict) or not resp.get("summary"):
+        LOGGER.info("episode context returned no summary; continuing without it")
+        return ""
+
+    atomic_write_json(cache_path, resp)
+    return format_episode_context(resp)
+
+
+def build_judge_payload(
+    records: Sequence[MomentRecord],
+    index: TranscriptIndex,
+    *,
+    max_candidates: int = 14,
+    head_seconds: float = 15.0,
+    tail_seconds: float = 5.0,
+    max_excerpt_chars: int = 260,
+) -> list[dict[str, Any]]:
+    """Candidate payload for the judge, including real opening/closing text.
+
+    The judge is asked to reward strong first seconds and penalize ragged
+    endings, which it cannot do from metadata alone — so give it the actual
+    words at both ends of each clip. Kept small on purpose: this all has to
+    fit inside ctx_size=8192 alongside the instructions.
+    """
+
+    ordered = sorted(records, key=ranking_value, reverse=True)[: max(1, int(max_candidates))]
+
+    payload: list[dict[str, Any]] = []
+    for record in ordered:
+        item: dict[str, Any] = {
+            "start": round(record.start, 3),
+            "end": round(record.end, 3),
+            "clip_type": record.clip_type,
+            "title": record.title,
+            "quote": record.quote,
+            "why": record.why,
+            "score": record.score,
+        }
+        if record.hook:
+            item["hook"] = record.hook
+        if record.speaker:
+            item["speaker"] = record.speaker
+        if record.quote_match_ratio is not None:
+            item["quote_match_ratio"] = record.quote_match_ratio
+
+        if index:
+            head = index.text_between(
+                record.start,
+                min(record.start + head_seconds, record.end),
+                max_chars=max_excerpt_chars,
+            )
+            tail = index.text_between(
+                max(record.end - tail_seconds, record.start),
+                record.end,
+                max_chars=max_excerpt_chars // 2,
+            )
+            if head:
+                item["excerpt_head"] = head
+            if tail:
+                item["excerpt_tail"] = tail
+        payload.append(item)
+    return payload
 
 
 def _guard_stage_output(
@@ -1011,6 +1193,15 @@ async def run_staged_analysis(
     quote_conf = quote_verification_settings(
         analysis_conf_section(processing_conf, "quote_verification"),
     )
+    context_conf = analysis_conf_section(processing_conf, "episode_context")
+    context_enabled = _conf_bool(context_conf, "enabled", True)
+    context_max_digest = _conf_int(context_conf, "max_digest_chars", 4000)
+    judge_ctx_conf = analysis_conf_section(processing_conf, "judge_context")
+    judge_ctx_enabled = _conf_bool(judge_ctx_conf, "enabled", True)
+    judge_max_candidates = _conf_int(judge_ctx_conf, "max_candidates", 14)
+    judge_head_s = _conf_float(judge_ctx_conf, "head_seconds", 15.0)
+    judge_tail_s = _conf_float(judge_ctx_conf, "tail_seconds", 5.0)
+    judge_excerpt_chars = _conf_int(judge_ctx_conf, "max_excerpt_chars", 260)
     snap_conf = analysis_conf_section(processing_conf, "boundary_snap")
     snap_enabled = _conf_bool(snap_conf, "enabled", True)
     snap_max_shift_s = _conf_float(snap_conf, "max_shift_s", 3.0)
@@ -1097,6 +1288,22 @@ async def run_staged_analysis(
     if provider_name != "llama_cpp":
         scout_parallelism = 1
 
+    episode_context = ""
+    if context_enabled:
+        episode_context = await build_episode_context(
+            scout_provider,
+            index,
+            outdir=outdir,
+            lang=prompt_lang,
+            variant=variant,
+            temperature=scout_temp,
+            timeout=scout_timeout,
+            max_digest_chars=context_max_digest,
+            json_retries=json_retries,
+        )
+        if episode_context:
+            _status("[analyze] episode context ready", quiet=quiet)
+
     scouted_candidates = await scout_candidates(
         scout_provider,
         chunks,
@@ -1108,6 +1315,7 @@ async def run_staged_analysis(
         parallelism=scout_parallelism,
         json_retries=json_retries,
         chunk_tolerance_s=chunk_tolerance_s,
+        episode_context=episode_context,
     )
     atomic_write_json(outdir / "scout_candidates.json", build_candidate_json(scouted_candidates))
 
@@ -1147,6 +1355,19 @@ async def run_staged_analysis(
         temperature=judge_metadata_temp,
         timeout=judge_metadata_timeout,
         json_retries=json_retries,
+        episode_context=episode_context,
+        candidates_payload=(
+            build_judge_payload(
+                cleaned_candidates,
+                index,
+                max_candidates=judge_max_candidates,
+                head_seconds=judge_head_s,
+                tail_seconds=judge_tail_s,
+                max_excerpt_chars=judge_excerpt_chars,
+            )
+            if judge_ctx_enabled
+            else None
+        ),
     )
     if not judged_candidates:
         judged_candidates = list(cleaned_candidates)

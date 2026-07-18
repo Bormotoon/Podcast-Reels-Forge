@@ -58,6 +58,18 @@ def chunk_window(prompt: str) -> tuple[float, float]:
     return float(chunk_meta["start"]), float(chunk_meta["end"])
 
 
+def is_context_prompt(prompt: str) -> bool:
+    """Whether this is the one-off episode-overview call, not a chunk."""
+
+    return "# Выжимка транскрипта" in prompt
+
+
+EPISODE_CONTEXT_REPLY = json.dumps(
+    {"summary": "Эпизод про школу.", "topics": ["школа"], "tone": "беседа"},
+    ensure_ascii=False,
+)
+
+
 def _moment_in_chunk(prompt: str, title: str, *, offset: float = 5.0, length: float = 45.0) -> dict[str, Any]:
     """A candidate placed inside the chunk the prompt describes."""
 
@@ -163,6 +175,7 @@ def _run_analysis(
     cleanup: Callable[[str, int], str] | None = None,
     judge: Callable[[str, int], str] | None = None,
     processing_conf: dict[str, Any] | None = None,
+    scout_handles_context: bool = False,
 ) -> tuple[list[Any], dict[str, FakeProvider], Path]:
     transcript = _write_transcript(tmp_path / "episode.json")
     outdir = tmp_path / "out"
@@ -171,8 +184,15 @@ def _run_analysis(
     default_cleanup = cleanup or (lambda p, _i: _refine_first(p, "Чистый"))
     default_judge = judge or (lambda p, _i: _refine_first(p, "Финальный", 9.0))
 
+    def scout_with_context(prompt: str, call_index: int) -> str:
+        # The stage asks the scout model for the episode overview first; tests
+        # that do not care about it get a canned reply.
+        if is_context_prompt(prompt) and scout_handles_context is False:
+            return EPISODE_CONTEXT_REPLY
+        return scout(prompt, call_index)
+
     providers = {
-        "scout": FakeProvider(scout),
+        "scout": FakeProvider(scout_with_context),
         "cleanup_refine": FakeProvider(default_cleanup),
         "judge_metadata": FakeProvider(default_judge),
     }
@@ -337,6 +357,81 @@ def test_deduped_before_the_cleanup_cap(
     unique_titles = {m["title"] for m in scouted if m["title"].startswith("Уникальный")}
     for title in unique_titles:
         assert f'"title": "{title}"' in cleanup_prompt
+
+
+def test_episode_context_is_built_once_and_reused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The overview costs one call, is cached, and reaches the scout prompt."""
+
+    def scout(prompt: str, _call_index: int) -> str:
+        if is_context_prompt(prompt):
+            return json.dumps(
+                {
+                    "summary": "Эпизод про школу и детей.",
+                    "topics": ["школа", "дети"],
+                    "tone": "дружеская беседа",
+                },
+                ensure_ascii=False,
+            )
+        return _moments_json(_moment_in_chunk(prompt, "Найденный"))
+
+    _moments, providers, outdir = _run_analysis(
+        monkeypatch, tmp_path, scout=scout, scout_handles_context=True,
+    )
+
+    cache = outdir / "episode_context.json"
+    assert cache.exists()
+    assert json.loads(cache.read_text(encoding="utf-8"))["summary"]
+
+    chunk_prompts = [p for p in providers["scout"].prompts if "# Кусок транскрипта" in p]
+    assert chunk_prompts, "the scout should still receive chunk prompts"
+    assert all("Эпизод про школу и детей." in prompt for prompt in chunk_prompts)
+
+    # A second run over the same outdir reuses the cache instead of re-asking.
+    digest_calls = sum(1 for p in providers["scout"].prompts if "# Выжимка транскрипта" in p)
+    assert digest_calls == 1
+
+
+def test_analysis_survives_a_failed_episode_context(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The overview is a nicety; losing it must not cost the episode."""
+
+    def scout(prompt: str, _call_index: int) -> str:
+        if is_context_prompt(prompt):
+            raise RuntimeError("context call failed")
+        return _moments_json(_moment_in_chunk(prompt, "Найденный"))
+
+    moments, _providers, outdir = _run_analysis(
+        monkeypatch, tmp_path, scout=scout, scout_handles_context=True,
+    )
+
+    assert moments
+    assert not (outdir / "episode_context.json").exists()
+
+
+def test_judge_sees_the_real_clip_edges(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The judge grades openings and endings, so it gets the actual words."""
+    captured: list[dict[str, Any]] = []
+
+    def judge(prompt: str, _call_index: int) -> str:
+        captured.extend(prompt_candidates(prompt))
+        return _refine_first(prompt, "Финальный", 9.0)
+
+    _run_analysis(
+        monkeypatch,
+        tmp_path,
+        scout=lambda p, _i: _moments_json(_moment_in_chunk(p, "Найденный")),
+        judge=judge,
+    )
+
+    assert captured
+    assert all("excerpt_head" in item for item in captured)
+    # Every fixture sentence says "про школы, детей", so a real excerpt has it.
+    assert all("школы" in item["excerpt_head"] for item in captured)
 
 
 def test_strict_schema_is_sent_and_can_be_disabled() -> None:
