@@ -4,6 +4,76 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Transcript proofreading stage** — gemma4 fixes spelling and punctuation
+  before analysis, guarded by a letter-content similarity check that rejects any
+  correction that adds, drops or paraphrases text. Writes
+  `<stem>.proofread.json`; the raw transcript is left untouched.
+- **Quote verification** — a candidate's quote is matched against the words
+  actually spoken in its span. Invented quotes are penalized, and a confident
+  match widens the clip to contain it.
+- **Boundary snapping** — clip bounds are anchored to real sentence (else word)
+  boundaries, so clips stop opening and closing mid-sentence.
+- **Audio signals** — per-candidate loudness and pause density measured with
+  ffmpeg, plus speech rate from the word timings, feeding the ranking.
+- **Episode context** — one LLM call summarizing the episode, injected into the
+  scout prompt so locally striking moments can be told from episode-level ones.
+  Cached in `episode_context.json`.
+- **Judge context** — the judge now receives each clip's real opening and closing
+  words, which it needs for the hook/ending criteria it was already asked to apply.
+- **Topic diversity** in final selection, so a set is not four clips about the
+  same thing.
+- **Golden-set evaluation** — `evaluate_prompts` scores variants by recall and
+  precision against hand-labelled reference moments (`golden/<episode>.json`),
+  with `must` moments tracked separately. Workflow in `docs/DEVELOPMENT.md`.
+- `processing.analysis` config block for all of the above (see
+  `docs/CONFIGURATION.md`); every key is optional.
+- Speaker-count pinning for diarization (`diarization.num_speakers`).
+
+### Fixed
+- **The mid-thought penalty was never applied.** It was computed and reported,
+  but `combined_priority_score` never subtracted it, so nothing guarded against
+  clips that open or close mid-sentence.
+- **A clip-type quota of `0` meant "unlimited" instead of "none",** so setting
+  `stories: count: 0` admitted an unbounded number of story clips.
+- **A single failed chunk aborted the whole analysis,** leaving the episode with
+  no clips at all. Chunks now fail independently; only a total outage raises.
+- **The candidate cap ran before de-duplication,** so a moment found in two
+  overlapping chunks consumed two of the 25 slots and pushed out unique finds.
+- **Timecodes and stage output were unvalidated.** Candidates are clamped to the
+  chunk they were found in and to the episode; cleanup/judge records that overlap
+  none of their input are dropped as invented.
+- Truncated JSON from a model that hit its token budget no longer discards the
+  whole response — everything emitted before the cut is recovered.
+- Unparseable JSON is retried instead of silently costing a chunk.
+- **Burned subtitles interpolated word timing from character counts** while the
+  transcript carried real per-word timestamps all along; the karaoke drifted
+  against the speech.
+- Diarization works again on pyannote.audio 4.x, and now uses the GPU.
+- Analysis artifacts are written group-readable rather than `0600`.
+- `llama_cpp.n_predict` is configurable (was hardcoded to 2048), and the scout
+  prompt no longer sends each chunk's transcript twice, which had been forcing
+  llama.cpp to truncate the prompt at `ctx_size=8192`.
+
+### Changed
+- **`score` now always carries the model's 1-10 rating.** Ranking previously
+  overwrote it with its own combined value, which broke
+  `processing.quality_filters.min_score` (documented as the 1-10 scale) and fed
+  the combined total back into itself on the second ranking pass. The ranking
+  value moved to a separate `priority` field, exposed alongside `score` in
+  `moments.json` and `reels.md`. **Existing `min_score` thresholds may need
+  retuning**, since they were being compared against the wrong scale.
+- Scout/cleanup/judge prompts rewritten with explicit virality criteria, an
+  anchored score rubric, clip-type guidance and a verbatim-quote requirement
+  (ru and en, `_default` only — the `a`/`b` variants are unchanged).
+- llama.cpp receives the actual moments JSON schema as a sampling grammar
+  instead of `{"type": "object"}`, with an automatic downgrade for builds that
+  reject it.
+- Scoring factor weights are configurable via `processing.analysis.scoring.weights`.
+- Reference model switched to gemma4:26b IQ4_XS with full GPU offload.
+
 ## [1.1.0] — 2026-06-23
 
 ### Added

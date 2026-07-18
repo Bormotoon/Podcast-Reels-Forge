@@ -781,6 +781,39 @@ proofread:
   timeout: 600
   min_similarity: 0.8
 processing:
+  analysis:
+    cleanup_cap: 25
+    json_retry: 1
+    strict_json_schema: true
+    validation:
+      chunk_tolerance_s: 3.0
+      require_candidate_overlap: true
+    quote_verification:
+      enabled: true
+      min_ratio: 0.55
+      refine_boundaries: true
+    boundary_snap:
+      enabled: true
+      max_shift_s: 3.0
+    judge_context:
+      enabled: true
+      max_candidates: 14
+      head_seconds: 15
+      tail_seconds: 5
+      max_excerpt_chars: 260
+    episode_context:
+      enabled: true
+      max_digest_chars: 4000
+    audio_features:
+      enabled: true
+      timeout_s: 30
+      silence_noise_db: -30.0
+      silence_min_s: 0.35
+    scoring:
+      weights: {}
+    diversity:
+      enabled: true
+      max_topic_similarity: 0.5
   quality_filters:
     min_score: ${state.cutMinScore}
     min_duration: ${state.cutMinDur}

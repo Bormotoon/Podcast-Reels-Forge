@@ -123,7 +123,67 @@ proofread:
   min_similarity: 0.8
 
 processing:
+  # Тонкая настройка отбора моментов. Весь блок опционален: у каждого ключа
+  # есть значение по умолчанию в коде, так что его можно удалить целиком.
+  analysis:
+    # Сколько кандидатов уходит в cleanup после дедупликации. Ограничение
+    # держит собранный промпт внутри ctx_size=8192.
+    cleanup_cap: 25
+    # Сколько раз переспросить модель, если ответ не разобрался как JSON.
+    json_retry: 1
+    # Передавать llama.cpp полную схему ответа (она превращается в грамматику
+    # сэмплирования). false — вернуться к разрешительной {"type": "object"},
+    # если сборка llama.cpp не переваривает схему.
+    strict_json_schema: true
+    validation:
+      # На сколько секунд кандидату можно выйти за границы своего куска.
+      # Дальше — это выдуманный таймкод, и кандидат отбрасывается.
+      chunk_tolerance_s: 3.0
+      # Отбрасывать записи cleanup/judge, не пересекающиеся ни с одним
+      # кандидатом на входе: эти стадии отбирают, а не придумывают.
+      require_candidate_overlap: true
+    quote_verification:
+      # Сверять цитату с тем, что реально сказано на отрезке.
+      enabled: true
+      # Ниже этого сходства (0..1) цитата считается выдуманной и штрафуется.
+      min_ratio: 0.55
+      # Расширять границы клипа до найденной цитаты.
+      refine_boundaries: true
+    boundary_snap:
+      # Подтягивать начало клипа к началу фразы, а конец — к концу мысли.
+      enabled: true
+      max_shift_s: 3.0
+    judge_context:
+      # Показывать judge реальные первые и последние секунды клипа.
+      enabled: true
+      max_candidates: 14
+      head_seconds: 15
+      tail_seconds: 5
+      max_excerpt_chars: 260
+    episode_context:
+      # Один вызов LLM: обзор эпизода для scout-стадии. Кэшируется в
+      # episode_context.json.
+      enabled: true
+      max_digest_chars: 4000
+    audio_features:
+      # Замер громкости и пауз на отрезке кандидата через ffmpeg.
+      enabled: true
+      timeout_s: 30
+      silence_noise_db: -30.0
+      silence_min_s: 0.35
+    scoring:
+      # Веса факторов приоритета. Пустой объект = значения по умолчанию.
+      # Доступные ключи: base, hook, readability, completeness, speaker,
+      # duration, mid_thought, quote, audio, speech_rate.
+      weights: {}
+    diversity:
+      # Не брать в финал несколько клипов об одном и том же.
+      enabled: true
+      max_topic_similarity: 0.5
+
   quality_filters:
+    # Оценка модели по шкале 1-10 (не приоритет ранжирования — он лежит
+    # в отдельном поле priority).
     min_score: 7
     min_duration: 15
     max_duration: 180

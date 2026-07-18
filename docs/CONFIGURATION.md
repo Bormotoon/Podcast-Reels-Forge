@@ -102,6 +102,96 @@ version.
 The model is selected via `llama_cpp.roles.proofread` (falls back to the
 `cleanup_refine` model when omitted).
 
+## Analysis quality / Качество отбора моментов
+
+RU: Блок `processing.analysis` настраивает то, как из транскрипта выбираются
+моменты. Он целиком опционален — у каждого ключа есть значение по умолчанию
+в коде, поэтому блок можно не писать вовсе.
+
+EN: `processing.analysis` tunes how moments are picked out of the transcript.
+The whole block is optional — every key has a code default, so it can be
+omitted entirely.
+
+```yaml
+processing:
+  analysis:
+    cleanup_cap: 25          # candidates handed to cleanup, after de-duplication
+    json_retry: 1            # re-asks when a reply does not parse as JSON
+    strict_json_schema: true # send the full moments schema as a sampling grammar
+    validation:
+      chunk_tolerance_s: 3.0            # allowed drift past a chunk's own bounds
+      require_candidate_overlap: true   # drop cleanup/judge output that matches no input
+    quote_verification:
+      enabled: true
+      min_ratio: 0.55        # below this the quote counts as invented
+      refine_boundaries: true
+    boundary_snap:
+      enabled: true
+      max_shift_s: 3.0       # how far a bound may move onto a speech boundary
+    judge_context:
+      enabled: true          # show the judge the clip's real opening and ending
+      max_candidates: 14
+      head_seconds: 15
+      tail_seconds: 5
+      max_excerpt_chars: 260
+    episode_context:
+      enabled: true          # one LLM call summarizing the episode for the scout
+      max_digest_chars: 4000
+    audio_features:
+      enabled: true          # measure loudness and pauses with ffmpeg
+      timeout_s: 30
+      silence_noise_db: -30.0
+      silence_min_s: 0.35
+    scoring:
+      weights: {}            # override any of the priority factors
+    diversity:
+      enabled: true          # avoid several final clips about the same thing
+      max_topic_similarity: 0.5
+```
+
+### score и priority / score vs priority
+
+RU: `score` — оценка модели по шкале 1-10. Именно с ней сравнивается
+`processing.quality_filters.min_score` на стадии нарезки. `priority` —
+отдельное поле: комбинированное значение эвристик, по которому кандидаты
+ранжируются между собой. Оба попадают в `moments.json` и `reels.md`.
+
+EN: `score` is the model's own 1-10 rating, and it is what
+`processing.quality_filters.min_score` compares against at the cut stage.
+`priority` is a separate field: the combined heuristic value candidates are
+ranked by. Both appear in `moments.json` and `reels.md`.
+
+### Веса скоринга / Scoring weights
+
+RU: Ключи `scoring.weights` (значения по умолчанию в скобках): `base` (0.55,
+вклад оценки модели), `hook` (1.8), `readability` (1.2), `completeness`
+(1.0), `speaker` (0.6), `duration` (1.4), `quote` (0.8, подтверждённость
+цитаты), `audio` (0.7), `speech_rate` (0.4), `mid_thought` (1.0 — штраф за
+обрыв на полуслове, вычитается). Неизвестные и нечисловые ключи молча
+игнорируются.
+
+EN: `scoring.weights` keys (defaults in brackets): `base` (0.55, the model's
+own score), `hook` (1.8), `readability` (1.2), `completeness` (1.0),
+`speaker` (0.6), `duration` (1.4), `quote` (0.8, how well the quote is
+grounded), `audio` (0.7), `speech_rate` (0.4), `mid_thought` (1.0 — the
+penalty for cutting mid-thought, subtracted). Unknown or non-numeric keys are
+ignored.
+
+RU: Факторы, которые не удалось измерить (нет исходного аудио, нет пословных
+таймкодов), берут нейтральное значение 0.5, чтобы кандидаты с сигналом и без
+него оставались сравнимыми.
+
+EN: Factors that could not be measured (no source audio, no word timings) use
+a neutral 0.5, so candidates with and without the signal stay comparable.
+
+> RU: GUI пересобирает `config.yaml` из шаблона. Блок `analysis` записывается
+> в него значениями по умолчанию, поэтому изменённые вручную значения будут
+> сброшены при сохранении настроек из интерфейса.
+>
+> EN: The GUI regenerates `config.yaml` from a template. The `analysis` block
+> is written out with its defaults, so hand-edited values here are reset when
+> settings are saved from the interface.
+
 ## Processing / Обработка
 
 ```yaml
