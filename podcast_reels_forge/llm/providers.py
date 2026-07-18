@@ -11,10 +11,12 @@ import logging
 import re
 import threading
 import time
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
 import aiohttp
 import requests
+
+from podcast_reels_forge.llm.schemas import ANY_OBJECT_SCHEMA
 
 
 LOGGER = logging.getLogger("forge")
@@ -46,6 +48,10 @@ class LlamaCppConfig:
     # Maximum tokens to generate. Must leave room for the response inside the
     # server ctx_size; too low truncates the JSON mid-token and breaks parsing.
     n_predict: int = 4096
+
+    # Response schema llama.cpp turns into a sampling grammar. None keeps the
+    # permissive "any object" schema.
+    json_schema: Mapping[str, Any] | None = None
 
     # Retry / logging controls
     max_retries: int = 2
@@ -115,6 +121,38 @@ def _wrap_prompt(prompt: str, ttype: str) -> str:
     return prompt
 
 
+def build_completion_payload(
+    cfg: LlamaCppConfig,
+    wrapped_prompt: str,
+    *,
+    temperature: float,
+    schema_downgraded: bool = False,
+) -> dict[str, Any]:
+    """RU: Собирает тело запроса к /completion.
+
+    EN: Build the /completion request body. Split out from the request itself
+    so the schema wiring is testable without a server.
+    """
+
+    schema: Mapping[str, Any] = cfg.json_schema or ANY_OBJECT_SCHEMA
+    if schema_downgraded:
+        schema = ANY_OBJECT_SCHEMA
+    return {
+        "prompt": wrapped_prompt,
+        "stream": False,
+        "temperature": float(temperature),
+        "n_predict": int(cfg.n_predict),
+        "json_schema": dict(schema),
+    }
+
+
+def _looks_like_schema_rejection(body: str) -> bool:
+    """Whether an HTTP 400 body blames the json_schema/grammar."""
+
+    lowered = body.lower()
+    return any(token in lowered for token in ("schema", "grammar", "gbnf"))
+
+
 class LlamaCppProvider:
     """RU: Провайдер для llama.cpp /completion (native, non-streaming) через aiohttp.
 
@@ -125,6 +163,10 @@ class LlamaCppProvider:
         self.cfg = cfg
         self._endpoint = _completion_url(cfg.url)
         self._base = _base_url(cfg.url)
+        # Flipped once if the server rejects the configured schema, so the
+        # downgrade costs one failed request per provider rather than one per
+        # call.
+        self._schema_downgraded = False
 
     async def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
         attempts = max(1, 1 + int(self.cfg.max_retries))
@@ -161,13 +203,12 @@ class LlamaCppProvider:
         ttype = _detect_template(self._base)
         wrapped = _wrap_prompt(prompt, ttype)
 
-        payload: dict[str, Any] = {
-            "prompt": wrapped,
-            "stream": False,
-            "temperature": float(temperature),
-            "n_predict": int(self.cfg.n_predict),
-            "json_schema": {"type": "object"},
-        }
+        payload = build_completion_payload(
+            self.cfg,
+            wrapped,
+            temperature=temperature,
+            schema_downgraded=self._schema_downgraded,
+        )
 
         start = time.monotonic()
 
@@ -181,6 +222,24 @@ class LlamaCppProvider:
                 if r.status >= 400:
                     text = await r.text()
                     preview = text[:500]
+                    # Older llama.cpp builds reject anything beyond a trivial
+                    # json_schema. Fall back to the permissive schema once and
+                    # retry rather than failing the whole stage.
+                    if (
+                        r.status == 400
+                        and not self._schema_downgraded
+                        and self.cfg.json_schema is not None
+                        and _looks_like_schema_rejection(text)
+                    ):
+                        self._schema_downgraded = True
+                        LOGGER.warning(
+                            "llama.cpp rejected the response schema at %s; "
+                            "falling back to a permissive schema -- body: %s",
+                            self._endpoint,
+                            preview,
+                        )
+                        raise _Retryable(RuntimeError("400: schema rejected"))
+
                     LOGGER.error(
                         "llama.cpp HTTP %d at %s -- body: %s",
                         r.status, self._endpoint, preview,

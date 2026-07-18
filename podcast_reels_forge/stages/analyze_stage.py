@@ -57,6 +57,7 @@ from podcast_reels_forge.llm.providers import (
     OpenAIConfig,
     OpenAIProvider,
 )
+from podcast_reels_forge.llm.schemas import MOMENTS_JSON_SCHEMA
 from podcast_reels_forge.utils.json_utils import extract_first_json_value
 from podcast_reels_forge.utils.logging_utils import setup_logging
 from podcast_reels_forge.utils.llama_cpp_service import (
@@ -293,24 +294,52 @@ def _coerce_json_list(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+_JSON_RETRY_NOTE = (
+    "\n\nВАЖНО: предыдущий ответ не удалось разобрать как JSON. "
+    "Верни ТОЛЬКО валидный JSON по схеме выше, без пояснений и markdown.\n"
+    "IMPORTANT: the previous answer could not be parsed as JSON. "
+    "Return ONLY valid JSON matching the schema above, no prose, no markdown."
+)
+
+
 async def get_llm_json(
     provider: LLMProvider,
     prompt: str,
     temperature: float,
     timeout: int,
+    *,
+    retries: int = 0,
 ) -> dict[str, Any] | list[Any]:
-    """Get JSON from an LLM response, logging a safe preview on failure."""
+    """Get JSON from an LLM response, logging a safe preview on failure.
 
-    raw = await provider.generate(prompt, temperature=temperature, timeout=timeout)
-    try:
-        return extract_first_json_value(raw)
-    except (json.JSONDecodeError, ValueError, TypeError):
-        preview = raw[:500].replace("\n", "\\n") if isinstance(raw, str) else str(raw)
-        LOGGER.warning(
-            "Failed to parse JSON from LLM output; returning [] (raw preview: %s)",
-            preview,
-        )
-        return []
+    An unparseable answer costs a whole chunk, so the request is re-issued up
+    to ``retries`` times with an explicit note about the malformed output.
+    """
+
+    attempts = max(1, 1 + int(retries))
+    for attempt in range(1, attempts + 1):
+        prompt_text = prompt if attempt == 1 else prompt + _JSON_RETRY_NOTE
+        raw = await provider.generate(prompt_text, temperature=temperature, timeout=timeout)
+        try:
+            return extract_first_json_value(raw)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            preview = raw[:500].replace("\n", "\\n") if isinstance(raw, str) else str(raw)
+            if attempt < attempts:
+                LOGGER.warning(
+                    "Failed to parse JSON from LLM output (attempt %d/%d), retrying "
+                    "(raw preview: %s)",
+                    attempt,
+                    attempts,
+                    preview,
+                )
+                continue
+            LOGGER.warning(
+                "Failed to parse JSON from LLM output after %d attempt(s); "
+                "returning [] (raw preview: %s)",
+                attempts,
+                preview,
+            )
+    return []
 
 
 def create_provider(
@@ -326,6 +355,7 @@ def create_provider(
     llama_cpp_log_interval_s: int = 10,
     llama_cpp_max_retries: int = 2,
     llama_cpp_n_predict: int = 4096,
+    llama_cpp_json_schema: Mapping[str, Any] | None = None,
 ) -> LLMProvider:
     """Create an LLM provider.
 
@@ -344,6 +374,7 @@ def create_provider(
                 log_interval_s=int(llama_cpp_log_interval_s),
                 max_retries=int(llama_cpp_max_retries),
                 n_predict=int(llama_cpp_n_predict),
+                json_schema=llama_cpp_json_schema,
                 fallback_models=tuple(llama_cpp_fallback_models or []),
             ),
         )
@@ -374,6 +405,7 @@ def _provider_for_role(
     base_url: str | None,
     role_conf: Mapping[str, Any] | None,
     api_key: str | None,
+    json_schema: Mapping[str, Any] | None = None,
 ) -> LLMProvider:
     conf = dict(role_conf or {})
     watchdog = conf.get("watchdog", {})
@@ -403,6 +435,7 @@ def _provider_for_role(
             watchdog.get("max_retries", conf.get("max_retries", 2)),
         ),
         llama_cpp_n_predict=int(conf.get("n_predict", 4096)),
+        llama_cpp_json_schema=json_schema,
     )
 
 
@@ -414,6 +447,52 @@ def _stage_config(
 ) -> dict[str, Any]:
     merged = merge_llama_cpp_role_conf(base_conf, model, role=role)
     return merged
+
+
+def analysis_conf_section(
+    processing_conf: Mapping[str, Any],
+    *keys: str,
+) -> Mapping[str, Any]:
+    """RU: Достаёт вложенную секцию processing.analysis.*, терпя мусор.
+
+    EN: Read a nested ``processing.analysis.*`` section, tolerating configs
+    where the key is absent or holds the wrong type. Every knob has a code
+    default, so the whole block is optional.
+    """
+
+    section: Mapping[str, Any] = processing_conf
+    for key in ("analysis", *keys):
+        value = section.get(key)
+        if not isinstance(value, Mapping):
+            return {}
+        section = value
+    return section
+
+
+def _conf_int(conf: Mapping[str, Any], key: str, default: int) -> int:
+    try:
+        return int(conf[key])
+    except (KeyError, TypeError, ValueError):
+        return default
+
+
+def _conf_float(conf: Mapping[str, Any], key: str, default: float) -> float:
+    try:
+        return float(conf[key])
+    except (KeyError, TypeError, ValueError):
+        return default
+
+
+def _conf_bool(conf: Mapping[str, Any], key: str, default: bool) -> bool:
+    value = conf.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    try:
+        return bool(int(value))
+    except (TypeError, ValueError):
+        return default
 
 
 def _stage_temperature(stage_conf: Mapping[str, Any], default: float) -> float:
@@ -603,6 +682,7 @@ def _make_stage_provider(
     base_url: str | None,
     stage_conf: Mapping[str, Any],
     api_key: str | None,
+    json_schema: Mapping[str, Any] | None = None,
 ) -> LLMProvider:
     return _provider_for_role(
         provider_name,
@@ -610,6 +690,7 @@ def _make_stage_provider(
         base_url=base_url,
         role_conf=stage_conf,
         api_key=api_key,
+        json_schema=json_schema,
     )
 
 
@@ -637,38 +718,73 @@ async def scout_candidates(
     timeout: int,
     progress: bool = False,
     parallelism: int = 1,
+    json_retries: int = 0,
 ) -> list[MomentRecord]:
+    """Scout each chunk for candidates.
+
+    A chunk that fails outright (the provider exhausted its retries, the
+    server went away) is logged and skipped: losing one 20-minute window is a
+    far better outcome than losing the whole episode. If every chunk fails the
+    caller is told, since that is a real outage rather than a bad chunk.
+    """
+
     candidates: list[MomentRecord] = []
     chunk_list = list(chunks)
     if not chunk_list:
         return candidates
 
     sem = asyncio.Semaphore(parallelism)
+    total = len(chunk_list)
+    failures = 0
 
-    async def _process_chunk(chunk: Any) -> list[MomentRecord]:
+    async def _process_chunk(index: int, chunk: Any) -> list[MomentRecord]:
+        nonlocal failures
         async with sem:
-            prompt_text = _render_prompt(
-                prompt,
-                _prompt_payload(
-                    requirements=requirements,
-                    chunk=chunk.to_prompt_dict() if hasattr(chunk, "to_prompt_dict") else None,
-                ),
-            )
-            resp = await get_llm_json(provider, prompt_text, temperature, timeout)
+            chunk_id = getattr(chunk, "chunk_id", f"chunk_{index:03d}")
+            try:
+                prompt_text = _render_prompt(
+                    prompt,
+                    _prompt_payload(
+                        requirements=requirements,
+                        chunk=chunk.to_prompt_dict() if hasattr(chunk, "to_prompt_dict") else None,
+                    ),
+                )
+                resp = await get_llm_json(
+                    provider, prompt_text, temperature, timeout, retries=json_retries,
+                )
+            except Exception as exc:
+                failures += 1
+                LOGGER.warning(
+                    "scout failed on %s (%d/%d); skipping this chunk: %s",
+                    chunk_id, index, total, exc,
+                )
+                return []
+
             chunk_candidates = _parse_candidate_response(resp, stage="scout")
             out: list[MomentRecord] = []
             for candidate in chunk_candidates:
                 out.append(
                     _attach_chunk_metadata(
                         candidate,
-                        chunk_id=getattr(chunk, "chunk_id", "chunk"),
+                        chunk_id=chunk_id,
                         speaker_set=getattr(chunk, "speaker_set", ()),
                     ),
                 )
+            if progress:
+                LOGGER.info(
+                    "[scout] %s (%d/%d): %d candidates", chunk_id, index, total, len(out),
+                )
             return out
 
-    tasks = [_process_chunk(c) for c in chunk_list]
+    tasks = [_process_chunk(i, c) for i, c in enumerate(chunk_list, 1)]
     results = await asyncio.gather(*tasks)
+
+    if failures == total:
+        raise RuntimeError(
+            f"scout failed on all {total} chunk(s); the llama.cpp server is likely down",
+        )
+    if failures:
+        LOGGER.warning("scout skipped %d of %d chunk(s) after errors", failures, total)
 
     for res in results:
         candidates.extend(res)
@@ -684,6 +800,7 @@ async def cleanup_and_refine_candidates(
     temperature: float,
     timeout: int,
     max_items: int,
+    json_retries: int = 0,
 ) -> list[MomentRecord]:
     cleaned_input = dedupe_moments(candidates)
     if not cleaned_input:
@@ -701,7 +818,9 @@ async def cleanup_and_refine_candidates(
             candidates=sorted_candidates,
         ),
     )
-    resp = await get_llm_json(provider, prompt_text, temperature, timeout)
+    resp = await get_llm_json(
+        provider, prompt_text, temperature, timeout, retries=json_retries,
+    )
     refined = _parse_candidate_response(resp, stage="cleanup_refine")
     if refined:
         return dedupe_moments(refined)
@@ -723,6 +842,7 @@ async def judge_candidates(
     prompt: str,
     temperature: float,
     timeout: int,
+    json_retries: int = 0,
 ) -> list[MomentRecord]:
     """Re-rate candidates globally.
 
@@ -741,7 +861,9 @@ async def judge_candidates(
             candidates=candidates,
         ),
     )
-    resp = await get_llm_json(provider, prompt_text, temperature, timeout)
+    resp = await get_llm_json(
+        provider, prompt_text, temperature, timeout, retries=json_retries,
+    )
     judged = _parse_candidate_response(resp, stage="judge_metadata")
     if not judged:
         return list(candidates)
@@ -804,6 +926,21 @@ async def run_staged_analysis(
     if target_total <= 0:
         target_total = int(processing_conf.get("reels_count", 4))
 
+    analysis_conf = analysis_conf_section(processing_conf)
+    json_retries = _conf_int(analysis_conf, "json_retry", 1)
+    cleanup_cap = _conf_int(analysis_conf, "cleanup_cap", _CLEANUP_CAP)
+    # Constraining the sampler to the moments schema is what keeps the JSON
+    # parseable; the permissive schema stays available as an escape hatch for
+    # llama.cpp builds whose grammar converter chokes on it.
+    response_schema = (
+        MOMENTS_JSON_SCHEMA
+        if _conf_bool(analysis_conf, "strict_json_schema", True)
+        else None
+    )
+    scoring_weights = analysis_conf_section(processing_conf, "scoring").get("weights")
+    if not isinstance(scoring_weights, Mapping):
+        scoring_weights = None
+
     base_timeout = int(llama_cpp_conf.get("timeout", 900))
     scout_conf = _stage_config(llama_cpp_conf, role="scout", model=roles.scout)
     cleanup_refine_conf = _stage_config(llama_cpp_conf, role="cleanup_refine", model=roles.cleanup_refine)
@@ -815,6 +952,7 @@ async def run_staged_analysis(
         base_url=str(llama_cpp_conf.get("url", url)),
         stage_conf=scout_conf,
         api_key=api_key,
+        json_schema=response_schema,
     )
     cleanup_refine_provider = _make_stage_provider(
         provider_name,
@@ -822,6 +960,7 @@ async def run_staged_analysis(
         base_url=str(llama_cpp_conf.get("url", url)),
         stage_conf=cleanup_refine_conf,
         api_key=api_key,
+        json_schema=response_schema,
     )
     judge_metadata_provider = _make_stage_provider(
         provider_name,
@@ -829,6 +968,7 @@ async def run_staged_analysis(
         base_url=str(llama_cpp_conf.get("url", url)),
         stage_conf=judge_metadata_conf,
         api_key=api_key,
+        json_schema=response_schema,
     )
 
     scout_prompt = _ensure_prompt_text("scout", prompt_lang, variant)
@@ -889,6 +1029,7 @@ async def run_staged_analysis(
         timeout=scout_timeout,
         progress=bool(progress and verbose and not quiet),
         parallelism=scout_parallelism,
+        json_retries=json_retries,
     )
     atomic_write_json(outdir / "scout_candidates.json", build_candidate_json(scouted_candidates))
 
@@ -897,12 +1038,12 @@ async def run_staged_analysis(
     # twice and would otherwise burn two of the capped slots, crowding out
     # candidates that were only found once.
     cleanup_input = dedupe_moments(scouted_candidates)
-    if len(cleanup_input) > _CLEANUP_CAP:
-        cleanup_input = sorted(cleanup_input, key=ranking_value, reverse=True)[:_CLEANUP_CAP]
+    if len(cleanup_input) > cleanup_cap:
+        cleanup_input = sorted(cleanup_input, key=ranking_value, reverse=True)[:cleanup_cap]
     if len(cleanup_input) < len(scouted_candidates):
         LOGGER.info(
             "pre-cleanup: %d scouted -> %d candidates (deduped, capped at %d)",
-            len(scouted_candidates), len(cleanup_input), _CLEANUP_CAP,
+            len(scouted_candidates), len(cleanup_input), cleanup_cap,
         )
 
     cleaned_candidates = await cleanup_and_refine_candidates(
@@ -913,6 +1054,7 @@ async def run_staged_analysis(
         temperature=cleanup_refine_temp,
         timeout=cleanup_refine_timeout,
         max_items=max(12, target_total * 3),
+        json_retries=json_retries,
     )
     atomic_write_json(outdir / "cleaned_candidates.json", build_candidate_json(cleaned_candidates))
 
@@ -923,13 +1065,18 @@ async def run_staged_analysis(
         prompt=judge_metadata_prompt,
         temperature=judge_metadata_temp,
         timeout=judge_metadata_timeout,
+        json_retries=json_retries,
     )
     if not judged_candidates:
         judged_candidates = list(cleaned_candidates)
 
     # Rank and finalize exactly once. Ranking twice used to feed the combined
     # priority back in as the next pass's base score.
-    selected = rank_moments(judged_candidates, clip_type_quotas=quotas)
+    selected = rank_moments(
+        judged_candidates,
+        clip_type_quotas=quotas,
+        scoring_weights=scoring_weights,
+    )
     if judged_candidates and not selected:
         # Every candidate fell outside the configured quotas. Emitting them
         # unranked would quietly override the config, so report it instead.
