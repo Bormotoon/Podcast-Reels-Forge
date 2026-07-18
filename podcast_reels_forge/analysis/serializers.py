@@ -21,6 +21,14 @@ def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> Path
         tmp.flush()
         os.fsync(tmp.fileno())
         tmp_path = Path(tmp.name)
+    # NamedTemporaryFile creates the file with mode 0600, and replace() keeps
+    # it — leaving artifacts unreadable to the owning group (e.g. anyone
+    # downloading via a group-based Samba share). Re-apply the umask-derived
+    # mode a normal open() would have produced so these files match their
+    # siblings (typically 0664).
+    umask = os.umask(0)
+    os.umask(umask)
+    os.chmod(tmp_path, 0o666 & ~umask)
     tmp_path.replace(path)
     return path
 
