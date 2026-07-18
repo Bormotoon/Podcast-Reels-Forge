@@ -8,7 +8,11 @@ from __future__ import annotations
 from typing import Any
 
 from podcast_reels_forge.analysis.contracts import MomentRecord, coerce_moment_record
-from podcast_reels_forge.analysis.ranking import dedupe_moments, rank_moments
+from podcast_reels_forge.analysis.ranking import (
+    dedupe_moments,
+    rank_moments,
+    ranking_value,
+)
 
 
 def _record(
@@ -106,3 +110,52 @@ def test_dedupe_keeps_distinct_moments() -> None:
     """Non-overlapping candidates all survive."""
     records = [_record(0, 40), _record(100, 140), _record(200, 240)]
     assert len(dedupe_moments(records)) == 3
+
+
+def test_ranking_preserves_the_model_score() -> None:
+    """`score` stays on the LLM's 1-10 scale; ranking writes `priority`.
+
+    The cut stage filters on `score` via quality_filters.min_score, so ranking
+    must not repurpose that field.
+    """
+    records = [_record(0, 45, score=7.0)]
+    selected = rank_moments(records, clip_type_quotas={"reel": 1})
+    assert len(selected) == 1
+    assert selected[0].score == 7.0
+    assert selected[0].priority is not None
+    assert selected[0].priority != 7.0
+
+
+def test_ranking_is_idempotent() -> None:
+    """Re-ranking an already-ranked list does not drift the priority.
+
+    Ranking twice used to feed the combined priority back in as the next
+    pass's base score, inflating it on every round.
+    """
+    records = [_record(0, 45, title="A"), _record(100, 150, title="B")]
+    once = rank_moments(records, clip_type_quotas={"reel": 5})
+    twice = rank_moments(once, clip_type_quotas={"reel": 5})
+
+    assert [r.title for r in once] == [r.title for r in twice]
+    for first, second in zip(once, twice):
+        assert first.priority == second.priority
+        assert first.score == second.score
+
+
+def test_ranking_value_prefers_priority_then_score() -> None:
+    """Ordering uses priority once present, and score before that."""
+    unscored = _record(0, 45, score=6.0)
+    assert ranking_value(unscored) == 6.0
+
+    scored = rank_moments([unscored], clip_type_quotas={"reel": 1})[0]
+    assert ranking_value(scored) == scored.priority
+
+
+def test_priority_round_trips_through_to_dict() -> None:
+    """The new field survives serialization back into a record."""
+    ranked = rank_moments([_record(0, 45)], clip_type_quotas={"reel": 1})[0]
+    restored = coerce_moment_record(ranked.to_dict())
+    assert restored is not None
+    assert restored.priority == ranked.priority
+    assert restored.score == ranked.score
+    assert "priority" not in restored.extra

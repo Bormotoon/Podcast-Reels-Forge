@@ -37,6 +37,7 @@ from podcast_reels_forge.analysis.metadata import finalize_moment_list
 from podcast_reels_forge.analysis.ranking import (
     dedupe_moments,
     rank_moments,
+    ranking_value,
 )
 from podcast_reels_forge.analysis.serializers import atomic_write_json
 
@@ -521,6 +522,11 @@ def render_reels_summary_markdown(moments: list[Moment]) -> str:
         title = str(moment_data.get("title", "")).strip()
         lines.append(f"## {i}. {title} [{moment_data.get('clip_type', 'reel')}]")
         lines.append(f"Time: {fmt_hms(float(moment_data.get('start', 0)))}-{fmt_hms(float(moment_data.get('end', 0)))}")
+        score_line = f"Score: {float(moment_data.get('score', 0)):.1f}/10"
+        priority = moment_data.get("priority")
+        if priority is not None:
+            score_line += f" (priority {float(priority):.2f})"
+        lines.append(score_line)
         why = str(moment_data.get("why", "")).strip()
         if why:
             lines.append(f"Why: {why}")
@@ -685,7 +691,7 @@ async def cleanup_and_refine_candidates(
 
     sorted_candidates = sorted(
         cleaned_input,
-        key=lambda record: (-float(record.score), record.start, record.end),
+        key=lambda record: (-ranking_value(record), record.start, record.end),
     )[:max(1, int(max_items))]
 
     prompt_text = _render_prompt(
@@ -702,7 +708,14 @@ async def cleanup_and_refine_candidates(
     return list(sorted_candidates)
 
 
-async def judge_and_finalize_candidates(
+def _keep_judge_score(record: MomentRecord) -> MomentRecord:
+    """Record the judge's own rating alongside the scout's."""
+
+    payload = {**record.to_dict(), "judge_score": float(record.score)}
+    return coerce_moment_record(payload) or record
+
+
+async def judge_candidates(
     provider: LLMProvider,
     candidates: Sequence[MomentRecord],
     *,
@@ -710,8 +723,14 @@ async def judge_and_finalize_candidates(
     prompt: str,
     temperature: float,
     timeout: int,
-    quotas: Mapping[str, int],
 ) -> list[MomentRecord]:
+    """Re-rate candidates globally.
+
+    Returns records as the judge rated them — ranking, quota selection and
+    metadata finalization all happen once, in the caller, so the combined
+    priority is never computed on top of itself.
+    """
+
     if not candidates:
         return []
 
@@ -724,11 +743,9 @@ async def judge_and_finalize_candidates(
     )
     resp = await get_llm_json(provider, prompt_text, temperature, timeout)
     judged = _parse_candidate_response(resp, stage="judge_metadata")
-    if judged:
-        selected = rank_moments(judged, clip_type_quotas=quotas)
-        return finalize_moment_list(selected)
-    selected = rank_moments(candidates, clip_type_quotas=quotas)
-    return finalize_moment_list(selected)
+    if not judged:
+        return list(candidates)
+    return [_keep_judge_score(record) for record in judged]
 
 
 def _ensure_prompt_text(stage: str, lang: str, variant: str) -> str:
@@ -881,7 +898,7 @@ async def run_staged_analysis(
     # candidates that were only found once.
     cleanup_input = dedupe_moments(scouted_candidates)
     if len(cleanup_input) > _CLEANUP_CAP:
-        cleanup_input = sorted(cleanup_input, key=lambda m: m.score, reverse=True)[:_CLEANUP_CAP]
+        cleanup_input = sorted(cleanup_input, key=ranking_value, reverse=True)[:_CLEANUP_CAP]
     if len(cleanup_input) < len(scouted_candidates):
         LOGGER.info(
             "pre-cleanup: %d scouted -> %d candidates (deduped, capped at %d)",
@@ -899,20 +916,31 @@ async def run_staged_analysis(
     )
     atomic_write_json(outdir / "cleaned_candidates.json", build_candidate_json(cleaned_candidates))
 
-    final_moments = await judge_and_finalize_candidates(
+    judged_candidates = await judge_candidates(
         judge_metadata_provider,
         cleaned_candidates,
         requirements=requirements,
         prompt=judge_metadata_prompt,
         temperature=judge_metadata_temp,
         timeout=judge_metadata_timeout,
-        quotas=quotas,
     )
+    if not judged_candidates:
+        judged_candidates = list(cleaned_candidates)
 
-    if not final_moments:
-        final_moments = finalize_moment_list(cleaned_candidates)
-
-    final_moments = rank_moments(final_moments, clip_type_quotas=quotas) or final_moments
+    # Rank and finalize exactly once. Ranking twice used to feed the combined
+    # priority back in as the next pass's base score.
+    selected = rank_moments(judged_candidates, clip_type_quotas=quotas)
+    if judged_candidates and not selected:
+        # Every candidate fell outside the configured quotas. Emitting them
+        # unranked would quietly override the config, so report it instead.
+        LOGGER.warning(
+            "no candidate matched the configured clip quotas %s "
+            "(%d candidates, types: %s)",
+            quotas,
+            len(judged_candidates),
+            sorted({record.clip_type for record in judged_candidates}),
+        )
+    final_moments = finalize_moment_list(selected)
     final_payload = [moment.to_dict() for moment in final_moments]
     atomic_write_json(outdir / "moments.json", final_payload)
     (outdir / "reels.md").write_text(

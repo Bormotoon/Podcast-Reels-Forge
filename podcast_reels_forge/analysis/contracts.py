@@ -54,11 +54,16 @@ class MomentRecord:
     title: str
     quote: str
     why: str
+    # The model's own 1-10 rating. Stays on that scale end to end: the cut
+    # stage filters on it via processing.quality_filters.min_score.
     score: float
     clip_type: str = "reel"
     hook: str = ""
     caption: str = ""
     hashtags: tuple[str, ...] = ()
+    # Combined heuristic ranking value. Only meaningful when comparing
+    # candidates against each other, so it is kept apart from `score`.
+    priority: float | None = None
     judge_score: float | None = None
     hook_score: float | None = None
     completeness_score: float | None = None
@@ -85,6 +90,7 @@ class MomentRecord:
             "hashtags": list(self.hashtags),
         }
         optional = {
+            "priority": self.priority,
             "judge_score": self.judge_score,
             "hook_score": self.hook_score,
             "completeness_score": self.completeness_score,
@@ -154,6 +160,7 @@ def coerce_moment_record(raw: Mapping[str, Any]) -> MomentRecord | None:
             "hook",
             "caption",
             "hashtags",
+            "priority",
             "judge_score",
             "hook_score",
             "completeness_score",
@@ -178,6 +185,7 @@ def coerce_moment_record(raw: Mapping[str, Any]) -> MomentRecord | None:
         hook=str(raw.get("hook", "")).strip(),
         caption=str(raw.get("caption", "")).strip(),
         hashtags=hashtags,
+        priority=_float_or_none(raw.get("priority")),
         judge_score=_float_or_none(raw.get("judge_score")),
         hook_score=_float_or_none(raw.get("hook_score")),
         completeness_score=_float_or_none(raw.get("completeness_score")),
