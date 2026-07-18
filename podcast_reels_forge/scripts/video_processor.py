@@ -142,9 +142,9 @@ def ffmpeg_cut(
 
         filters.append(vf)
 
-    burning_subtitles = bool(ass_path and ass_path.exists())
+    burning_subtitles = ass_path is not None and ass_path.exists()
     libass_ffmpeg: str | None = None
-    if burning_subtitles:
+    if ass_path is not None and burning_subtitles:
         # Escape path for FFmpeg filter
         safe_ass_path = str(ass_path.resolve()).replace('\\', '/').replace(':', '\\:')
         filters.append(f"ass='{safe_ass_path}'")

@@ -32,6 +32,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 from podcast_reels_forge.utils.logging_utils import setup_logging
 
@@ -100,12 +101,18 @@ def main(argv: list[str] | None = None) -> None:
     if args.verbose:
         _status(f"[diarize] model={args.model}", quiet=args.quiet)
 
+    # The signature and return type differ across pyannote.audio majors, so
+    # this whole block is checked at runtime rather than by mypy.
     try:
         pipeline = Pipeline.from_pretrained(args.model, token=token)
     except TypeError:
         # RU: pyannote.audio <4.0 использует старое имя аргумента.
         # EN: pyannote.audio <4.0 uses the old argument name.
-        pipeline = Pipeline.from_pretrained(args.model, use_auth_token=token)
+        pipeline = Pipeline.from_pretrained(  # type: ignore[call-arg]
+            args.model, use_auth_token=token,
+        )
+    if pipeline is None:
+        raise SystemExit(f"Failed to load diarization pipeline: {args.model}")
 
     try:
         import torch
@@ -114,7 +121,7 @@ def main(argv: list[str] | None = None) -> None:
     except ImportError:
         pass
 
-    pipeline_kwargs = {}
+    pipeline_kwargs: dict[str, Any] = {}
     if args.num_speakers:
         pipeline_kwargs["num_speakers"] = args.num_speakers
     diarization = pipeline(str(args.input), **pipeline_kwargs)
@@ -122,7 +129,7 @@ def main(argv: list[str] | None = None) -> None:
     #     а не Annotation напрямую.
     # EN: pyannote.audio>=4.0 returns a DiarizeOutput (.speaker_diarization)
     #     instead of an Annotation directly.
-    annotation = getattr(diarization, "speaker_diarization", diarization)
+    annotation: Any = getattr(diarization, "speaker_diarization", diarization)
 
     items: list[dict[str, object]] = []
     for turn, _track, speaker in annotation.itertracks(yield_label=True):
