@@ -494,3 +494,130 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
     assert (reels_dir / "reel_01.md").exists()
     assert (rejected_dir / "reel_02.md").exists()
     assert subtitle_sync_calls == [(reels_dir, transcript_path)]
+
+
+def test_run_pipeline_routes_proofread_transcript_to_analysis(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Ensure the proofread stage runs and analysis gets the corrected file."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "video.mp4").write_text("x")
+
+    def fake_ffmpeg_run(
+        cmd: list[str] | tuple[str, ...],
+        *,
+        capture_output: bool = False,
+        text: bool = False,
+        **_: object,
+    ) -> SimpleNamespace:
+        cmd_list = list(cmd)
+        Path(cmd_list[-1]).write_text("mp3")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fake_ffmpeg_run)
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
+
+    def fake_transcribe_file(config: pipeline.TranscribeConfig) -> Path:
+        out_path = config.outdir / config.input_path.with_suffix(".json").name
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps({
+                "language": "ru",
+                "duration": 10.0,
+                "segments": [{"start": 0.0, "end": 10.0, "text": "привет мир"}],
+            }),
+            encoding="utf-8",
+        )
+        out_path.with_suffix(".srt").write_text(
+            "1\n00:00:00,000 --> 00:00:10,000\nпривет мир\n",
+            encoding="utf-8",
+        )
+        return out_path
+
+    monkeypatch.setattr(pipeline, "transcribe_file", fake_transcribe_file)
+
+    proofread_calls: list[dict[str, object]] = []
+
+    async def fake_run_proofread(
+        *,
+        transcript_path: Path,
+        output_path: Path,
+        url: str,
+        model: str,
+        proofread_conf: dict[str, object],
+        prompts_conf: dict[str, object],
+        quiet: bool = False,
+        verbose: bool = False,
+    ) -> Path:
+        proofread_calls.append({
+            "transcript_path": transcript_path,
+            "output_path": output_path,
+            "model": model,
+            "proofread_conf": proofread_conf,
+        })
+        output_path.write_text(
+            json.dumps({
+                "language": "ru",
+                "segments": [{"start": 0.0, "end": 10.0, "text": "Привет, мир!"}],
+            }),
+            encoding="utf-8",
+        )
+        output_path.with_suffix(".srt").write_text(
+            "1\n00:00:00,000 --> 00:00:10,000\nПривет, мир!\n",
+            encoding="utf-8",
+        )
+        return output_path
+
+    monkeypatch.setattr(pipeline, "run_proofread", fake_run_proofread)
+
+    analysis_calls: list[dict[str, object]] = []
+
+    async def fake_run_staged_analysis(**kwargs: object) -> list[dict[str, object]]:
+        analysis_calls.append(kwargs)
+        outdir = kwargs["outdir"]
+        outdir.mkdir(parents=True, exist_ok=True)
+        (outdir / "moments.json").write_text("[]", encoding="utf-8")
+        (outdir / "reels.md").write_text("# Reels Suggestions\n", encoding="utf-8")
+        return []
+
+    monkeypatch.setattr(pipeline, "run_staged_analysis", fake_run_staged_analysis)
+    monkeypatch.setattr(pipeline, "run_module", lambda *a, **kw: None)
+    monkeypatch.setattr(pipeline, "llama_cpp_start", lambda **kw: None)
+    monkeypatch.setattr(pipeline, "llama_cpp_stop", lambda proc: None)
+    monkeypatch.setattr(pipeline, "wait_for_server_ready", lambda *a, **kw: None)
+    monkeypatch.setattr(pipeline, "_kill_llama_server", lambda *a: None)
+    monkeypatch.setattr(pipeline, "is_tcp_open", lambda *a: False)
+
+    conf = {
+        "paths": {"input_dir": str(input_dir), "output_dir": str(tmp_path / "output")},
+        "transcription": {"language": "ru", "device": "cpu"},
+        "llama_cpp": {
+            "roles": {
+                "scout": "gemma4",
+                "cleanup_refine": "gemma4",
+                "judge_metadata": "gemma4",
+                "proofread": "gemma4:26b",
+            },
+            "url": "http://127.0.0.1:8080/v1/chat/completions",
+            "service": {"auto_start": True, "model_path": str(tmp_path / "model.gguf")},
+        },
+        "processing": {"reels_count": 1, "reel_padding": 5},
+        "video": {"threads": 1},
+        "exports": {},
+        "subtitles": {"enabled": False},
+        "diarization": {"enabled": False},
+        "proofread": {"enabled": True, "max_chars_chunk": 4000},
+        "prompts": {"language": "auto", "variant": "default"},
+    }
+
+    pipeline.run_pipeline(conf=conf, repo_dir=tmp_path, quiet=True, verbose=False)
+
+    assert len(proofread_calls) == 1
+    expected_proofread = tmp_path / "output" / "video" / "video.proofread.json"
+    assert proofread_calls[0]["transcript_path"] == tmp_path / "output" / "video" / "video.json"
+    assert proofread_calls[0]["output_path"] == expected_proofread
+    assert proofread_calls[0]["model"] == "gemma4:26b"
+
+    assert len(analysis_calls) == 1
+    assert analysis_calls[0]["transcript_path"] == expected_proofread

@@ -105,6 +105,16 @@
             <div class="field" style="margin-bottom: 16px;">
               <label class="m3-switch">
                 <div>
+                  <div class="m3-switch-text" data-i18n="set_proofread">Вычитка транскрипта (LLM)</div>
+                  <div class="m3-switch-desc" data-i18n="set_proofread_desc">Исправлять орфографию и пунктуацию моделью gemma4 перед анализом</div>
+                </div>
+                <input type="checkbox" id="cfgSettingsProofread" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
                   <div class="m3-switch-text" data-i18n="set_diar">Диаризация (ID спикеров)</div>
                   <div class="m3-switch-desc" data-i18n="set_diar_desc">Определять спикеров в аудио</div>
                 </div>
@@ -200,6 +210,7 @@
         <div class="pipeline-overview" id="pipelineOverview">
           <div class="pipeline-overview-dot" data-stage="transcribe"></div>
           <div class="pipeline-overview-dot" data-stage="diarize"></div>
+          <div class="pipeline-overview-dot" data-stage="proofread"></div>
           <div class="pipeline-overview-dot" data-stage="analyze"></div>
           <div class="pipeline-overview-dot" data-stage="cut"></div>
           <div class="pipeline-overview-dot" data-stage="subtitles"></div>

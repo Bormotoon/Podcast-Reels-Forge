@@ -29,12 +29,15 @@ class LlamaCppRoleMapping:
     scout: str
     cleanup_refine: str
     judge_metadata: str
+    # Optional transcript proofreading role; falls back to cleanup_refine.
+    proofread: str = "gemma4:26b"
 
     def as_dict(self) -> dict[str, str]:
         return {
             "scout": self.scout,
             "cleanup_refine": self.cleanup_refine,
             "judge_metadata": self.judge_metadata,
+            "proofread": self.proofread,
         }
 
     def unique_models(self) -> tuple[str, ...]:
@@ -149,11 +152,14 @@ def resolve_llama_cpp_role_mapping(conf: Mapping[str, Any] | None) -> LlamaCppRo
     scout = role_map["scout"]
     cleanup_refine = role_map["cleanup_refine"]
     judge_metadata = role_map["judge_metadata"]
+    # Proofread is optional: older configs without it reuse the cleanup model.
+    proofread = role_map.get("proofread") or cleanup_refine
 
     resolved = LlamaCppRoleMapping(
         scout=scout,
         cleanup_refine=cleanup_refine,
         judge_metadata=judge_metadata,
+        proofread=proofread,
     )
 
     _validate_allowed_models(
@@ -161,6 +167,7 @@ def resolve_llama_cpp_role_mapping(conf: Mapping[str, Any] | None) -> LlamaCppRo
             "scout": resolved.scout,
             "cleanup_refine": resolved.cleanup_refine,
             "judge_metadata": resolved.judge_metadata,
+            "proofread": resolved.proofread,
         },
     )
 

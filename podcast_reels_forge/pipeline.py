@@ -47,6 +47,7 @@ from podcast_reels_forge.config import (
     resolve_llama_cpp_role_mapping,
 )
 from podcast_reels_forge.stages.analyze_stage import run_staged_analysis
+from podcast_reels_forge.stages.proofread_stage import run_proofread
 from podcast_reels_forge.stages.transcribe_stage import (
     TranscribeConfig,
     transcribe_file,
@@ -444,6 +445,10 @@ def run_pipeline(
 
     diar_conf = conf.get("diarization", {})
     diar_enabled = bool(diar_conf.get("enabled", False))
+    proofread_conf = conf.get("proofread", {})
+    if not isinstance(proofread_conf, dict):
+        proofread_conf = {}
+    proofread_enabled = bool(proofread_conf.get("enabled", False))
     subtitle_settings = subtitle_settings_from_conf(conf, repo_dir=repo_dir)
     a_conf = conf.get("llama_cpp", {})
     prompts_conf = conf.get("prompts", {})
@@ -476,7 +481,7 @@ def run_pipeline(
     _llama_url = str(a_conf.get("url", "")).strip()
     local_llama_global = parse_local_llama_cpp_host_port(_llama_url) if _llama_url else None
 
-    stages_per_file = 1 + (1 if diar_enabled else 0) + 2
+    stages_per_file = 1 + (1 if diar_enabled else 0) + (1 if proofread_enabled else 0) + 2
     total_stages = len(queue) * stages_per_file
     stage_iter = iter(
         tqdm(
@@ -604,7 +609,8 @@ def run_pipeline(
             except StopIteration:
                 pass
 
-        # 3) Analyze (staged, single final output folder)
+        # 3) Proofread + Analyze (share one llama-server session; proofread runs
+        #    after diarization so pyannote gets the GPU before llama loads).
         url = str(a_conf.get("url", "http://127.0.0.1:8080/v1/chat/completions")).strip()
         llama_cpp_proc: subprocess.Popen | None = None
         local_llama = parse_local_llama_cpp_host_port(str(url))
@@ -626,6 +632,44 @@ def run_pipeline(
             wait_for_server_ready(host, port, timeout_s=max(startup_timeout, 300))
 
         try:
+            # 3a) Proofread transcript: LLM fixes spelling/punctuation, writes
+            #     <stem>.proofread.json; downstream stages use the corrected file.
+            if proofread_enabled:
+                proofread_path = transcript_path.with_name(
+                    transcript_path.stem + ".proofread.json",
+                )
+                proofread_srt_path = proofread_path.with_suffix(".srt")
+                if skip_existing and _outputs_ready(
+                    [proofread_path, proofread_srt_path],
+                    validate_json=validate_json,
+                ):
+                    status("[proofread] skip (exists)", quiet=quiet)
+                    transcript_path = proofread_path
+                else:
+                    status(f"[proofread] start ({roles.proofread})", quiet=quiet)
+                    try:
+                        asyncio.run(run_proofread(
+                            transcript_path=transcript_path,
+                            output_path=proofread_path,
+                            url=url,
+                            model=roles.proofread,
+                            proofread_conf=proofread_conf,
+                            prompts_conf=prompts_conf,
+                            quiet=quiet,
+                            verbose=verbose,
+                        ))
+                        transcript_path = proofread_path
+                        status("[proofread] done", quiet=quiet)
+                    except Exception as exc:
+                        log.exception(
+                            "Proofread failed; continuing with the raw transcript: %s",
+                            exc,
+                        )
+                try:
+                    next(stage_iter)
+                except StopIteration:
+                    pass
+
             analysis_model_folder.mkdir(parents=True, exist_ok=True)
             moments_path = analysis_model_folder / "moments.json"
             reels_md_path = analysis_model_folder / "reels.md"

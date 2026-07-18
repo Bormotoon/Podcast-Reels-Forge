@@ -45,6 +45,7 @@ llama_cpp:
     refine: "gemma4:27b"
     judge: "gemma4:27b"
     metadata: "gemma4:27b"
+    proofread: "gemma4:27b"   # optional; defaults to the cleanup model
   timeout: 600
   temperature: 0.2
   chunk_seconds: 900
@@ -69,6 +70,37 @@ Notes:
 - `roles` is the default way to configure the staged analysis pipeline.
 - `model_overrides` is retained only for legacy compatibility.
 - The default workflow is llama.cpp-only and Gemma 4-only (currently the `gemma4:27b` lineup, partially offloaded to fit 16GB VRAM).
+
+## Proofread / Вычитка транскрипта
+
+```yaml
+proofread:
+  enabled: true
+  max_chars_chunk: 4000   # max source chars per LLM request
+  temperature: 0.0
+  timeout: 600
+  min_similarity: 0.8     # reject corrections below this similarity (0..1)
+```
+
+RU: После транскрибации (и диаризации) gemma4 вычитывает транскрипт: исправляет
+орфографию, пунктуацию и регистр по правилам языка. Guardrail сравнивает каждое
+исправление с оригиналом по нормализованному буквенному составу (без пунктуации
+и регистра): если модель дописала, удалила или пересказала текст, правка
+отклоняется и остаётся оригинал. Результат пишется в `<имя>.proofread.json` и
+`<имя>.proofread.srt`; исходный транскрипт не изменяется. Дальше по конвейеру
+(анализ, прожиг субтитров) используется вычитанная версия.
+
+EN: After transcription (and diarization) gemma4 proofreads the transcript:
+fixes spelling, punctuation and capitalization. A guardrail compares every
+correction against the original by normalized letter content (punctuation and
+case stripped): if the model added, removed or paraphrased anything, the
+correction is rejected and the original text is kept. Output goes to
+`<stem>.proofread.json` + `<stem>.proofread.srt`; the raw transcript is left
+untouched. Downstream stages (analysis, burned subtitles) use the corrected
+version.
+
+The model is selected via `llama_cpp.roles.proofread` (falls back to the
+`cleanup_refine` model when omitted).
 
 ## Processing / Обработка
 

@@ -68,6 +68,7 @@ llama_cpp:
     scout: "gemma4:26b"
     cleanup_refine: "gemma4:26b"
     judge_metadata: "gemma4:26b"
+    proofread: "gemma4:26b"
   timeout: 600
   temperature: 0.2
   chunk_seconds: 900
@@ -105,6 +106,21 @@ llama_cpp:
 prompts:
   language: "auto"        # auto | ru | en
   variant: "default"      # default | a | b
+
+# Вычитка транскрипта: gemma4 исправляет орфографию и пунктуацию перед анализом.
+# Guardrail сравнивает каждое исправление с оригиналом по буквенному составу и
+# отклоняет правку, если модель дописала/удалила/пересказала текст. Результат
+# пишется в <имя>.proofread.json (+ .srt); исходный транскрипт не меняется.
+proofread:
+  enabled: true
+  # Максимум символов исходного текста в одном запросе. Вход и выход примерно
+  # равны по размеру, поэтому бюджет держится с запасом внутри ctx_size=8192.
+  max_chars_chunk: 4000
+  temperature: 0.0
+  timeout: 600
+  # Порог схожести (0..1) нормализованного текста (без пунктуации/регистра).
+  # Ниже порога исправление отклоняется и остаётся оригинал.
+  min_similarity: 0.8
 
 processing:
   quality_filters:
