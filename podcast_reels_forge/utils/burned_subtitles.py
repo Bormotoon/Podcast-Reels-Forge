@@ -43,17 +43,20 @@ DEFAULT_GAP_BETWEEN_SUBTITLES_S = 0.15
 
 
 @dataclass(frozen=True)
-class SubtitleSegment:
+class _TimedSubtitleWord:
     start: float
     end: float
     text: str
 
 
 @dataclass(frozen=True)
-class _TimedSubtitleWord:
+class SubtitleSegment:
     start: float
     end: float
     text: str
+    # Real per-word timings from the transcript, when it carries them. Empty
+    # means the karaoke timing has to be interpolated from the segment span.
+    words: tuple[_TimedSubtitleWord, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -339,10 +342,60 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Default,{font_name},{font_size},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,1,0,1,4,3,2,40,40,150,1"""
 
 
+def load_transcript_words(data: Mapping[str, Any]) -> list[_TimedSubtitleWord]:
+    """Every word the transcript timed, in order.
+
+    faster-whisper emits these for both modes, but the burn path used to
+    ignore them and guess word timings from character lengths instead.
+    """
+
+    words: list[_TimedSubtitleWord] = []
+    raw_segments = data.get("segments")
+    if not isinstance(raw_segments, list):
+        return words
+
+    for raw_segment in raw_segments:
+        if not isinstance(raw_segment, Mapping):
+            continue
+        raw_words = raw_segment.get("words")
+        if not isinstance(raw_words, list):
+            continue
+        for raw_word in raw_words:
+            if not isinstance(raw_word, Mapping):
+                continue
+            text = str(raw_word.get("word", "")).strip()
+            start = _coerce_float(raw_word.get("start"), default=-1.0)
+            end = _coerce_float(raw_word.get("end"), default=-1.0)
+            if not text or start < 0 or end <= start:
+                continue
+            words.append(_TimedSubtitleWord(start=start, end=end, text=text))
+
+    words.sort(key=lambda word: (word.start, word.end))
+    return words
+
+
+def _words_within(
+    words: Sequence[_TimedSubtitleWord],
+    start: float,
+    end: float,
+) -> tuple[_TimedSubtitleWord, ...]:
+    """Words whose midpoint falls inside the span."""
+
+    if not words:
+        return ()
+    return tuple(
+        word
+        for word in words
+        if start <= (word.start + word.end) / 2.0 <= end
+    )
+
+
 def load_transcript_segments(path: Path) -> list[SubtitleSegment]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         return []
+
+    all_words = load_transcript_words(data)
 
     raw_sentences = data.get("sentences", [])
     if isinstance(raw_sentences, list) and raw_sentences:
@@ -357,7 +410,14 @@ def load_transcript_segments(path: Path) -> list[SubtitleSegment]:
             end = _coerce_float(raw.get("end"), default=0.0)
             if end <= start:
                 continue
-            sentence_segments.append(SubtitleSegment(start=start, end=end, text=text))
+            sentence_segments.append(
+                SubtitleSegment(
+                    start=start,
+                    end=end,
+                    text=text,
+                    words=_words_within(all_words, start, end),
+                ),
+            )
         if sentence_segments:
             return sentence_segments
 
@@ -373,7 +433,14 @@ def load_transcript_segments(path: Path) -> list[SubtitleSegment]:
         end = _coerce_float(raw.get("end"), default=0.0)
         if end <= start:
             continue
-        segments.append(SubtitleSegment(start=start, end=end, text=text))
+        segments.append(
+            SubtitleSegment(
+                start=start,
+                end=end,
+                text=text,
+                words=_words_within(all_words, start, end),
+            ),
+        )
     return segments
 
 
@@ -396,11 +463,23 @@ def slice_segments_for_clip(
         shifted_end = max(0.0, overlap_end - clip_start)
         if shifted_end - shifted_start < 0.05:
             continue
+        # Word timings are absolute in the episode; move them onto the clip's
+        # own timeline and drop any that fall outside it.
+        shifted_words = tuple(
+            _TimedSubtitleWord(
+                start=round(max(0.0, word.start - clip_start), 3),
+                end=round(max(0.0, word.end - clip_start), 3),
+                text=word.text,
+            )
+            for word in seg.words
+            if word.end > overlap_start and word.start < overlap_end
+        )
         out.append(
             SubtitleSegment(
                 start=round(shifted_start, 3),
                 end=round(shifted_end, 3),
                 text=seg.text,
+                words=tuple(word for word in shifted_words if word.end > word.start),
             ),
         )
     return out
@@ -493,6 +572,7 @@ def _merge_consecutive_segments(
 
     merged: list[SubtitleSegment] = []
     current_text_parts: list[str] = []
+    current_words: list[_TimedSubtitleWord] = []
     current_start: float | None = None
     current_end: float = 0.0
 
@@ -503,6 +583,9 @@ def _merge_consecutive_segments(
                     start=round(current_start, 3),
                     end=round(current_end, 3),
                     text=" ".join(current_text_parts),
+                    # Merging is pure concatenation in time order, so the
+                    # word timings stay valid for the combined block.
+                    words=tuple(current_words),
                 )
             )
 
@@ -530,11 +613,15 @@ def _merge_consecutive_segments(
         if should_flush:
             flush()
             current_text_parts = []
+            current_words = []
             current_start = None
 
         if current_start is None:
             current_start = seg.start
         current_text_parts.append(text)
+        # If any part of a block lacks word timings the totals will not match
+        # its text, and _real_timed_words falls back to interpolation.
+        current_words.extend(seg.words)
         current_end = seg.end
 
     flush()
@@ -559,6 +646,7 @@ def _remove_overlaps(segments: list[SubtitleSegment]) -> list[SubtitleSegment]:
                 start=round(new_start, 3),
                 end=round(new_start + duration, 3),
                 text=seg.text,
+                words=seg.words,
             )
         result.append(seg)
     return result
@@ -581,6 +669,7 @@ def _enforce_timing_constraints(
                 start=seg.start,
                 end=round(seg.start + DEFAULT_MIN_DURATION_S, 3),
                 text=seg.text,
+                words=seg.words,
             )
 
         if duration > DEFAULT_MAX_DURATION_S:
@@ -588,6 +677,7 @@ def _enforce_timing_constraints(
                 start=seg.start,
                 end=round(seg.start + DEFAULT_MAX_DURATION_S, 3),
                 text=seg.text,
+                words=seg.words,
             )
 
         if result:
@@ -600,6 +690,7 @@ def _enforce_timing_constraints(
                         start=prev.start,
                         end=round(new_prev_end, 3),
                         text=prev.text,
+                        words=prev.words,
                     )
 
         result.append(seg)
@@ -655,6 +746,9 @@ def _split_long_segment(
                 start=round(chunk_words[0].start, 3),
                 end=round(chunk_words[-1].end, 3),
                 text=" ".join(w.text for w in chunk_words).strip(),
+                # Carry the timings through the split so the sub-segments keep
+                # real word timing instead of re-interpolating.
+                words=tuple(chunk_words) if segment.words else (),
             )
         )
         word_index = chunk_end
@@ -734,7 +828,54 @@ def _find_split_point(
     return current_index
 
 
+def _normalize_word(text: str) -> str:
+    """Compare-friendly form of a word: letters and digits only, lowercased."""
+
+    return "".join(char for char in text.lower() if char.isalnum())
+
+
+def _real_timed_words(segment: SubtitleSegment) -> list[_TimedSubtitleWord] | None:
+    """The segment's own word timings, if they still match its text.
+
+    The proofread stage rewrites segment text in place while keeping the
+    original word list, so the two can legitimately disagree; when they do the
+    caller falls back to interpolation rather than mistiming the karaoke.
+    """
+
+    if not segment.words:
+        return None
+
+    words_text = [word for word in segment.text.split() if word.strip()]
+    if len(words_text) != len(segment.words):
+        return None
+
+    for expected, actual in zip(words_text, segment.words):
+        if _normalize_word(expected) != _normalize_word(actual.text):
+            return None
+
+    # Keep the text as rendered, but take the timings from the transcript.
+    # The ASS karaoke tag consumes durations back to back, so a word runs
+    # until the next one actually starts — that way the highlight advances on
+    # the real speech onset instead of drifting through the pauses.
+    timed: list[_TimedSubtitleWord] = []
+    for index, (expected, actual) in enumerate(zip(words_text, segment.words)):
+        is_last = index == len(words_text) - 1
+        end = actual.end if is_last else segment.words[index + 1].start
+        timed.append(
+            _TimedSubtitleWord(
+                start=round(actual.start, 3),
+                end=round(max(actual.start + 0.01, end), 3),
+                text=expected,
+            ),
+        )
+    return timed
+
+
 def _build_timed_words(segment: SubtitleSegment) -> list[_TimedSubtitleWord]:
+    real = _real_timed_words(segment)
+    if real is not None:
+        return real
+
     words_text = [word for word in segment.text.split() if word.strip()]
     if not words_text:
         return []

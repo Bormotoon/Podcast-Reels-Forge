@@ -135,3 +135,150 @@ def test_ensure_reel_burned_subtitles_writes_srt_and_ass(
     assert srt_path.exists()
     srt_content = srt_path.read_text(encoding="utf-8")
     assert "Key moment" in srt_content
+
+
+# -- word-level timing -------------------------------------------------------
+
+
+def _word(start: float, end: float, text: str) -> dict[str, float | str]:
+    return {"start": start, "end": end, "word": text, "probability": 0.9}
+
+
+def _transcript_with_words(path: Path) -> Path:
+    """A transcript whose words are deliberately uneven in duration.
+
+    Interpolating by character length would spread them evenly, so any test
+    asserting the real timings survived can tell the two apart.
+    """
+    path.write_text(
+        json.dumps(
+            {
+                "language": "ru",
+                "duration": 10.0,
+                "timing_version": 2,
+                "segments": [
+                    {
+                        "start": 0.0,
+                        "end": 6.0,
+                        "text": "Да очень длинное слово",
+                        "words": [
+                            _word(0.0, 3.0, "Да"),
+                            _word(3.0, 3.5, "очень"),
+                            _word(3.5, 4.0, "длинное"),
+                            _word(4.0, 6.0, "слово"),
+                        ],
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_load_transcript_segments_attaches_word_timings(tmp_path: Path) -> None:
+    segments = bs.load_transcript_segments(_transcript_with_words(tmp_path / "t.json"))
+
+    assert len(segments) == 1
+    assert [w.text for w in segments[0].words] == ["Да", "очень", "длинное", "слово"]
+
+
+def test_build_timed_words_uses_real_timings(tmp_path: Path) -> None:
+    """"Да" is short but lasts 3s; interpolation would give it the least time."""
+    segment = bs.load_transcript_segments(_transcript_with_words(tmp_path / "t.json"))[0]
+
+    timed = bs._build_timed_words(segment)
+    durations = {w.text: round(w.end - w.start, 3) for w in timed}
+
+    assert durations["Да"] == 3.0
+    assert durations["очень"] == 0.5
+    assert durations["Да"] > durations["длинное"]
+
+
+def test_build_timed_words_falls_back_without_word_data() -> None:
+    """Transcripts with no word timings still get karaoke, just interpolated."""
+    segment = bs.SubtitleSegment(start=0.0, end=4.0, text="раз два три")
+
+    timed = bs._build_timed_words(segment)
+
+    assert [w.text for w in timed] == ["раз", "два", "три"]
+    assert timed[0].start == 0.0
+    assert timed[-1].end == 4.0
+
+
+def test_build_timed_words_falls_back_when_text_was_edited() -> None:
+    """Proofread rewrites segment text while keeping the original word list."""
+    segment = bs.SubtitleSegment(
+        start=0.0,
+        end=4.0,
+        text="совершенно другой текст здесь",
+        words=(
+            bs._TimedSubtitleWord(0.0, 1.0, "раз"),
+            bs._TimedSubtitleWord(1.0, 2.0, "два"),
+        ),
+    )
+
+    timed = bs._build_timed_words(segment)
+
+    assert [w.text for w in timed] == ["совершенно", "другой", "текст", "здесь"]
+    assert timed[-1].end == 4.0
+
+
+def test_slice_segments_for_clip_rebases_word_timings() -> None:
+    segment = bs.SubtitleSegment(
+        start=10.0,
+        end=14.0,
+        text="раз два",
+        words=(
+            bs._TimedSubtitleWord(10.0, 11.0, "раз"),
+            bs._TimedSubtitleWord(12.0, 14.0, "два"),
+        ),
+    )
+
+    clipped = bs.slice_segments_for_clip([segment], clip_start=8.0, clip_end=20.0)
+
+    assert [(w.start, w.end) for w in clipped[0].words] == [(2.0, 3.0), (4.0, 6.0)]
+
+
+def test_ass_karaoke_reflects_real_word_durations(tmp_path: Path) -> None:
+    """The \\kf durations in the rendered ASS come from the transcript."""
+    segment = bs.SubtitleSegment(
+        start=0.0,
+        end=6.0,
+        text="Да очень",
+        words=(
+            bs._TimedSubtitleWord(0.0, 3.0, "Да"),
+            bs._TimedSubtitleWord(3.0, 6.0, "очень"),
+        ),
+    )
+    settings = bs.subtitle_settings_from_conf(None, repo_dir=tmp_path)
+    ass_path = tmp_path / "out.ass"
+
+    bs._write_ass_file(ass_path, [segment], settings)
+    content = ass_path.read_text(encoding="utf-8")
+
+    # 3.0s each, in centiseconds.
+    assert "{\\kf300}Да" in content
+    assert "{\\kf300}очень" in content
+
+
+def test_word_timings_survive_segment_merging(tmp_path: Path) -> None:
+    """Merging short blocks must not silently drop back to interpolation."""
+    segments = [
+        bs.SubtitleSegment(
+            start=0.0, end=1.0, text="раз",
+            words=(bs._TimedSubtitleWord(0.0, 1.0, "раз"),),
+        ),
+        bs.SubtitleSegment(
+            start=1.0, end=2.0, text="два",
+            words=(bs._TimedSubtitleWord(1.0, 2.0, "два"),),
+        ),
+    ]
+    settings = bs.subtitle_settings_from_conf(None, repo_dir=tmp_path)
+
+    prepared = bs._prepare_subtitle_segments(segments, settings=settings)
+
+    merged = [seg for seg in prepared if seg.text == "раз два"]
+    assert merged, "the two short blocks should merge"
+    assert [w.text for w in merged[0].words] == ["раз", "два"]
