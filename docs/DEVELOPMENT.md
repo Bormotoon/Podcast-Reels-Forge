@@ -61,6 +61,67 @@ pytest tests/test_pipeline.py -v
 pytest -m "not slow"
 ```
 
+## Оценка качества отбора / Evaluating moment selection
+
+RU: Эвристические метрики (`avg_score`, длительности) показывают, что модель
+что-то нашла, но не то, нашла ли она *правильные* моменты. Для этого нужна
+ручная разметка эпизода — golden set.
+
+EN: Heuristic metrics (`avg_score`, durations) show that the model found
+*something*, not whether it found the *right* moments. That needs a
+hand-labelled episode — a golden set.
+
+### 1. Разметка / Labelling
+
+RU: Прогоните эпизод один раз и откройте `scout_candidates.json` и `reels.md`
+— по ним удобно выбирать. Создайте `golden/<эпизод>.json`:
+
+EN: Run the episode once and use `scout_candidates.json` and `reels.md` to
+pick from. Create `golden/<episode>.json`:
+
+```json
+{
+  "episode": "POS-7 - HG",
+  "moments": [
+    {
+      "start": 412.0,
+      "end": 468.0,
+      "label": "must",
+      "topics": ["школьная программа"],
+      "note": "Самая сильная история эпизода"
+    },
+    {"start": 1120.5, "end": 1165.0, "label": "good", "topics": ["еда"]}
+  ]
+}
+```
+
+RU: `label` — `must` (нельзя пропустить), `good` (хороший момент), `ok`
+(допустимый). `recall_must` считается отдельно: пропуск `must` — это провал,
+а не потеря процента.
+
+EN: `label` is `must` (must not be missed), `good`, or `ok`. `recall_must` is
+reported separately: missing a `must` is a failure, not a lost percentage.
+
+Имя файла — по эпизоду, без суффикса `.proofread`.
+
+### 2. Сравнение вариантов / Comparing variants
+
+```bash
+python -m podcast_reels_forge.scripts.evaluate_prompts \
+    --transcript "output/<эпизод>/<эпизод>.proofread.json" \
+    --variants default,a,b
+```
+
+RU: Golden-файл подхватывается автоматически из `golden/<эпизод>.json`
+(или укажите `--golden PATH`). Отчёт `prompt_eval.json` получит
+`recall_must`, `recall_all` и `precision`, а выбор лучшего варианта начнёт
+опираться на них вместо эвристики.
+
+EN: The golden file is picked up automatically from `golden/<episode>.json`
+(or pass `--golden PATH`). The `prompt_eval.json` report then carries
+`recall_must`, `recall_all` and `precision`, and the best-variant pick is
+based on those instead of the heuristic.
+
 ## Проверка типов / Type checking
 
 ```bash

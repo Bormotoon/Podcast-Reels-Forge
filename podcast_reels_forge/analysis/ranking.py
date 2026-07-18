@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from podcast_reels_forge.analysis.contracts import MomentRecord, coerce_moment_record
+from podcast_reels_forge.analysis.transcript_index import normalized_tokens
 from podcast_reels_forge.analysis.scoring import (
     clip_type_target_bounds,
     combined_priority_score,
@@ -36,6 +37,25 @@ def ranking_value(moment: MomentRecord) -> float:
     if moment.priority is not None:
         return float(moment.priority)
     return float(moment.score)
+
+
+def topic_tokens(moment: MomentRecord) -> frozenset[str]:
+    """Content words identifying what a moment is about."""
+
+    text = f"{moment.title} {moment.quote}"
+    return frozenset(
+        token for token in normalized_tokens(text) if len(token) >= 3
+    )
+
+
+def topic_similarity(first: MomentRecord, second: MomentRecord) -> float:
+    """Jaccard overlap of two moments' topic vocabulary."""
+
+    left = topic_tokens(first)
+    right = topic_tokens(second)
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
 
 
 def _dedupe_key(moment: MomentRecord) -> tuple[int, int, str, str]:
@@ -120,6 +140,8 @@ def rank_moments(
     *,
     clip_type_quotas: Mapping[str, int],
     scoring_weights: Mapping[str, Any] | None = None,
+    diversity_enabled: bool = True,
+    max_topic_similarity: float = 0.5,
 ) -> list[MomentRecord]:
     """Apply scoring, dedupe and quota-aware selection."""
 
@@ -159,17 +181,42 @@ def rank_moments(
 
     selected: list[MomentRecord] = []
     bucket_counts: dict[str, int] = {}
-    for record in sorted(deduped, key=lambda r: (-ranking_value(r), r.start, r.end)):
+    # Clips held back only because they repeat an already-selected topic. They
+    # are still valid picks, so they backfill any quota the first pass could
+    # not fill rather than being lost.
+    deferred: list[MomentRecord] = []
+
+    def _fits(record: MomentRecord) -> bool:
         bucket = _bucket_name(record.clip_type)
         limit = quotas.get(bucket, 0)
         if limit <= 0:
-            continue
+            return False
         if bucket_counts.get(bucket, 0) >= limit:
-            continue
-        if any(_overlap_seconds(record, existing) > 0 for existing in selected):
-            continue
+            return False
+        return all(_overlap_seconds(record, existing) <= 0 for existing in selected)
+
+    def _take(record: MomentRecord) -> None:
+        bucket = _bucket_name(record.clip_type)
         selected.append(record)
         bucket_counts[bucket] = bucket_counts.get(bucket, 0) + 1
+
+    ordered = sorted(deduped, key=lambda r: (-ranking_value(r), r.start, r.end))
+    for record in ordered:
+        if not _fits(record):
+            continue
+        if diversity_enabled and any(
+            topic_similarity(record, existing) >= max_topic_similarity
+            for existing in selected
+        ):
+            # Non-overlapping in time, but about the same thing. A reel set
+            # that says one thing four ways is worse than a varied one.
+            deferred.append(record)
+            continue
+        _take(record)
+
+    for record in deferred:
+        if _fits(record):
+            _take(record)
 
     return selected
 

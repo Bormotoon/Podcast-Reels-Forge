@@ -36,7 +36,7 @@ import json
 import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from podcast_reels_forge.scripts import analyze as analyze_script
 from podcast_reels_forge.utils.logging_utils import setup_logging
@@ -56,6 +56,10 @@ class VariantMetrics:
     avg_score: float
     avg_duration: float
     violations: int
+    # Only populated when a golden set is available for this transcript.
+    recall_must: float | None = None
+    recall_all: float | None = None
+    precision: float | None = None
 
 
 def _load_moments(path: Path) -> list[dict[str, Any]]:
@@ -101,6 +105,104 @@ def _jaccard(a: set[tuple[int, int]], b: set[tuple[int, int]]) -> float:
     if not a or not b:
         return 0.0
     return len(a & b) / len(a | b)
+
+
+def load_golden(path: Path) -> list[dict[str, Any]]:
+    """RU: Загружает эталонную разметку эпизода.
+
+    EN: Load the hand-labelled reference moments for an episode.
+
+    Format (golden/<transcript-stem>.json)::
+
+        {"episode": "<stem>",
+         "moments": [{"start": 120.5, "end": 165.0, "label": "must",
+                      "topics": ["..."], "note": "..."}]}
+
+    ``label`` is must | good | ok — "must" marks moments a run really should
+    not miss, and is reported separately from overall recall.
+    """
+
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        LOGGER.warning("could not read the golden set at %s", path)
+        return []
+
+    raw = data.get("moments") if isinstance(data, dict) else data
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, dict)]
+
+
+def default_golden_path(transcript: Path) -> Path:
+    """Where a golden set for this transcript is looked for by default."""
+
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    stem = transcript.stem
+    # Analysis usually runs on <name>.proofread.json; the golden set belongs
+    # to the episode, not to that particular transcript revision.
+    if stem.endswith(".proofread"):
+        stem = stem[: -len(".proofread")]
+    return repo_root / "golden" / f"{stem}.json"
+
+
+def intervals_match(
+    predicted: dict[str, Any],
+    golden: dict[str, Any],
+    *,
+    min_overlap_ratio: float = 0.5,
+) -> bool:
+    """Whether a predicted moment covers a golden one.
+
+    Measured against the shorter of the two, so a long clip containing a
+    short golden moment counts as finding it.
+    """
+
+    try:
+        p_start, p_end = float(predicted["start"]), float(predicted["end"])
+        g_start, g_end = float(golden["start"]), float(golden["end"])
+    except (KeyError, TypeError, ValueError):
+        return False
+
+    overlap = min(p_end, g_end) - max(p_start, g_start)
+    if overlap <= 0:
+        return False
+    shortest = min(p_end - p_start, g_end - g_start)
+    if shortest <= 0:
+        return False
+    return overlap / shortest >= min_overlap_ratio
+
+
+def score_against_golden(
+    predicted: Sequence[dict[str, Any]],
+    golden: Sequence[dict[str, Any]],
+) -> dict[str, float]:
+    """Recall (overall and for "must" moments) and precision."""
+
+    if not golden:
+        return {}
+
+    matched_golden = [
+        item
+        for item in golden
+        if any(intervals_match(p, item) for p in predicted)
+    ]
+    matched_predicted = [
+        p
+        for p in predicted
+        if any(intervals_match(p, item) for item in golden)
+    ]
+
+    must = [item for item in golden if str(item.get("label", "")).lower() == "must"]
+    matched_must = [item for item in matched_golden if item in must]
+
+    return {
+        "recall_all": round(len(matched_golden) / len(golden), 3),
+        "recall_must": round(len(matched_must) / len(must), 3) if must else 1.0,
+        "precision": round(len(matched_predicted) / len(predicted), 3) if predicted else 0.0,
+    }
 
 
 def _run_analyze(
@@ -158,6 +260,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument(
         "--variants", default="default,a,b", help="Comma-separated: default,a,b",
     )
+    ap.add_argument(
+        "--golden",
+        type=Path,
+        help="Hand-labelled reference moments; defaults to golden/<episode>.json",
+    )
 
     ap.add_argument(
         "--provider",
@@ -193,6 +300,15 @@ def main(argv: list[str] | None = None) -> None:
     eval_dir = args.outdir / "prompt_eval"
     eval_dir.mkdir(parents=True, exist_ok=True)
 
+    golden_path = args.golden or default_golden_path(args.transcript)
+    golden = load_golden(golden_path)
+    if golden:
+        LOGGER.info("scoring against %d golden moment(s) from %s", len(golden), golden_path)
+    else:
+        LOGGER.info(
+            "no golden set at %s; reporting heuristic metrics only", golden_path,
+        )
+
     per_variant: list[VariantMetrics] = []
     buckets: dict[str, set[tuple[int, int]]] = {}
 
@@ -211,6 +327,7 @@ def main(argv: list[str] | None = None) -> None:
         avg_duration = sum(durs) / len(durs) if durs else 0.0
         avg_score = sum(scores) / len(scores) if scores else 0.0
 
+        against_golden = score_against_golden(moments, golden)
         per_variant.append(
             VariantMetrics(
                 variant=v,
@@ -218,6 +335,9 @@ def main(argv: list[str] | None = None) -> None:
                 avg_score=round(avg_score, 3),
                 avg_duration=round(avg_duration, 3),
                 violations=violations,
+                recall_must=against_golden.get("recall_must"),
+                recall_all=against_golden.get("recall_all"),
+                precision=against_golden.get("precision"),
             ),
         )
         buckets[v] = {_interval_key(m) for m in moments}
@@ -231,8 +351,18 @@ def main(argv: list[str] | None = None) -> None:
             )
 
     def rank_score(m: VariantMetrics) -> float:
-        # RU: Эвристика: повышаем вес avg_score, штрафуем violations и недобор моментов.
-        # EN: Heuristic: prioritize avg_score, penalize violations and missing moments.
+        # RU: С golden-разметкой считаем реальное качество; без неё — эвристика.
+        # EN: With a golden set this is measured quality; without one it falls
+        # back to the old heuristic (avg_score, penalizing violations and a
+        # short moment count).
+        if m.recall_must is not None and m.recall_all is not None:
+            precision = m.precision or 0.0
+            return (
+                6.0 * float(m.recall_must)
+                + 3.0 * float(m.recall_all)
+                + 2.0 * precision
+                - 0.75 * float(m.violations)
+            )
         return (
             float(m.avg_score)
             - 0.75 * float(m.violations)
@@ -251,6 +381,7 @@ def main(argv: list[str] | None = None) -> None:
         "transcript": str(args.transcript),
         "provider": args.provider,
         "model": args.model,
+        "golden": str(golden_path) if golden else None,
         "variants": [asdict(m) for m in per_variant],
         "stability_jaccard": stability,
         "best_variant": best,
