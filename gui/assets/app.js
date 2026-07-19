@@ -787,7 +787,7 @@ proofread:
   min_similarity: 0.8
 processing:
   analysis:
-    cleanup_cap: 25
+    cleanup_cap: 16
     json_retry: 1
     strict_json_schema: true
     validation:

@@ -71,7 +71,7 @@ from podcast_reels_forge.llm.providers import (
     OpenAIConfig,
     OpenAIProvider,
 )
-from podcast_reels_forge.llm.schemas import MOMENTS_JSON_SCHEMA
+from podcast_reels_forge.llm.schemas import EPISODE_CONTEXT_SCHEMA, MOMENTS_JSON_SCHEMA
 from podcast_reels_forge.utils.json_utils import extract_first_json_value
 from podcast_reels_forge.utils.logging_utils import setup_logging
 from podcast_reels_forge.utils.llama_cpp_service import (
@@ -92,9 +92,11 @@ LOGGER = setup_logging()
 
 Moment = MomentRecord
 
-# Upper bound on candidates handed to the cleanup stage, so the rendered
-# prompt stays inside ctx_size=8192.
-_CLEANUP_CAP = 25
+# Candidates per cleanup request. Sized for the OUTPUT as much as the input:
+# the stage echoes surviving records back, and grammar-constrained Cyrillic is
+# token-hungry, so 25-record batches overflowed n_predict=4096 inside
+# ctx_size=8192 and lost the tail of the JSON (seen on a real run).
+_CLEANUP_CAP = 16
 
 _STAGE_FILES = {
     "scout": "chunk",
@@ -1397,8 +1399,19 @@ async def run_staged_analysis(
 
     episode_context = ""
     if context_enabled:
+        # The scout provider's grammar forces {"moments": [...]}, which makes
+        # {"summary": ...} unrepresentable — the overview needs its own
+        # provider with its own schema.
+        context_provider = _make_stage_provider(
+            provider_name,
+            model=roles.scout,
+            base_url=str(llama_cpp_conf.get("url", url)),
+            stage_conf=scout_conf,
+            api_key=api_key,
+            json_schema=EPISODE_CONTEXT_SCHEMA if response_schema is not None else None,
+        )
         episode_context = await build_episode_context(
-            scout_provider,
+            context_provider,
             index,
             outdir=outdir,
             lang=prompt_lang,
@@ -1454,6 +1467,28 @@ async def run_staged_analysis(
     cleaned_candidates = _guard_stage_output(
         cleaned_candidates, cleanup_input, stage="cleanup", enabled=require_overlap,
     )
+    # Cleanup is meant to drop weak candidates, but output truncation can also
+    # lose good ones. If the pool fell below what the target needs (with slack
+    # for overlap/diversity losses at selection), restore the best dropped
+    # candidates that don't overlap anything the cleanup kept.
+    pool_floor = max(target_total + max(3, target_total // 3), len(cleaned_candidates))
+    if len(cleaned_candidates) < pool_floor:
+        kept = list(cleaned_candidates)
+        for candidate in sorted(cleanup_input, key=ranking_value, reverse=True):
+            if len(kept) >= pool_floor:
+                break
+            overlaps = any(
+                min(candidate.end, existing.end) - max(candidate.start, existing.start) > 0
+                for existing in kept
+            )
+            if not overlaps:
+                kept.append(candidate)
+        if len(kept) > len(cleaned_candidates):
+            LOGGER.info(
+                "cleanup pool top-up: %d -> %d candidates (target %d)",
+                len(cleaned_candidates), len(kept), target_total,
+            )
+            cleaned_candidates = kept
     # Measure the audio once the list is short: the judge and the final
     # ranking both get to use it.
     if audio_enabled:
@@ -1533,6 +1568,9 @@ async def run_staged_analysis(
         scoring_weights=scoring_weights,
         diversity_enabled=diversity_enabled,
         max_topic_similarity=max_topic_similarity,
+        # With duration-scaled quotas the total is the promise and the mix is
+        # a preference; fixed legacy quotas stay strict.
+        fill_to_total=target_total if clips_per_hour > 0 else None,
     )
     if judged_candidates and not selected:
         # Every candidate fell outside the configured quotas. Emitting them

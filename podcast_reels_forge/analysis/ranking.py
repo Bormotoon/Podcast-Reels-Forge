@@ -142,8 +142,16 @@ def rank_moments(
     scoring_weights: Mapping[str, Any] | None = None,
     diversity_enabled: bool = True,
     max_topic_similarity: float = 0.5,
+    fill_to_total: int | None = None,
 ) -> list[MomentRecord]:
-    """Apply scoring, dedupe and quota-aware selection."""
+    """Apply scoring, dedupe and quota-aware selection.
+
+    ``fill_to_total`` makes the per-type quotas soft: when set (the
+    duration-scaled path), slots a bucket could not fill spill over to the
+    best remaining candidates of any type, so a mix mismatch between the
+    quotas and what the episode actually contains costs composition, not
+    clip count.
+    """
 
     if not records:
         return []
@@ -216,6 +224,19 @@ def rank_moments(
 
     for record in deferred:
         if _fits(record):
+            _take(record)
+
+    if fill_to_total is not None and len(selected) < fill_to_total:
+        # Quota spillover: the type mix ran out of matching candidates before
+        # the episode ran out of good moments. Fill the remaining slots by
+        # priority, still refusing time overlaps.
+        for record in ordered:
+            if len(selected) >= fill_to_total:
+                break
+            if record in selected:
+                continue
+            if any(_overlap_seconds(record, existing) > 0 for existing in selected):
+                continue
             _take(record)
 
     return selected

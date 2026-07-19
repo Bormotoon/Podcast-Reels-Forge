@@ -39,6 +39,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Speaker-count pinning for diarization (`diarization.num_speakers`).
 
 ### Fixed
+- **The episode overview inherited the moments grammar** and could only answer
+  `{"moments": ...}` — `{"summary": ...}` was unrepresentable, so the context
+  silently never worked. It now has its own schema and provider.
+- **Duration-scaled targets could be starved twice over**: cleanup batches
+  overflowed the response token budget and lost candidates (batch size
+  25 → 16, and the pool is topped back up from scouted candidates when
+  cleanup shrinks it below the target), and per-type quota slots with no
+  matching candidates simply vanished (with `clips_per_hour` active, unfilled
+  quota now spills over to the best remaining candidates of any type).
+- The pipeline progress bar rendered one step behind and finished at 3/4;
+  it now advances explicitly and completes.
 - **The mid-thought penalty was never applied.** It was computed and reported,
   but `combined_priority_score` never subtracted it, so nothing guarded against
   clips that open or close mid-sentence.

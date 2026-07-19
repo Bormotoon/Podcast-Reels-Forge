@@ -115,7 +115,7 @@ omitted entirely.
 ```yaml
 processing:
   analysis:
-    cleanup_cap: 25          # candidates handed to cleanup, after de-duplication
+    cleanup_cap: 16          # candidates per cleanup request (batched above that)
     json_retry: 1            # re-asks when a reply does not parse as JSON
     strict_json_schema: true # send the full moments schema as a sampling grammar
     validation:

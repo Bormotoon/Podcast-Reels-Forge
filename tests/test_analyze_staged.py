@@ -32,6 +32,8 @@ class FakeProvider:
         self._responder = responder
         self.calls = 0
         self.prompts: list[str] = []
+        # json_schema values this "model" was constructed with, per stage.
+        self.schemas: list[Any] = []
 
     async def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
         self.calls += 1
@@ -197,8 +199,10 @@ def _run_analysis(
         "judge_metadata": FakeProvider(default_judge),
     }
 
-    def fake_make_provider(_provider_name: str, *, model: str, **_kwargs: Any) -> FakeProvider:
-        return providers[model]
+    def fake_make_provider(_provider_name: str, *, model: str, **kwargs: Any) -> FakeProvider:
+        provider = providers[model]
+        provider.schemas.append(kwargs.get("json_schema"))
+        return provider
 
     monkeypatch.setattr(analyze_stage, "_make_stage_provider", fake_make_provider)
 
@@ -514,10 +518,74 @@ def test_clips_scale_with_runtime_and_stages_batch(
     )
     assert "Reels: 16 clips" in scout_chunk_prompt
 
-    # 32 candidates survive the x2-headroom cap: two cleanup batches of ≤25
+    # 32 candidates survive the x2-headroom cap: two cleanup batches of ≤16
     # and three judge batches of ≤14 (14 + 14 + 4).
     assert providers["cleanup_refine"].calls == 2
     assert providers["judge_metadata"].calls == 3
+
+
+def test_episode_context_uses_its_own_schema(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The overview call must not inherit the moments grammar.
+
+    The scout provider's schema forces {"moments": [...]}, which makes
+    {"summary": ...} unrepresentable — on a real run the episode context came
+    back as an empty moments object and was silently skipped.
+    """
+    from podcast_reels_forge.llm.schemas import EPISODE_CONTEXT_SCHEMA
+
+    _moments, providers, outdir = _run_analysis(
+        monkeypatch,
+        tmp_path,
+        scout=lambda p, _i: _moments_json(_moment_in_chunk(p, "Найденный")),
+    )
+
+    assert (outdir / "episode_context.json").exists()
+    assert EPISODE_CONTEXT_SCHEMA in providers["scout"].schemas
+    assert MOMENTS_JSON_SCHEMA in providers["scout"].schemas
+
+
+def test_cleanup_shrinkage_is_topped_up_from_scouted_pool(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A cleanup that loses candidates must not starve the target.
+
+    On a real run output truncation shrank 38 candidates to 18 against a
+    19-clip target; the pool is topped back up with the best dropped
+    candidates that don't overlap what cleanup kept.
+    """
+
+    def scout(prompt: str, call_index: int) -> str:
+        start, end = chunk_window(prompt)
+        moments = []
+        cursor = start + 2.0
+        slot = 0
+        while cursor + 45.0 <= end and slot < 8:
+            moments.append(
+                _moment(cursor, cursor + 45.0, f"Тема {call_index}-{slot} слот {call_index * 10 + slot}"),
+            )
+            cursor += 70.0
+            slot += 1
+        return _moments_json(*moments)
+
+    # Cleanup keeps only its first input candidate — an extreme shrink.
+    moments, _providers, outdir = _run_analysis(
+        monkeypatch,
+        tmp_path,
+        scout=scout,
+        cleanup=lambda p, _i: _refine_first(p, "Единственный выживший"),
+        judge=lambda p, _i: json.dumps(
+            {"moments": prompt_candidates(p)}, ensure_ascii=False,
+        ),
+        processing_conf={"clips_per_hour": 24},
+    )
+
+    cleaned = json.loads((outdir / "cleaned_candidates.json").read_text(encoding="utf-8"))
+    assert len(cleaned) > 1, "the pool must be restored above cleanup's single survivor"
+    # Target for the 40-min fixture at 24/hour is 16; the run must not collapse
+    # to one clip because cleanup misbehaved.
+    assert len(moments) >= 10
 
 
 def test_strict_schema_is_sent_and_can_be_disabled() -> None:

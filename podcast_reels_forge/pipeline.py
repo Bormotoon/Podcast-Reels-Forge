@@ -483,13 +483,13 @@ def run_pipeline(
 
     stages_per_file = 1 + (1 if diar_enabled else 0) + (1 if proofread_enabled else 0) + 2
     total_stages = len(queue) * stages_per_file
-    stage_iter = iter(
-        tqdm(
-            range(total_stages),
-            total=total_stages,
-            disable=(not progress) or quiet,
-            desc="Podcast Reels Forge",
-        ),
+    # A plain progress object, advanced explicitly. Driving a tqdm iterator
+    # with next() renders one step behind (tqdm counts an iteration when the
+    # following next() arrives), so the bar sat at N-1 and finished at 3/4.
+    stage_bar = tqdm(
+        total=total_stages,
+        disable=(not progress) or quiet,
+        desc="Podcast Reels Forge",
     )
 
     for item in queue:
@@ -569,10 +569,7 @@ def run_pipeline(
             transcript_path = transcribe_file(transcribe_config)
             status("[transcribe] done", quiet=quiet)
 
-        try:
-            next(stage_iter)
-        except StopIteration:
-            pass
+        stage_bar.update(1)
 
         # 2) Optional diarization
         diar_path = io.output_dir / "diarization.json"
@@ -604,10 +601,7 @@ def run_pipeline(
                 )
                 status("[diarize] done", quiet=quiet)
 
-            try:
-                next(stage_iter)
-            except StopIteration:
-                pass
+            stage_bar.update(1)
 
         # 3) Proofread + Analyze (share one llama-server session; proofread runs
         #    after diarization so pyannote gets the GPU before llama loads).
@@ -665,10 +659,7 @@ def run_pipeline(
                             "Proofread failed; continuing with the raw transcript: %s",
                             exc,
                         )
-                try:
-                    next(stage_iter)
-                except StopIteration:
-                    pass
+                stage_bar.update(1)
 
             analysis_model_folder.mkdir(parents=True, exist_ok=True)
             moments_path = analysis_model_folder / "moments.json"
@@ -723,10 +714,7 @@ def run_pipeline(
                     _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
                 else:
                     _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
-            try:
-                next(stage_iter)
-            except StopIteration:
-                pass
+            stage_bar.update(1)
         finally:
             if llama_cpp_proc:
                 llama_cpp_stop(llama_cpp_proc)
@@ -746,10 +734,7 @@ def run_pipeline(
                 f"[cut] skip ({final_model_folder}): no moments",
                 quiet=quiet,
             )
-            try:
-                next(stage_iter)
-            except StopIteration:
-                pass
+            stage_bar.update(1)
             continue
 
         import re as _re
@@ -854,9 +839,7 @@ def run_pipeline(
                     verbose=verbose and not quiet,
                 )
 
-        try:
-            next(stage_iter)
-        except StopIteration:
-            pass
+        stage_bar.update(1)
 
+    stage_bar.close()
     status("[forge] done", quiet=quiet)

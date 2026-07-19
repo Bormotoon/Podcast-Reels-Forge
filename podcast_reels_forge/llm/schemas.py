@@ -46,6 +46,22 @@ MOMENTS_JSON_SCHEMA: dict[str, Any] = {
     "required": ["moments"],
 }
 
+# RU: Схема обзора эпизода. Отдельная от moments: грамматика жёсткая, и
+# провайдер со схемой moments физически не может ответить {"summary": ...}.
+# EN: Episode-overview schema. Kept separate from moments: the grammar is
+# strict, so a provider carrying the moments schema cannot answer
+# {"summary": ...} at all.
+EPISODE_CONTEXT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "topics": {"type": "array", "items": {"type": "string"}},
+        "tone": {"type": "string"},
+        "speakers": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["summary"],
+}
+
 # RU: Схема-заглушка «любой объект» — исходное поведение и путь отката для
 # сборок llama.cpp, которые не переваривают полную схему.
 # EN: The permissive "any object" schema — the original behaviour and the

@@ -159,3 +159,33 @@ def test_priority_round_trips_through_to_dict() -> None:
     assert restored.priority == ranked.priority
     assert restored.score == ranked.score
     assert "priority" not in restored.extra
+
+
+def test_fill_to_total_spills_unfilled_quota_across_types() -> None:
+    """When the mix doesn't match the episode, the total still gets filled.
+
+    On a real run the quotas asked for 9 highlights the scout never produced,
+    and those slots simply vanished — 10 clips out of a 19-clip target.
+    """
+    records = [
+        _record(i * 100.0, i * 100.0 + 50.0, title=f"Рилс {i}") for i in range(6)
+    ]
+    quotas = {"reel": 2, "highlight": 4}
+
+    strict = rank_moments(records, clip_type_quotas=quotas)
+    assert len(strict) == 2, "strict quotas keep the reel cap"
+
+    soft = rank_moments(records, clip_type_quotas=quotas, fill_to_total=6)
+    assert len(soft) == 6, "unfilled highlight slots spill over to reels"
+
+
+def test_fill_to_total_still_refuses_time_overlaps() -> None:
+    records = [
+        _record(0.0, 60.0, title="Первый"),
+        _record(30.0, 90.0, title="Пересекается"),
+        _record(200.0, 260.0, title="Отдельный"),
+    ]
+    selected = rank_moments(
+        records, clip_type_quotas={"reel": 1}, fill_to_total=3,
+    )
+    assert len(selected) == 2, "spillover must not admit overlapping clips"
