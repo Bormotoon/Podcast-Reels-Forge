@@ -38,10 +38,11 @@
 
 Main workflow steps:
 
-1. **Speech Recognition (faster-whisper)**: Converts audio/video into text with precise timestamps. Model `large-v3`, with two modes — fast batched and accurate context-aware (see [Run Modes by Task](#run-modes-by-task)).
+1. **Speech Recognition (faster-whisper)**: Converts audio/video into text with per-word timestamps. Model `large-v3`, with two modes — fast batched and accurate context-aware (see [Run Modes by Task](#run-modes-by-task)).
 2. **Diarization (Optional)**: Identifies different speakers throughout the audio.
-3. **AI Analysis (LLM)**: A staged `scout -> cleanup -> refine -> judge -> metadata` flow on local Gemma models.
-4. **Video Editing (FFmpeg + NVENC)**: Cuts the video, applies vertical cropping (9:16), stabilized face framing, and burns subtitles. GPU encoding via NVENC (~5× faster than software).
+3. **Transcript Proofreading (LLM)**: gemma4 fixes spelling and punctuation; a guardrail rejects any correction that adds, drops or paraphrases text.
+4. **AI Analysis (LLM)**: A staged `scout → cleanup → judge` flow on a local Gemma, with candidates verified against the transcript: quote matching, phrase-aligned boundaries, audio signals (loudness/pauses/speech rate) and whole-episode context. The clip count scales with runtime (`clips_per_hour`).
+5. **Video Editing (FFmpeg + NVENC)**: Cuts the video, applies vertical cropping (9:16), stabilized face framing, and burns karaoke subtitles timed from real word timestamps. GPU encoding via NVENC (~5× faster than software).
 
 Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 
@@ -52,11 +53,16 @@ Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 - **Batch Processing**: Drop multiple videos into `input/`, and the forge will process them all sequentially.
 - **Two transcription modes**: `fast` (batched, ~5 min per hour of audio) and `quality` (sequential with context, more accurate on quiet/noisy recordings).
 - **Hallucination guard**: Suppresses Whisper repetition loops (endless "Thank you." on silence/music) via a temperature ladder, repetition penalty, and `condition_on_previous_text`.
-- **Role-based llama.cpp pipeline**: Local staged flow through **llama.cpp** with a Gemma 4 lineup: `gemma4`.
+- **Role-based llama.cpp pipeline**: Local staged flow through **llama.cpp** with a Gemma 4 lineup: `gemma4`. Model replies are constrained by a JSON grammar, unparseable JSON is re-asked, and one failed chunk doesn't abort the analysis.
+- **Transcript proofreading**: An LLM fixes spelling and punctuation before analysis; a letter-content check guarantees the model added and paraphrased nothing.
+- **Clips grounded in reality**: Every candidate's quote is checked against what was actually said; clip bounds snap to the start of a phrase and the end of a thought; hallucinated timecodes are dropped.
+- **Audio signals**: Loudness, pause density and speech rate on each candidate's span are measured with ffmpeg and feed the ranking — text heuristics can't hear the episode, these can.
+- **Runtime-scaled clip counts**: `clips_per_hour: 10` — a 1.5-hour episode yields ~15 clips; the per-type counters only set the mix.
 - **Smart Face Crop**: Automatically detects faces and centers the frame during vertical cropping.
 - **Hardware Acceleration**: **CUDA** (ctranslate2) for Whisper and **NVENC** for video rendering. The NVENC-capable ffmpeg is auto-detected.
-- **llama.cpp Watchdog**: Monitors model responsiveness and automatically retries stalled generations.
-- **Flexible Clip Types**: Configure specific counts and durations for Stories, Reels, and Highlights separately.
+- **Stall-proof llama.cpp calls**: A total request timeout plus automatic retries; the pipeline rides out even a ten-minute server stall on its own.
+- **Flexible Clip Types**: Configure durations and mix for Stories, Reels, Long Reels, and Highlights separately.
+- **Honest quality measurement**: `evaluate_prompts` computes recall/precision against a hand-labelled golden set (`golden/<episode>.json`).
 - **Browser GUI**: Build `config.yaml` and edit ASS subtitles visually with a bilingual (RU/EN) interface, no server needed — see [Graphical Interface (GUI)](#graphical-interface-gui).
 
 ---
@@ -157,7 +163,8 @@ The orchestrator [start_forge.py](start_forge.py) runs [podcast_reels_forge/pipe
 
 1. **Transcription**: Uses `faster-whisper`. Output: `output/<file_stem>/audio.json` + `audio.srt`.
 2. **Diarization**: (If enabled) Creates `diarization.json` with speaker turns.
-3. **Analyze (Staged)**: One final pass over Gemma roles. By default, artifacts are written into `output/<file_stem>/gemma4/`.
+3. **Proofread**: gemma4 proofreads the transcript (spelling/punctuation) with a guardrail check on every correction. Output: `<file_stem>.proofread.json` + `.srt`; the raw transcript is untouched.
+4. **Analyze (Staged)**: Episode overview → scout over overlapping chunks → cleanup (dedupe/merge) → judge that sees each clip's real opening and closing seconds. Deterministic validation runs between stages: timecode clamping, quote verification against the transcript, boundary snapping to phrases, audio probing. Final selection honours type quotas, overlaps and topic diversity. Artifacts go to `output/<file_stem>/<model>/` (e.g. `gemma4_26b/`).
 4. **Video Processing**: Cuts clips from the final `moments.json`. Forge burns ASS subtitles into each reel with ffmpeg, adds a ready-to-post `reel_XX.md`, keeps a local `reel_XX.srt`, and builds `reels_preview.mp4`.
 
 
@@ -170,20 +177,23 @@ Inside the `output/` directory:
 ```text
 output/
   my_podcast/
-    video.json            # Transcript
-    diarization.json      # (Optional) Speaker info
-    gemma4/               # Final judge-model folder
-      analysis_manifest.json
-      scout_candidates.json
-      cleaned_candidates.json
-      refined_candidates.json
-      judge_report.json
-      moments.json        # Final moment list
-      reels.md            # Clip summary
-      reels/              # Cut video clips .mp4
-        reel_01.srt       # Local subtitle timeline (reference)
-        reel_01.md        # Description + 5 hashtags for reel_01.mp4
-      reels_preview.mp4   # Concatenated preview of all clips
+    my_podcast.json            # Transcript (segments + per-word timestamps)
+    my_podcast.srt
+    my_podcast.proofread.json  # Proofread transcript (used by analysis and subtitles)
+    my_podcast.proofread.srt
+    diarization.json           # (Optional) Speaker info
+    gemma4_26b/                # Analysis model folder
+      analysis_manifest.json   # Run parameters: quotas, chunks, language
+      episode_context.json     # Episode overview (cached)
+      scout_candidates.json    # Everything the scout found
+      cleaned_candidates.json  # After dedupe, cleanup and audio probing
+      moments.json             # Final list: score (1-10), priority, quote_match_ratio…
+      reels.md                 # Clip summary
+      reels/                   # Cut video clips .mp4
+        reel_01.srt            # Local subtitle timeline (reference)
+        reel_01.md             # Description + 5 hashtags for reel_01.mp4
+        rejected/              # Clips that failed quality_filters
+      reels_preview.mp4        # Concatenated preview of all clips
 ```
 
 ---
@@ -218,10 +228,16 @@ Flags for the standalone transcriber `transcribe_input_audio.py`:
   - `quality_beam_size`: beam width in quality mode (default 10).
   - `initial_prompt`: default topic hint (overridable with `--initial-prompt`).
 - **`llama_cpp`**:
-  - `roles`: Role mapping for `scout / cleanup / refine / judge / metadata`.
-  - `role_overrides`: Per-role timeout and chunk-size tweaks.
+  - `roles`: Role mapping for `scout / cleanup_refine / judge_metadata / proofread`.
+  - `role_overrides`: Per-role timeout, temperature and chunk-size tweaks.
+  - `n_predict`: Token budget for a model reply (default 4096).
   - `model_overrides`: Legacy compatibility only, not the primary path.
-- **`processing`**: Set counts and durations for clip types (`stories`, `reels`, `highlights`).
+- **`proofread`**: Transcript proofreading (on/off, batch size, guardrail similarity threshold).
+- **`processing`**:
+  - `clips_per_hour`: Clips per hour of total runtime (default 10; `0` = fixed counts from `clips`). The `clips` counters then act as the type mix.
+  - `clips`: Durations and mix for the clip types (`stories`, `reels`, `long_reels`, `highlights`).
+  - `analysis`: Selection fine-tuning — quote verification, boundary snapping, audio signals, episode/judge context, scoring weights, topic diversity. The whole block is optional; details in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+  - `quality_filters.min_score`: Threshold on the model's rating (1-10 scale; the ranking value lives in a separate `priority` field).
 - **`video`**:
   - `vertical_crop`: Enable/disable 9:16 aspect ratio.
   - `smart_crop_face`: Enable smart centering on faces.
@@ -236,15 +252,19 @@ Flags for the standalone transcriber `transcribe_input_audio.py`:
   - `wrap_words`: Toggle word wrapping for captions. When disabled, the caption stays on one line.
   - `font_size_px`, `max_lines`, `max_width_ratio`, `vertical_offset`, `word_x_space`, `word_y_space`, `fade_in_duration`, `fade_out_duration`: Fine-tune subtitle styling/timing.
   - The easiest way to tune the style is the visual [GUI](#graphical-interface-gui) (Subtitles tab). The "Save ASS File" button writes the style straight into `assets/subtitles/forge_subtitles.ass`, which the pipeline reads.
-- **`diarization`**: Enable and configure speaker detection (requires a token in the `PYANNOTE_TOKEN` environment variable, see [`.env.example`](.env.example)).
+- **`diarization`**: Enable and configure speaker detection (requires a token in the `PYANNOTE_TOKEN` environment variable, see [`.env.example`](.env.example)). `num_speakers` pins the speaker count when it is known — less over-clustering on noisy recordings.
 
 ---
 
 ## Graphical Interface (GUI)
 
 Besides the CLI, the project ships a full **browser GUI** for building `config.yaml`
-and tuning subtitles visually — no server required, just static pages (Material
-Design 3, dark theme, **RU/EN** toggle).
+and tuning subtitles visually — no server required, just static pages. A dark
+token-based "forge" theme: an ember brand accent, a colour per pipeline stage,
+Cyrillic-native typography (Golos Text + JetBrains Mono), full keyboard
+navigation and an **RU/EN** toggle.
+
+![Dashboard](docs/images/gui-dashboard.png)
 
 Open [`gui/index.html`](gui/index.html) in your browser (double-click or via a file
 server). The interface is split into separate pages per pipeline stage, each with
@@ -259,6 +279,12 @@ its own accent colour:
 | **Subtitles** | Render parameters + an embedded **visual ASS style editor** with a phone preview |
 | **Settings** | Paths, cache, diarization, CLI flags, and a **live `config.yaml` preview** |
 | **Logs** | Console output from the stages |
+
+| [![Analyze](docs/images/gui-analyze.png)](docs/images/gui-analyze.png) | [![Cut](docs/images/gui-cut.png)](docs/images/gui-cut.png) |
+|---|---|
+| Analyze: LLM service, model roles, inference | Cut: encoding, quality filters, clips |
+
+![Subtitle editor](docs/images/gui-subtitles.png)
 
 The settings cover the pipeline config **1:1**: on the Settings page click "Export
 config.yaml" and drop the file into the project root. The embedded subtitle editor
@@ -298,7 +324,8 @@ python3 rerender_videos.py --smart-crop-face --replace
 - **Whisper (quality)**: Garbled words on quiet/far-field recordings are fixed by `quality` mode + `--initial-prompt`, **not** by audio cleanup (denoising hurts recognition).
 - **Blackwell GPU (RTX 50xx)**: Requires `torch>=2.7` built for CUDA 12.x. The PyTorch `sm_120` warning is harmless — Whisper inference runs via ctranslate2, not PyTorch kernels.
 - **ffmpeg / NVENC**: Forge auto-detects an NVENC-capable ffmpeg (`/usr/local/bin`, `/usr/bin`); you can force a path via the `FORGE_FFMPEG` env var. If NVENC is unavailable, encoding falls back to CPU (libx264).
-- **llama.cpp**: If a model takes too long to respond, increase `llama_cpp.watchdog.first_token_timeout` in config.
+- **llama.cpp**: Stalled requests are cut off by the total timeout (`llama_cpp.timeout`, per-role via `role_overrides`) and retried automatically; one failed chunk doesn't abort the episode. Unparseable JSON is re-asked (`processing.analysis.json_retry`).
+- **Timing reference** (RTX 5060 Ti 16GB, ~2-hour episode): transcription + proofreading ~28 min, analysis ~9 min, cutting ~18 min. Raising `clips_per_hour` lengthens analysis and cutting proportionally.
 
 ---
 
