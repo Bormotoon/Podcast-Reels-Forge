@@ -59,8 +59,11 @@ dmypy.json
 # Input/Output directories (user data)
 input/*
 !input/.gitkeep
-# Local scratch copies of previously processed inputs
+# Local scratch copies of previously processed inputs/outputs
 input-old/
+output-old/
+# Local pipeline run log
+run_log.txt
 output/*
 !output/.gitkeep
 
