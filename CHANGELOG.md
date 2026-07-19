@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Duration-scaled clip counts** — `processing.clips_per_hour` (default 10)
+  targets `round(total hours × N)` clips per episode, computed from the total
+  runtime; the `clips` counts become the type mix rather than absolute
+  numbers. The cleanup and judge stages automatically batch their LLM calls
+  when the target exceeds what one ctx-8192 prompt fits, so large targets are
+  actually reachable. `0` restores the fixed counts.
 - **Transcript proofreading stage** — gemma4 fixes spelling and punctuation
   before analysis, guarded by a letter-content similarity check that rejects any
   correction that adds, drops or paraphrases text. Writes

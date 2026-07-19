@@ -201,6 +201,7 @@ processing:
     min_duration: 15
     max_duration: 180
     face_min_ratio: 0.3
+  clips_per_hour: 10   # clips per hour of total runtime; 0 = fixed counts
   clips:
     stories:
       count: 2
@@ -219,6 +220,32 @@ processing:
   reel_max_duration: 60
   reel_padding: 5
 ```
+
+### clips_per_hour
+
+RU: Целевое число клипов считается от **суммарного** хронометража эпизода:
+`round(длительность_в_часах × clips_per_hour)`. Эпизод на 1.5 часа при
+`clips_per_hour: 10` даст 15 клипов. Счётчики `count` в `clips` при этом
+задают только пропорции типов (2:3:1:5 по умолчанию), а не абсолютные
+количества; распределение — методом наибольших остатков, сумма сходится
+точно. `0` выключает масштабирование — работают фиксированные количества.
+
+EN: The target clip count is computed from the episode's **total** runtime:
+`round(hours × clips_per_hour)`. A 1.5-hour episode at `clips_per_hour: 10`
+yields 15 clips. The `count` values under `clips` then only set the type mix
+(2:3:1:5 by default), not absolute counts; apportionment uses the
+largest-remainder method so the sum matches exactly. `0` disables scaling and
+the fixed counts apply.
+
+RU: Когда целевое число превышает вместимость одного промпта, cleanup и judge
+автоматически работают несколькими запросами (батчами по `cleanup_cap` и
+`judge_context.max_candidates` кандидатов); сравнение внутри judge становится
+побатчевым, финальное детерминированное ранжирование остаётся глобальным.
+
+EN: When the target exceeds what fits into one prompt, cleanup and judge
+automatically run as multiple requests (batches of `cleanup_cap` and
+`judge_context.max_candidates` candidates); judge comparison becomes
+per-batch while the final deterministic ranking stays global.
 
 ## Video / Видео
 

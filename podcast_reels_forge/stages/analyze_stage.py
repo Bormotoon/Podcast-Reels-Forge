@@ -544,38 +544,103 @@ def _stage_max_chars(stage_conf: Mapping[str, Any], default: int) -> int:
         return default
 
 
-def _build_requirements_text(processing_conf: Mapping[str, Any]) -> str:
+def scale_quotas_to_duration(
+    quotas: Mapping[str, int],
+    *,
+    duration_s: float,
+    clips_per_hour: float,
+) -> dict[str, int]:
+    """RU: Масштабирует квоты клипов под хронометраж эпизода.
+
+    Цель — ``clips_per_hour`` клипов на час общей длительности (считается от
+    суммарного времени, не по часовым корзинам). Пропорции типов из конфига
+    сохраняются; распределение — методом наибольших остатков, чтобы сумма
+    сошлась точно.
+
+    EN: Scale clip quotas to the episode duration. The target is
+    ``clips_per_hour`` clips per hour of total runtime (computed from the
+    total, not per-hour buckets). The configured type mix is preserved;
+    apportionment uses the largest-remainder method so the counts sum exactly
+    to the target.
+    """
+
+    if clips_per_hour <= 0 or duration_s <= 0:
+        return dict(quotas)
+
+    base = {key: max(0, int(value)) for key, value in quotas.items()}
+    base_total = sum(base.values())
+    target_total = max(1, round(duration_s / 3600.0 * clips_per_hour))
+    if base_total <= 0:
+        return {**base, "reel": target_total}
+
+    shares = {
+        key: value / base_total * target_total for key, value in base.items()
+    }
+    scaled = {key: int(share) for key, share in shares.items()}
+    shortfall = target_total - sum(scaled.values())
+    # Hand the remaining slots to the largest fractional parts.
+    for key, _remainder in sorted(
+        ((key, shares[key] - scaled[key]) for key in shares),
+        key=lambda item: -item[1],
+    )[:shortfall]:
+        scaled[key] += 1
+    return scaled
+
+
+def _build_requirements_text(
+    processing_conf: Mapping[str, Any],
+    *,
+    quotas: Mapping[str, int] | None = None,
+) -> str:
+    """The clip ask, as told to the model.
+
+    When ``quotas`` is given (already scaled to the episode duration), the
+    counts come from it, so the prompt and the selection enforce the same
+    numbers; the config supplies only the per-type duration limits.
+    """
+
     clips_conf = processing_conf.get("clips", {})
     if not isinstance(clips_conf, Mapping):
         clips_conf = {}
 
+    def _count(bucket: str, conf_key: str, count_key: str = "count") -> int | None:
+        if quotas is not None:
+            return int(quotas.get(bucket, 0))
+        section = clips_conf.get(conf_key)
+        if isinstance(section, Mapping):
+            return int(section.get(count_key, 0))
+        return None
+
+    def _max_duration(conf_key: str, default: int) -> int:
+        section = clips_conf.get(conf_key)
+        if isinstance(section, Mapping):
+            try:
+                return int(section.get("max_duration", default))
+            except (TypeError, ValueError):
+                return default
+        return default
+
     parts: list[str] = []
-    if isinstance(clips_conf.get("stories"), Mapping):
-        stories = clips_conf["stories"]
+    stories = _count("story", "stories")
+    if stories is not None and (quotas is None or stories > 0):
+        parts.append(f"Stories: {stories} clips up to {_max_duration('stories', 15)}s")
+    reels = _count("reel", "reels")
+    if reels is not None and (quotas is None or reels > 0):
+        parts.append(f"Reels: {reels} clips up to {_max_duration('reels', 60)}s")
+    long_reels = _count("long_reel", "long_reels")
+    if long_reels is not None and (quotas is None or long_reels > 0):
         parts.append(
-            f"Stories: {stories.get('count', 0)} clips up to {stories.get('max_duration', 15)}s",
+            f"Long reels: {long_reels} clips up to {_max_duration('long_reels', 180)}s",
         )
-    if isinstance(clips_conf.get("reels"), Mapping):
-        reels = clips_conf["reels"]
-        parts.append(
-            f"Reels: {reels.get('count', 0)} clips up to {reels.get('max_duration', 60)}s",
-        )
-    if isinstance(clips_conf.get("long_reels"), Mapping):
-        long_reels = clips_conf["long_reels"]
-        parts.append(
-            "Long reels: "
-            f"{long_reels.get('count', 0)} clips up to {long_reels.get('max_duration', 180)}s",
-        )
-    if isinstance(clips_conf.get("highlights"), Mapping):
-        highlights = clips_conf["highlights"]
-        parts.append(
-            f"Highlights: {highlights.get('moments_count', 0)} moments",
-        )
+    highlights = _count("highlight", "highlights", "moments_count")
+    if highlights is not None and (quotas is None or highlights > 0):
+        parts.append(f"Highlights: {highlights} moments")
 
     if not parts:
         reel_min = processing_conf.get("reel_min_duration", 30)
         reel_max = processing_conf.get("reel_max_duration", 60)
-        parts.append(f"Reels: 4 clips of {reel_min}-{reel_max}s")
+        total = sum(quotas.values()) if quotas else 4
+        parts.append(f"Reels: {max(1, total)} clips of {reel_min}-{reel_max}s")
     return "\n".join(parts)
 
 
@@ -851,7 +916,17 @@ async def cleanup_and_refine_candidates(
     timeout: int,
     max_items: int,
     json_retries: int = 0,
+    batch_size: int = _CLEANUP_CAP,
 ) -> list[MomentRecord]:
+    """Clean the candidate list, batching when it exceeds one prompt's budget.
+
+    A single call only fits ~25 candidates inside ctx_size=8192, and with
+    duration-scaled quotas the pipeline may need more than that to survive
+    cleanup. Batches are split by time order so overlapping near-duplicates
+    land in the same call and the model can actually merge them; the final
+    dedupe catches strays across batch borders.
+    """
+
     cleaned_input = dedupe_moments(candidates)
     if not cleaned_input:
         return []
@@ -861,20 +936,27 @@ async def cleanup_and_refine_candidates(
         key=lambda record: (-ranking_value(record), record.start, record.end),
     )[:max(1, int(max_items))]
 
-    prompt_text = _render_prompt(
-        prompt,
-        _prompt_payload(
-            requirements=requirements,
-            candidates=sorted_candidates,
-        ),
-    )
-    resp = await get_llm_json(
-        provider, prompt_text, temperature, timeout, retries=json_retries,
-    )
-    refined = _parse_candidate_response(resp, stage="cleanup_refine")
-    if refined:
-        return dedupe_moments(refined)
-    return list(sorted_candidates)
+    batch_size = max(1, int(batch_size))
+    by_time = sorted(sorted_candidates, key=lambda record: (record.start, record.end))
+    refined: list[MomentRecord] = []
+    for offset in range(0, len(by_time), batch_size):
+        batch = by_time[offset : offset + batch_size]
+        prompt_text = _render_prompt(
+            prompt,
+            _prompt_payload(
+                requirements=requirements,
+                candidates=batch,
+            ),
+        )
+        resp = await get_llm_json(
+            provider, prompt_text, temperature, timeout, retries=json_retries,
+        )
+        batch_refined = _parse_candidate_response(resp, stage="cleanup_refine")
+        # A failed batch keeps its input rather than dropping that stretch of
+        # the episode.
+        refined.extend(batch_refined if batch_refined else batch)
+
+    return dedupe_moments(refined) if refined else list(sorted_candidates)
 
 
 def _keep_judge_score(record: MomentRecord) -> MomentRecord:
@@ -1174,11 +1256,24 @@ async def run_staged_analysis(
         str(data.get("language") or ""),
     )
     variant = str(prompts_conf.get("variant", "default")).strip().lower() or "default"
-    requirements = _build_requirements_text(processing_conf)
-    quotas = _requested_quotas(processing_conf)
+    try:
+        clips_per_hour = float(processing_conf.get("clips_per_hour", 0) or 0)
+    except (TypeError, ValueError):
+        clips_per_hour = 0.0
+    quotas = scale_quotas_to_duration(
+        _requested_quotas(processing_conf),
+        duration_s=float(duration),
+        clips_per_hour=clips_per_hour,
+    )
+    requirements = _build_requirements_text(processing_conf, quotas=quotas)
     target_total = sum(max(0, int(v)) for v in quotas.values())
     if target_total <= 0:
         target_total = int(processing_conf.get("reels_count", 4))
+    if clips_per_hour > 0:
+        LOGGER.info(
+            "[analyze] duration=%.0fs -> target clips=%d (%s/hour, quotas=%s)",
+            float(duration), target_total, clips_per_hour, quotas,
+        )
 
     analysis_conf = analysis_conf_section(processing_conf)
     json_retries = _conf_int(analysis_conf, "json_retry", 1)
@@ -1335,13 +1430,14 @@ async def run_staged_analysis(
     # first: chunks overlap by design, so the same strong moment is scouted
     # twice and would otherwise burn two of the capped slots, crowding out
     # candidates that were only found once.
+    cleanup_total_cap = max(cleanup_cap, target_total * 2)
     cleanup_input = dedupe_moments(scouted_candidates)
-    if len(cleanup_input) > cleanup_cap:
-        cleanup_input = sorted(cleanup_input, key=ranking_value, reverse=True)[:cleanup_cap]
+    if len(cleanup_input) > cleanup_total_cap:
+        cleanup_input = sorted(cleanup_input, key=ranking_value, reverse=True)[:cleanup_total_cap]
     if len(cleanup_input) < len(scouted_candidates):
         LOGGER.info(
             "pre-cleanup: %d scouted -> %d candidates (deduped, capped at %d)",
-            len(scouted_candidates), len(cleanup_input), cleanup_cap,
+            len(scouted_candidates), len(cleanup_input), cleanup_total_cap,
         )
 
     cleaned_candidates = await cleanup_and_refine_candidates(
@@ -1353,6 +1449,7 @@ async def run_staged_analysis(
         timeout=cleanup_refine_timeout,
         max_items=max(12, target_total * 3),
         json_retries=json_retries,
+        batch_size=cleanup_cap,
     )
     cleaned_candidates = _guard_stage_output(
         cleaned_candidates, cleanup_input, stage="cleanup", enabled=require_overlap,
@@ -1378,28 +1475,39 @@ async def run_staged_analysis(
     cleaned_candidates = apply_quote_verification(cleaned_candidates, index, **quote_conf)
     atomic_write_json(outdir / "cleaned_candidates.json", build_candidate_json(cleaned_candidates))
 
-    judged_candidates = await judge_candidates(
-        judge_metadata_provider,
-        cleaned_candidates,
-        requirements=requirements,
-        prompt=judge_metadata_prompt,
-        temperature=judge_metadata_temp,
-        timeout=judge_metadata_timeout,
-        json_retries=json_retries,
-        episode_context=episode_context,
-        candidates_payload=(
-            build_judge_payload(
-                cleaned_candidates,
-                index,
-                max_candidates=judge_max_candidates,
-                head_seconds=judge_head_s,
-                tail_seconds=judge_tail_s,
-                max_excerpt_chars=judge_excerpt_chars,
-            )
-            if judge_ctx_enabled
-            else None
-        ),
-    )
+    # The judge compares candidates against each other, and one prompt only
+    # fits ~14 of them inside ctx_size=8192. With duration-scaled quotas the
+    # final set can be larger than that, so judge in priority-ordered batches:
+    # comparison quality degrades gracefully (within-batch instead of fully
+    # global) while the deterministic ranking afterwards stays global.
+    judge_batch_size = max(1, judge_max_candidates)
+    judge_input = sorted(cleaned_candidates, key=ranking_value, reverse=True)
+    judged_candidates: list[MomentRecord] = []
+    for offset in range(0, len(judge_input), judge_batch_size):
+        judge_batch = judge_input[offset : offset + judge_batch_size]
+        judged_batch = await judge_candidates(
+            judge_metadata_provider,
+            judge_batch,
+            requirements=requirements,
+            prompt=judge_metadata_prompt,
+            temperature=judge_metadata_temp,
+            timeout=judge_metadata_timeout,
+            json_retries=json_retries,
+            episode_context=episode_context,
+            candidates_payload=(
+                build_judge_payload(
+                    judge_batch,
+                    index,
+                    max_candidates=len(judge_batch),
+                    head_seconds=judge_head_s,
+                    tail_seconds=judge_tail_s,
+                    max_excerpt_chars=judge_excerpt_chars,
+                )
+                if judge_ctx_enabled
+                else None
+            ),
+        )
+        judged_candidates.extend(judged_batch if judged_batch else judge_batch)
     if not judged_candidates:
         judged_candidates = list(cleaned_candidates)
     judged_candidates = _guard_stage_output(

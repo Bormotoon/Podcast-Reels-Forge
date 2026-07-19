@@ -273,6 +273,11 @@
           </div>
           <div class="grid-3" style="margin-top: 16px;">
             <div class="field">
+              <label><span data-i18n="clips_per_hour">Клипов на час хронометража</span> <span class="value" id="v-cfgProcClipsPerHour">10</span></label>
+              <input type="range" id="cfgProcClipsPerHour" min="0" max="30" step="1" value="10">
+              <div class="m3-switch-desc" data-i18n="clips_per_hour_desc">0 — выключено (фиксированные количества выше). Иначе счётчики выше задают только пропорции типов.</div>
+            </div>
+            <div class="field">
               <label><span data-i18n="clips_reels_count">Reels всего (reels_count)</span> <span class="value" id="v-cfgProcReelsCount">3</span></label>
               <input type="range" id="cfgProcReelsCount" min="0" max="20" step="1" value="3">
             </div>

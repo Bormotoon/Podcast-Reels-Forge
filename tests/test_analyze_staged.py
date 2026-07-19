@@ -465,6 +465,61 @@ def test_diversity_config_reaches_the_ranking(
     assert captured_kwargs["max_topic_similarity"] == 0.8
 
 
+def test_clips_scale_with_runtime_and_stages_batch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """clips_per_hour drives the output count end to end.
+
+    The 2400s fixture at 24 clips/hour targets 16 final clips — more than one
+    judge prompt fits (14) and, after the x2 headroom, more than one cleanup
+    prompt fits (25), so this also exercises the batching that makes large
+    targets reachable at ctx_size=8192.
+    """
+
+    def scout(prompt: str, call_index: int) -> str:
+        # Enough distinct, non-overlapping candidates spread over each chunk.
+        start, end = chunk_window(prompt)
+        moments = []
+        cursor = start + 2.0
+        slot = 0
+        while cursor + 45.0 <= end and slot < 8:
+            moments.append(
+                _moment(cursor, cursor + 45.0, f"Тема {call_index}-{slot} номер {call_index * 10 + slot}"),
+            )
+            cursor += 70.0
+            slot += 1
+        return _moments_json(*moments)
+
+    def echo_all(prompt: str, _call_index: int) -> str:
+        # Pass every input candidate through unchanged, like a permissive model.
+        return json.dumps({"moments": prompt_candidates(prompt)}, ensure_ascii=False)
+
+    moments, providers, outdir = _run_analysis(
+        monkeypatch,
+        tmp_path,
+        scout=scout,
+        cleanup=echo_all,
+        judge=echo_all,
+        processing_conf={"clips_per_hour": 24},
+    )
+
+    manifest = json.loads((outdir / "analysis_manifest.json").read_text(encoding="utf-8"))
+    assert sum(manifest["quotas"].values()) == 16  # round(2400/3600 * 24)
+
+    assert len(moments) == 16
+
+    # The requirements shown to the model carry the scaled ask.
+    scout_chunk_prompt = next(
+        p for p in providers["scout"].prompts if "# Кусок транскрипта" in p
+    )
+    assert "Reels: 16 clips" in scout_chunk_prompt
+
+    # 32 candidates survive the x2-headroom cap: two cleanup batches of ≤25
+    # and three judge batches of ≤14 (14 + 14 + 4).
+    assert providers["cleanup_refine"].calls == 2
+    assert providers["judge_metadata"].calls == 3
+
+
 def test_strict_schema_is_sent_and_can_be_disabled() -> None:
     """The moments schema constrains sampling unless explicitly turned off."""
     cfg = LlamaCppConfig(url="http://x/completion", model="m", json_schema=MOMENTS_JSON_SCHEMA)

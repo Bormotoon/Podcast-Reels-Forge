@@ -162,6 +162,8 @@
         clips_reels_n: 'Reels — кол-во', clips_reels_d: 'Reels — макс. сек',
         clips_long_n: 'Long reels — кол-во', clips_long_d: 'Long reels — макс. сек',
         clips_hl_n: 'Highlights — кол-во', clips_hl_m: 'Highlights — моментов',
+        clips_per_hour: 'Клипов на час хронометража',
+        clips_per_hour_desc: '0 — выключено (фиксированные количества выше). Иначе счётчики выше задают только пропорции типов.',
         clips_reels_count: 'Reels всего (reels_count)', clips_reel_min: 'Reel мин. сек',
         clips_reel_max: 'Reel макс. сек',
         // Subtitles — extras
@@ -345,6 +347,8 @@
         clips_reels_n: 'Reels — count', clips_reels_d: 'Reels — max sec',
         clips_long_n: 'Long reels — count', clips_long_d: 'Long reels — max sec',
         clips_hl_n: 'Highlights — count', clips_hl_m: 'Highlights — moments',
+        clips_per_hour: 'Clips per hour of runtime',
+        clips_per_hour_desc: '0 — off (fixed counts above). Otherwise the counters above only set the type mix.',
         clips_reels_count: 'Total Reels (reels_count)', clips_reel_min: 'Reel min sec',
         clips_reel_max: 'Reel max sec',
         sub_voffset: 'Vertical Offset (ratio)', sub_word_x: 'Word Gap X (px)', sub_word_y: 'Word Gap Y (px)',
@@ -470,6 +474,7 @@
       cutFaceSamples: 9, cutFaceMinSize: 72, cutWebm: false, cutGif: false,
       cutAudio: false, cutThreads: 4, cutPadding: 5,
       // Clip selection / output mix (processing.clips + reels_*)
+      procClipsPerHour: 10,
       procReelsCount: 3, procReelMinDur: 30, procReelMaxDur: 60,
       clipsStoriesCount: 2, clipsStoriesMaxDur: 15,
       clipsReelsCount: 3, clipsReelsMaxDur: 60,
@@ -832,6 +837,7 @@ processing:
     highlights:
       count: ${state.clipsHlCount}
       moments_count: ${state.clipsHlMoments}
+  clips_per_hour: ${state.procClipsPerHour}
   reels_count: ${state.procReelsCount}
   reel_min_duration: ${state.procReelMinDur}
   reel_max_duration: ${state.procReelMaxDur}
