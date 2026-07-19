@@ -432,6 +432,37 @@ def test_judge_sees_the_real_clip_edges(
     assert all("excerpt_head" in item for item in captured)
     # Every fixture sentence says "про школы, детей", so a real excerpt has it.
     assert all("школы" in item["excerpt_head"] for item in captured)
+    # The judge's prompt tells it to distrust low quote_match_ratio values, so
+    # verification has to run before the judge for the field to be there.
+    assert all("quote_match_ratio" in item for item in captured)
+
+
+def test_diversity_config_reaches_the_ranking(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """processing.analysis.diversity must actually change selection."""
+    captured_kwargs: dict[str, Any] = {}
+    real_rank = analyze_stage.rank_moments
+
+    def spying_rank(records: Any, **kwargs: Any) -> Any:
+        captured_kwargs.update(kwargs)
+        return real_rank(records, **kwargs)
+
+    monkeypatch.setattr(analyze_stage, "rank_moments", spying_rank)
+
+    _run_analysis(
+        monkeypatch,
+        tmp_path,
+        scout=lambda p, _i: _moments_json(_moment_in_chunk(p, "Найденный")),
+        processing_conf={
+            "analysis": {
+                "diversity": {"enabled": False, "max_topic_similarity": 0.8},
+            },
+        },
+    )
+
+    assert captured_kwargs["diversity_enabled"] is False
+    assert captured_kwargs["max_topic_similarity"] == 0.8
 
 
 def test_strict_schema_is_sent_and_can_be_disabled() -> None:

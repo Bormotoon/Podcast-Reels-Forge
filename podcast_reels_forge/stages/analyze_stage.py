@@ -1217,6 +1217,9 @@ async def run_staged_analysis(
     scoring_weights = analysis_conf_section(processing_conf, "scoring").get("weights")
     if not isinstance(scoring_weights, Mapping):
         scoring_weights = None
+    diversity_conf = analysis_conf_section(processing_conf, "diversity")
+    diversity_enabled = _conf_bool(diversity_conf, "enabled", True)
+    max_topic_similarity = _conf_float(diversity_conf, "max_topic_similarity", 0.5)
 
     base_timeout = int(llama_cpp_conf.get("timeout", 900))
     scout_conf = _stage_config(llama_cpp_conf, role="scout", model=roles.scout)
@@ -1368,6 +1371,11 @@ async def run_staged_analysis(
                 silence_min_s=audio_silence_min_s,
                 timeout_s=audio_timeout_s,
             )
+    # Verify quotes before the judge: its prompt tells it to distrust
+    # candidates whose quote_match_ratio is low, so the ratio has to be in the
+    # payload it sees. Quote refinement also widens bounds here, so the
+    # judge's excerpts reflect the corrected clip.
+    cleaned_candidates = apply_quote_verification(cleaned_candidates, index, **quote_conf)
     atomic_write_json(outdir / "cleaned_candidates.json", build_candidate_json(cleaned_candidates))
 
     judged_candidates = await judge_candidates(
@@ -1398,9 +1406,10 @@ async def run_staged_analysis(
         judged_candidates, cleaned_candidates, stage="judge", enabled=require_overlap,
     )
 
-    # Ground the quotes in the transcript, then anchor the bounds to real
-    # speech boundaries. Order matters: quote refinement may widen a clip, and
-    # snapping should act on the widened bounds.
+    # Re-verify after the judge — it may have rewritten quotes or moved
+    # bounds — then anchor the bounds to real speech boundaries. Order
+    # matters: quote refinement may widen a clip, and snapping should act on
+    # the widened bounds.
     judged_candidates = apply_quote_verification(judged_candidates, index, **quote_conf)
     judged_candidates = snap_records(
         judged_candidates, index, enabled=snap_enabled, max_shift_s=snap_max_shift_s,
@@ -1414,6 +1423,8 @@ async def run_staged_analysis(
         judged_candidates,
         clip_type_quotas=quotas,
         scoring_weights=scoring_weights,
+        diversity_enabled=diversity_enabled,
+        max_topic_similarity=max_topic_similarity,
     )
     if judged_candidates and not selected:
         # Every candidate fell outside the configured quotas. Emitting them
