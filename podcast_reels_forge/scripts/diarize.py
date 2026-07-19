@@ -103,14 +103,17 @@ def main(argv: list[str] | None = None) -> None:
 
     # The signature and return type differ across pyannote.audio majors, so
     # this whole block is checked at runtime rather than by mypy.
+    # Untyped on purpose: the signature differs across pyannote majors (4.x
+    # renamed use_auth_token to token), and with pyannote absent the class is
+    # Any anyway — a type: ignore here would flip between needed and unused
+    # depending on the environment.
+    load_pipeline: Any = Pipeline.from_pretrained
     try:
-        pipeline = Pipeline.from_pretrained(args.model, token=token)
+        pipeline = load_pipeline(args.model, token=token)
     except TypeError:
         # RU: pyannote.audio <4.0 использует старое имя аргумента.
         # EN: pyannote.audio <4.0 uses the old argument name.
-        pipeline = Pipeline.from_pretrained(  # type: ignore[call-arg]
-            args.model, use_auth_token=token,
-        )
+        pipeline = load_pipeline(args.model, use_auth_token=token)
     if pipeline is None:
         raise SystemExit(f"Failed to load diarization pipeline: {args.model}")
 

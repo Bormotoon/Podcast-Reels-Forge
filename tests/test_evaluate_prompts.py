@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 from podcast_reels_forge.analysis.contracts import MomentRecord, coerce_moment_record
 from podcast_reels_forge.analysis.ranking import rank_moments, topic_similarity

@@ -5,8 +5,6 @@ EN: Tests for candidate de-duplication, quotas and selection.
 
 from __future__ import annotations
 
-from typing import Any
-
 from podcast_reels_forge.analysis.contracts import MomentRecord, coerce_moment_record
 from podcast_reels_forge.analysis.ranking import (
     dedupe_moments,
