@@ -64,6 +64,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   llama.cpp to truncate the prompt at `ctx_size=8192`.
 
 ### Changed
+- **GUI redesigned** on a token-based design system: dark "forge" theme with an
+  ember brand accent and harmonized per-page stage accents, Golos Text +
+  JetBrains Mono (Cyrillic-native) in place of Roboto, layered shadows and a
+  concentric radius scale, visible keyboard-focus rings on every control,
+  `prefers-reduced-motion` support, Firefox slider styling, tabular numerals
+  for all live numbers. On narrow screens the navigation rail becomes a top
+  bar instead of disappearing. Fixed a long-standing bug where the tooltip
+  helper overrode the run button's `position: fixed`, so the dashboard FAB was
+  never actually floating. The `--md-sys-color-*` token names, element IDs,
+  i18n keys and app.js are untouched — config generation behaves exactly as
+  before.
 - **`score` now always carries the model's 1-10 rating.** Ranking previously
   overwrote it with its own combined value, which broke
   `processing.quality_filters.min_score` (documented as the 1-10 scale) and fed

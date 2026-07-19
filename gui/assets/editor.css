@@ -1,5 +1,5 @@
     /* ===== INLINED ASS STYLE EDITOR (scoped) ===== */
-    #assEditorRoot { --brand-color: #E1306C; --ease-out: cubic-bezier(0,0,0,1); display:block; font-family:'Roboto',system-ui,sans-serif; color:var(--md-sys-color-on-background); }
+    #assEditorRoot { --brand-color: #E1306C; --ease-out: cubic-bezier(0,0,0,1); display:block; font-family: var(--font-ui, system-ui, sans-serif); color:var(--md-sys-color-on-background); }
     #assEditorRoot {
 .app {
       display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(420px, 1fr);
@@ -105,7 +105,7 @@
     input[type="text"], textarea, select {
       width: 100%; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 4px;
       background: transparent; color: var(--md-sys-color-on-background); padding: 9px 12px; font-size: 14px; outline: none;
-      transition: all 0.2s var(--ease-standard); font-family: inherit;
+      transition: border-color 0.2s var(--ease-standard), background-color 0.2s var(--ease-standard), color 0.2s var(--ease-standard); font-family: inherit;
     }
     input[type="text"]:focus, textarea:focus, select:focus {
       border-color: var(--md-sys-color-primary); border-width: 2px; padding: 8px 11px;
