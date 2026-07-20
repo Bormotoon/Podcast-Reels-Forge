@@ -271,16 +271,32 @@ subtitles:
   enabled: true
   font: "assets/fonts/bignoodletoooblique.ttf"
   ass_style: "assets/subtitles/forge_subtitles.ass"
-  font_size_px: 96
+  font_size_px: 96        # fallback only — used when no .ass style file exists
   wrap_words: true
   max_lines: 2
-  max_width_ratio: 0.65
-  vertical_offset: 0.0
-  word_x_space: 6
-  word_y_space: 8
-  fade_in_duration: 0.18
+  max_width_ratio: 0.65   # share of the frame width; drives chars per line
+  vertical_offset: 0.0    # shift in frame heights, applied on top of the style MarginV
+  fade_in_duration: 0.18  # \fad in seconds; 0 disables the fade
   fade_out_duration: 0.12
 ```
+
+What each knob actually does:
+
+- `max_width_ratio` sets the line length. The BBC guideline of 25 chars/line for
+  9:16 assumes text spanning 0.65 of the frame, so the value scales from there:
+  0.65 keeps 25 chars, 0.9 gives ~35.
+- `vertical_offset` nudges the cue away from the edge it is anchored to, as a
+  fraction of frame height, on top of the `MarginV` baked into the `.ass` style.
+  `0.0` leaves the position entirely to the style editor.
+- `fade_in_duration` / `fade_out_duration` emit an ASS `\fad` tag. If the two
+  together exceed a cue's length they are scaled down proportionally so the cue
+  still reaches full opacity.
+- `font_size_px` only applies when no `.ass` style file is found; otherwise the
+  size comes from the style editor.
+
+`word_x_space` / `word_y_space` are legacy no-ops: word and letter spacing come
+from the `.ass` style (`Spacing` in the editor). They are still parsed so old
+configs keep loading, but they no longer appear in the GUI or in exported config.
 
 Subtitles are rendered as **ASS** (Advanced SubStation Alpha) and burned in with
 ffmpeg's `ass` filter. The visual style lives in the `.ass` file referenced by

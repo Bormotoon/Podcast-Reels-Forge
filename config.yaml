@@ -233,13 +233,21 @@ subtitles:
   font_size_px: 96
   wrap_words: true
   max_lines: 2
-  max_width_ratio: 0.65
+  # Доля кадра под текст. Задаёт длину строки: базовые 25 символов/строку
+  # (рекомендация BBC для 9:16) отмерены при 0.65, поэтому 0.74 → ~28.
+  # 0.74 = 1080 - 2*140px полей, которые обходят правую панель кнопок.
+  max_width_ratio: 0.74
   vertical_align: "bottom"
+  # Сдвиг субтитров в долях высоты кадра поверх MarginV из .ass-стиля.
+  # 0.0 = положение целиком задаёт редактор стиля.
   vertical_offset: 0.0
-  word_x_space: 6
-  word_y_space: 8
-  fade_in_duration: 0.18
-  fade_out_duration: 0.12
+  # Плавное появление/исчезновение реплики (тег \fad). 0 — выключить.
+  fade_in_duration: 0.12
+  fade_out_duration: 0.08
+  # Легаси: не влияют на рендер, положение и интервалы задаёт .ass-стиль
+  # (MarginV / Spacing в редакторе). Оставлены только для старых конфигов.
+  # word_x_space: 6
+  # word_y_space: 8
 
 video:
   threads: 4

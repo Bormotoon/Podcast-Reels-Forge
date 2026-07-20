@@ -20,12 +20,36 @@ DEFAULT_SUBTITLE_CSS_TEMPLATE = Path("assets/subtitles/forge_subtitles.css")
 # style-editor default. The previous 36 was ~3% of width → unreadably small.
 DEFAULT_FONT_SIZE_PX = 96
 DEFAULT_MAX_LINES = 2
-DEFAULT_MAX_WIDTH_RATIO = 0.65
+# Text spans the frame minus the platform's right-hand action rail (see
+# DEFAULT_MARGIN_H): 1080 - 2*140 = 800px ≈ 0.74 of the frame.
+DEFAULT_MAX_WIDTH_RATIO = 0.74
 DEFAULT_WRAP_WORDS = True
 DEFAULT_VERTICAL_ALIGN = "bottom"
 DEFAULT_VERTICAL_OFFSET = 0.0
 DEFAULT_WORD_X_SPACE = 6
 DEFAULT_WORD_Y_SPACE = 8
+
+# --- Default caption look -------------------------------------------------
+# Tuned for the format that dominates podcast shorts (Hormozi/MrBeast-style
+# karaoke captions): a heavy condensed face, a thick black outline instead of a
+# drop shadow, and a \kf sweep that fills each spoken word with an accent colour.
+#
+# ASS colours are &HAABBGGRR — alpha first, then blue/green/red.
+DEFAULT_PRIMARY_COLOUR = "&H000AD6FF"    # #FFD60A amber — words already spoken
+DEFAULT_SECONDARY_COLOUR = "&H00FFFFFF"  # white — words not yet spoken
+DEFAULT_OUTLINE_COLOUR = "&H00000000"    # opaque black
+DEFAULT_BACK_COLOUR = "&H80000000"       # half-transparent black (shadow/box)
+# A heavy outline is what keeps captions legible over arbitrary footage; at
+# Fontsize 96 anything below ~6 starts breaking up on bright frames.
+DEFAULT_OUTLINE_WIDTH = 8
+DEFAULT_SHADOW_DEPTH = 0
+# Horizontal inset that clears the right-hand action rail on Reels/TikTok/Shorts
+# (the narrowest safe zone is 140px). Applied on both sides to keep text centred.
+DEFAULT_MARGIN_H = 140
+# Sits above the caption/handle/audio chrome pinned to the bottom of the frame.
+DEFAULT_MARGIN_V = 470
+DEFAULT_FADE_IN_S = 0.12
+DEFAULT_FADE_OUT_S = 0.08
 DEFAULT_TEXT_OVERFLOW_STRATEGY = "exceed_width"
 DEFAULT_AVOID_ENDING_WITH_SHORT_WORD_CHARS = 2
 
@@ -37,6 +61,10 @@ DEFAULT_AVOID_ENDING_WITH_SHORT_WORD_CHARS = 2
 # - Min 1s gap between subtitles (preferably 1.5s)
 # - Max 1.5s anticipation or lag behind speech
 DEFAULT_CHARS_PER_LINE = 25
+# The 25 chars/line figure above assumes text spanning this share of the frame.
+# Kept separate from DEFAULT_MAX_WIDTH_RATIO so retuning the shipped default
+# rescales line length instead of silently moving the guideline itself.
+CHARS_PER_LINE_REFERENCE_RATIO = 0.65
 DEFAULT_MIN_DURATION_S = 1.5
 DEFAULT_MAX_DURATION_S = 7.0
 DEFAULT_GAP_BETWEEN_SUBTITLES_S = 0.15
@@ -72,8 +100,8 @@ class SubtitleRenderSettings:
     vertical_offset: float = DEFAULT_VERTICAL_OFFSET
     word_x_space: int = DEFAULT_WORD_X_SPACE
     word_y_space: int = DEFAULT_WORD_Y_SPACE
-    fade_in_duration: float = 0.18
-    fade_out_duration: float = 0.12
+    fade_in_duration: float = DEFAULT_FADE_IN_S
+    fade_out_duration: float = DEFAULT_FADE_OUT_S
 
 
 def subtitle_settings_from_conf(
@@ -144,14 +172,15 @@ def subtitle_settings_from_conf(
         ),
         fade_in_duration=_coerce_float(
             subtitles_conf.get("fade_in_duration"),
-            default=0.18,
-            minimum=0.01,
+            default=DEFAULT_FADE_IN_S,
+            # 0 is a meaningful value: it turns the fade off entirely.
+            minimum=0.0,
             maximum=1.0,
         ),
         fade_out_duration=_coerce_float(
             subtitles_conf.get("fade_out_duration"),
-            default=0.12,
-            minimum=0.01,
+            default=DEFAULT_FADE_OUT_S,
+            minimum=0.0,
             maximum=1.0,
         ),
     )
@@ -280,6 +309,89 @@ def _fmt_ass_time(seconds: float) -> str:
     return f"{h}:{m:02d}:{int(s):02d}.{cs:02d}"
 
 
+def _ass_play_res_y(header: str) -> int:
+    """Read PlayResY from an ASS header, defaulting to the 9:16 canvas."""
+
+    match = _re.search(r"^PlayResY:\s*(\d+)", header, _re.MULTILINE)
+    return int(match.group(1)) if match else 1920
+
+
+def _ass_style_margin_v(header: str) -> int:
+    """Read the Default style's MarginV, driven by the header's Format line."""
+
+    style_match = _re.search(r"^Style:\s*([^\n]+)", header, _re.MULTILINE)
+    if not style_match:
+        return 0
+    fields = [f.strip() for f in style_match.group(1).split(",")]
+
+    format_match = _re.search(r"^Format:\s*([^\n]+)", header, _re.MULTILINE)
+    index = None
+    if format_match:
+        names = [n.strip().lower() for n in format_match.group(1).split(",")]
+        if "marginv" in names:
+            index = names.index("marginv")
+    if index is None:
+        # V4+ default ordering, counting Name as field 0.
+        index = 21
+
+    if index >= len(fields):
+        return 0
+    try:
+        return int(float(fields[index]))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _dialogue_margin_v(header: str, settings: SubtitleRenderSettings) -> int:
+    """RU: MarginV для строки Dialogue с учётом ``subtitles.vertical_offset``.
+
+    EN: Per-cue MarginV honouring ``subtitles.vertical_offset``.
+
+    0 means "inherit the style", which is what we emit when the offset is zero —
+    so the default config keeps producing byte-identical output. A positive
+    offset pushes the text away from the edge it is anchored to.
+    """
+
+    offset = float(settings.vertical_offset)
+    if offset == 0.0:
+        return 0
+
+    shift = int(round(offset * _ass_play_res_y(header)))
+    margin_v = _ass_style_margin_v(header) + shift
+    # 0 would read as "inherit"; keep at least 1px so the override survives.
+    return max(1, margin_v)
+
+
+def _fade_tag(seg: SubtitleSegment, settings: SubtitleRenderSettings) -> str:
+    """RU: Тег ``\\fad`` для плавного появления/исчезновения реплики.
+
+    EN: The ``\\fad`` tag that fades a cue in and out.
+
+    ``subtitles.fade_in_duration`` / ``fade_out_duration`` used to be parsed and
+    then dropped on the floor, so the GUI sliders did nothing. Durations are
+    clamped so the two fades can never outlast the cue itself.
+    """
+
+    fade_in = max(0.0, float(settings.fade_in_duration))
+    fade_out = max(0.0, float(settings.fade_out_duration))
+    if fade_in <= 0 and fade_out <= 0:
+        return ""
+
+    duration = max(0.0, float(seg.end) - float(seg.start))
+    total = fade_in + fade_out
+    if total > duration and total > 0:
+        # Scale both down proportionally so the cue still reaches full opacity.
+        scale = duration / total
+        fade_in *= scale
+        fade_out *= scale
+
+    in_ms = int(round(fade_in * 1000))
+    out_ms = int(round(fade_out * 1000))
+    if in_ms <= 0 and out_ms <= 0:
+        return ""
+    return f"{{\\fad({in_ms},{out_ms})}}"
+
+
 def _write_ass_file(path: Path, segments: Sequence[SubtitleSegment], settings: SubtitleRenderSettings) -> None:
     # Try to load ASS style from the style-editor output file
     ass_style_path = _find_ass_style_file()
@@ -292,6 +404,8 @@ def _write_ass_file(path: Path, segments: Sequence[SubtitleSegment], settings: S
     # Events section
     events = "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
 
+    margin_v = _dialogue_margin_v(header, settings)
+
     dialogue_lines: list[str] = []
     for seg in segments:
         words = _build_timed_words(seg)
@@ -300,9 +414,9 @@ def _write_ass_file(path: Path, segments: Sequence[SubtitleSegment], settings: S
             dur_cs = int((w.end - w.start) * 100)
             parts.append(f"{{\\kf{dur_cs}}}{w.text}")
 
-        dialogue_text = " ".join(parts)
+        dialogue_text = _fade_tag(seg, settings) + " ".join(parts)
         dialogue_lines.append(
-            f"Dialogue: 0,{_fmt_ass_time(seg.start)},{_fmt_ass_time(seg.end)},Default,,0,0,0,,{dialogue_text}"
+            f"Dialogue: 0,{_fmt_ass_time(seg.start)},{_fmt_ass_time(seg.end)},Default,,0,0,{margin_v},,{dialogue_text}"
         )
 
     path.write_text(header + events + "\n".join(dialogue_lines) + "\n", encoding="utf-8")
@@ -331,7 +445,26 @@ def _font_name_from_path(font_path: Path) -> str:
 
 
 def _default_ass_header(font_name: str, font_size: int) -> str:
-    """Generate a default ASS header with sensible defaults."""
+    """RU: Стиль субтитров по умолчанию — «вирусные» караоке-подписи.
+
+    EN: The default caption style — viral-format karaoke captions.
+
+    Used when no style file from the visual editor is present. Colours read as
+    PrimaryColour = already spoken, SecondaryColour = still upcoming, because a
+    ``\\kf`` sweep fills from secondary to primary.
+    """
+    style_fields = ",".join(str(field) for field in (
+        "Default", font_name, font_size,
+        DEFAULT_PRIMARY_COLOUR, DEFAULT_SECONDARY_COLOUR,
+        DEFAULT_OUTLINE_COLOUR, DEFAULT_BACK_COLOUR,
+        -1, 0, 0, 0,          # Bold, Italic, Underline, StrikeOut
+        100, 100, 0, 0,       # ScaleX, ScaleY, Spacing, Angle
+        1,                    # BorderStyle: outline + shadow
+        DEFAULT_OUTLINE_WIDTH, DEFAULT_SHADOW_DEPTH,
+        2,                    # Alignment: bottom centre
+        DEFAULT_MARGIN_H, DEFAULT_MARGIN_H, DEFAULT_MARGIN_V,
+        1,                    # Encoding
+    ))
     return f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -339,7 +472,7 @@ PlayResY: 1920
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,-1,0,0,0,100,100,1,0,1,4,3,2,40,40,150,1"""
+Style: {style_fields}"""
 
 
 def load_transcript_words(data: Mapping[str, Any]) -> list[_TimedSubtitleWord]:
@@ -526,7 +659,17 @@ def _prepare_subtitle_segments(
         return []
 
     lines = settings.max_lines if settings.wrap_words else 1
-    max_chars_per_line = DEFAULT_CHARS_PER_LINE
+    # RU: 25 симв./строку выведены для ширины текста 0.65 кадра (см. блок выше).
+    #     Масштабируем от неё, чтобы ползунок max_width_ratio реально управлял
+    #     длиной строки: раньше он парсился и игнорировался.
+    # EN: The 25 chars/line guideline assumes text spanning 0.65 of the frame
+    #     (see the block above). Scale from that so max_width_ratio actually
+    #     drives line length — it used to be parsed and then ignored.
+    ratio = max(0.1, float(settings.max_width_ratio))
+    max_chars_per_line = max(
+        8,
+        int(round(DEFAULT_CHARS_PER_LINE * ratio / CHARS_PER_LINE_REFERENCE_RATIO)),
+    )
     max_chars = max(12, lines * max_chars_per_line)
     min_chars = max(8, max_chars // 3)
 

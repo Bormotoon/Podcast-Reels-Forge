@@ -35,11 +35,48 @@ def test_subtitle_settings_defaults_are_conservative(tmp_path: Path) -> None:
 
     assert settings.font_size_px == 96
     assert settings.max_lines == 2
-    assert settings.max_width_ratio == 0.65
+    # Text spans the frame minus the 140px action-rail inset on both sides.
+    assert settings.max_width_ratio == 0.74
     assert settings.wrap_words is True
     assert settings.vertical_align == "bottom"
     assert settings.vertical_offset == 0.0
     assert settings.ass_style is None
+    assert settings.fade_in_duration == bs.DEFAULT_FADE_IN_S
+    assert settings.fade_out_duration == bs.DEFAULT_FADE_OUT_S
+
+
+def test_fade_can_be_disabled_from_config(tmp_path: Path) -> None:
+    """Zero must survive parsing: it is how the fade gets turned off."""
+    settings = bs.subtitle_settings_from_conf(
+        {"subtitles": {"fade_in_duration": 0, "fade_out_duration": 0}},
+        repo_dir=tmp_path,
+    )
+
+    assert settings.fade_in_duration == 0.0
+    assert settings.fade_out_duration == 0.0
+    seg = bs.SubtitleSegment(start=0.0, end=3.0, text="раз два")
+    assert bs._fade_tag(seg, settings) == ""
+
+
+def test_default_ass_style_is_the_viral_caption_look(tmp_path: Path) -> None:
+    """The shipped style must stay legible over arbitrary footage."""
+    header = bs._default_ass_header("Bignoodletoooblique", bs.DEFAULT_FONT_SIZE_PX)
+
+    style = next(
+        line for line in header.splitlines() if line.startswith("Style: Default,")
+    )
+    fields = style.split(",")
+    # Format: Name, Fontname, Fontsize, Primary, Secondary, Outline, Back, ...
+    assert fields[2] == "96"
+    # \kf sweeps secondary -> primary, so spoken text is the accent colour.
+    assert fields[3] == bs.DEFAULT_PRIMARY_COLOUR
+    assert fields[4] == bs.DEFAULT_SECONDARY_COLOUR
+    assert fields[7] == "-1", "captions are bold"
+
+    assert bs._ass_style_margin_v(header) == bs.DEFAULT_MARGIN_V
+    # A thick outline replaces the drop shadow.
+    assert bs.DEFAULT_OUTLINE_WIDTH >= 6
+    assert bs.DEFAULT_SHADOW_DEPTH == 0
 
 
 def test_subtitle_settings_from_conf_resolves_css_path(tmp_path: Path) -> None:
@@ -282,3 +319,128 @@ def test_word_timings_survive_segment_merging(tmp_path: Path) -> None:
     merged = [seg for seg in prepared if seg.text == "раз два"]
     assert merged, "the two short blocks should merge"
     assert [w.text for w in merged[0].words] == ["раз", "два"]
+
+
+def test_fade_tag_emitted_and_clamped_to_cue_length(tmp_path: Path) -> None:
+    """subtitles.fade_* must reach the ASS instead of being parsed and dropped."""
+    seg = bs.SubtitleSegment(start=0.0, end=4.0, text="раз два")
+
+    settings = bs.SubtitleRenderSettings(
+        enabled=True,
+        font_path=tmp_path / "font.ttf",
+        fade_in_duration=0.18,
+        fade_out_duration=0.12,
+    )
+    assert bs._fade_tag(seg, settings) == r"{\fad(180,120)}"
+
+    # Fades longer than the cue are scaled down so it still reaches full opacity.
+    short = bs.SubtitleSegment(start=0.0, end=0.5, text="раз")
+    greedy = bs.SubtitleRenderSettings(
+        enabled=True,
+        font_path=tmp_path / "font.ttf",
+        fade_in_duration=1.0,
+        fade_out_duration=1.0,
+    )
+    assert bs._fade_tag(short, greedy) == r"{\fad(250,250)}"
+
+    # Zero means "no fade at all", not "\fad(0,0)".
+    off = bs.SubtitleRenderSettings(
+        enabled=True,
+        font_path=tmp_path / "font.ttf",
+        fade_in_duration=0.0,
+        fade_out_duration=0.0,
+    )
+    assert bs._fade_tag(seg, off) == ""
+
+
+def test_written_ass_carries_fade_before_karaoke(tmp_path: Path) -> None:
+    """The fade override must lead the line, ahead of the \\kf word tags."""
+    ass_path = tmp_path / "out.ass"
+    segments = [bs.SubtitleSegment(start=0.0, end=2.0, text="раз два")]
+    settings = bs.SubtitleRenderSettings(
+        enabled=True,
+        font_path=tmp_path / "font.ttf",
+        fade_in_duration=0.2,
+        fade_out_duration=0.1,
+    )
+
+    bs._write_ass_file(ass_path, segments, settings)
+
+    dialogue = [
+        line for line in ass_path.read_text(encoding="utf-8").splitlines()
+        if line.startswith("Dialogue:")
+    ]
+    assert len(dialogue) == 1
+    # Dialogue: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+    text = dialogue[0].split(",", 9)[9]
+    assert text.startswith(r"{\fad(200,100)}")
+    assert r"\kf" in text
+
+
+def test_max_width_ratio_drives_line_length(tmp_path: Path) -> None:
+    """Widening max_width_ratio must allow longer subtitle blocks."""
+    long_text = " ".join(["слово"] * 40)
+    segments = [bs.SubtitleSegment(start=0.0, end=20.0, text=long_text)]
+
+    def longest_block(ratio: float) -> int:
+        settings = bs.SubtitleRenderSettings(
+            enabled=True,
+            font_path=tmp_path / "font.ttf",
+            max_width_ratio=ratio,
+        )
+        prepared = bs._prepare_subtitle_segments(segments, settings=settings)
+        return max(len(seg.text) for seg in prepared)
+
+    narrow = longest_block(0.35)
+    default = longest_block(bs.DEFAULT_MAX_WIDTH_RATIO)
+    wide = longest_block(0.95)
+
+    assert narrow < default < wide
+
+
+def test_vertical_offset_overrides_dialogue_margin(tmp_path: Path) -> None:
+    """subtitles.vertical_offset must shift MarginV on the Dialogue lines."""
+    segments = [bs.SubtitleSegment(start=0.0, end=2.0, text="раз два")]
+
+    def margins(offset: float) -> list[str]:
+        ass_path = tmp_path / f"out_{offset}.ass"
+        bs._write_ass_file(
+            ass_path,
+            segments,
+            bs.SubtitleRenderSettings(
+                enabled=True,
+                font_path=tmp_path / "font.ttf",
+                vertical_offset=offset,
+            ),
+        )
+        return [
+            line.split(",", 9)[7]  # MarginV
+            for line in ass_path.read_text(encoding="utf-8").splitlines()
+            if line.startswith("Dialogue:")
+        ]
+
+    # 0 keeps the historic "inherit from style" behaviour byte-for-byte.
+    assert margins(0.0) == ["0"]
+    # A positive offset pushes the cue away from its anchored edge.
+    shifted = int(margins(0.1)[0])
+    assert shifted > 0
+
+
+def test_ass_header_parsing_reads_margin_and_res() -> None:
+    """MarginV is located through the Format line, not a hardcoded index."""
+    header = (
+        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, "
+        "ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
+        "MarginL, MarginR, MarginV, Encoding\n"
+        "Style: Default,Big,96,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,"
+        "-1,0,0,0,100,100,0,0,1,5,2,2,45,45,470,1\n"
+    )
+    assert bs._ass_play_res_y(header) == 1920
+    assert bs._ass_style_margin_v(header) == 470
+
+    # No usable header: fall back rather than crash.
+    assert bs._ass_play_res_y("") == 1920
+    assert bs._ass_style_margin_v("") == 0
