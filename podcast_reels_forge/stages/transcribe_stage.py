@@ -331,17 +331,133 @@ def _format_srt_timestamp(seconds: float) -> str:
     return f"{hours:02}:{minutes:02}:{secs:02},{millis:03}"
 
 
-def _dump_srt_output(srt_path: Path, segments: list[dict[str, Any]]) -> None:
-    """Write SRT subtitles based on transcription segments."""
+# RU: Читаемый субтитр — короткий. Одно предложение на реплику; очень длинное
+#     без пунктуации переносим по словам, две коротких можем слить в одну.
+# EN: Readable cue = short. One sentence per cue; a very long punctuation-less
+#     run is wrapped on word boundaries, two short sentences may merge into one.
+SRT_MAX_CHARS_PER_CUE: Final = 140
+SRT_MERGE_SHORT_CHARS: Final = 45
+
+# RU: Граница предложения — пробел(ы) после .!?… (учитываем закрывающие кавычки/скобки).
+# EN: Sentence boundary — whitespace after .!?… (allowing closing quotes/brackets).
+_SENTENCE_SPLIT_RE: Final = re.compile(r'(?<=[.!?…])["»”’)\]]*\s+')
+
+
+def _split_text_into_sentences(text: str) -> list[str]:
+    """RU: Делит текст на предложения по конечной пунктуации.
+
+    EN: Split text into sentences on terminal punctuation.
+    """
+    parts = _SENTENCE_SPLIT_RE.split(text.strip())
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _wrap_on_words(text: str, max_chars: int) -> list[str]:
+    """RU: Режет длинную строку без пунктуации по границам слов.
+
+    EN: Break a long punctuation-less string on word boundaries.
+    """
+    words = text.split()
+    if not words:
+        return []
     lines: list[str] = []
-    for idx, seg in enumerate(segments, 1):
-        start = float(seg.get("start", 0.0))
-        end = float(seg.get("end", 0.0))
-        text = str(seg.get("text", "")).strip()
-        lines.append(str(idx))
-        lines.append(f"{_format_srt_timestamp(start)} --> {_format_srt_timestamp(end)}")
-        lines.append(text)
-        lines.append("")
+    current = ""
+    for word in words:
+        if current and len(current) + 1 + len(word) > max_chars:
+            lines.append(current)
+            current = word
+        else:
+            current = word if not current else f"{current} {word}"
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _segment_to_srt_cues(
+    seg: dict[str, Any],
+    *,
+    max_chars: int = SRT_MAX_CHARS_PER_CUE,
+    merge_short_chars: int = SRT_MERGE_SHORT_CHARS,
+) -> list[tuple[float, float, str]]:
+    """RU: Разбивает сегмент на короткие реплики (start, end, text) для SRT.
+
+    Одно предложение на реплику; две коротких соседних могут слиться (максимум
+    две); слишком длинное предложение переносится по словам. Время делится
+    пропорционально длине частей внутри интервала сегмента. Работает без
+    пословных таймингов, поэтому корректен и после стадии вычитки.
+
+    EN: Split a segment into short (start, end, text) SRT cues.
+
+    One sentence per cue; two short neighbours may merge (at most two); an
+    over-long sentence is wrapped on word boundaries. Timing is allocated
+    proportionally to piece length within the segment span. Does not rely on
+    per-word timestamps, so it stays correct after the proofreading stage.
+    """
+    text = str(seg.get("text", "")).strip()
+    if not text:
+        return []
+    start = float(seg.get("start", 0.0))
+    end = float(seg.get("end", 0.0))
+
+    sentences = _split_text_into_sentences(text) or [text]
+
+    # Merge a short sentence with the next one (only once, so a cue holds at
+    # most two sentences), staying under the char budget.
+    merged: list[str] = []
+    idx = 0
+    while idx < len(sentences):
+        cur = sentences[idx]
+        nxt = sentences[idx + 1] if idx + 1 < len(sentences) else None
+        if (
+            nxt is not None
+            and len(cur) < merge_short_chars
+            and len(cur) + 1 + len(nxt) <= max_chars
+        ):
+            merged.append(f"{cur} {nxt}")
+            idx += 2
+        else:
+            merged.append(cur)
+            idx += 1
+
+    pieces: list[str] = []
+    for piece in merged:
+        if len(piece) > max_chars:
+            pieces.extend(_wrap_on_words(piece, max_chars))
+        else:
+            pieces.append(piece)
+    if not pieces:
+        return []
+
+    total_weight = sum(max(len(p), 1) for p in pieces)
+    duration = max(end - start, 0.001)
+    cues: list[tuple[float, float, str]] = []
+    consumed = 0
+    for i, piece in enumerate(pieces):
+        cue_start = start + duration * (consumed / total_weight)
+        consumed += max(len(piece), 1)
+        cue_end = (
+            end
+            if i == len(pieces) - 1
+            else start + duration * (consumed / total_weight)
+        )
+        cues.append((round(cue_start, 3), round(max(cue_start + 0.001, cue_end), 3), piece))
+    return cues
+
+
+def _dump_srt_output(srt_path: Path, segments: list[dict[str, Any]]) -> None:
+    """RU: Пишет SRT, разбивая сегменты на короткие пореплики.
+
+    EN: Write SRT, splitting segments into short per-sentence cues.
+    """
+    lines: list[str] = []
+    idx = 1
+    for seg in segments:
+        for start, end, text in _segment_to_srt_cues(seg):
+            lines.append(str(idx))
+            lines.append(f"{_format_srt_timestamp(start)} --> {_format_srt_timestamp(end)}")
+            lines.append(text)
+            lines.append("")
+            idx += 1
 
     with srt_path.open("w", encoding="utf-8") as f:
         f.write("\n".join(lines).rstrip() + "\n")
