@@ -237,12 +237,22 @@ def _load_config(path: Path) -> dict[str, Any]:
 
 
 def _resolve_transcript_json(model_dir: Path, input_video: Path, explicit: Path | None) -> Path | None:
+    """Locate the transcript JSON to derive reel subtitles from.
+
+    The proofread variant wins over the raw one wherever both exist: it holds
+    the spell/punctuation-corrected text, and re-burning from the raw file
+    would silently undo the proofreading stage.
+    """
+
     if explicit is not None:
         return explicit
 
     base_dir = model_dir.parent
+    stem = input_video.stem
     candidates = [
-        base_dir / input_video.with_suffix(".json").name,
+        base_dir / f"{stem}.proofread.json",
+        base_dir / f"{stem}.json",
+        base_dir / "audio.proofread.json",
         base_dir / "audio.json",
     ]
     for candidate in candidates:
@@ -250,8 +260,11 @@ def _resolve_transcript_json(model_dir: Path, input_video: Path, explicit: Path 
             return candidate
 
     fallback = sorted(
-        p for p in base_dir.glob("*.json")
-        if p.is_file() and p.name not in {"diarization.json"}
+        (
+            p for p in base_dir.glob("*.json")
+            if p.is_file() and p.name not in {"diarization.json"}
+        ),
+        key=lambda p: (0 if p.name.endswith(".proofread.json") else 1, p.name),
     )
     return fallback[0] if fallback else None
 

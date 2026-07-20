@@ -179,3 +179,44 @@ def test_main_burns_subtitles_when_requested(
             "--no-subtitle-wrap-words",
         ],
     )
+
+
+def test_rerender_prefers_proofread_transcript(tmp_path: Path) -> None:
+    """Re-burning must use the corrected transcript, not the raw one."""
+    from podcast_reels_forge.scripts.rerender_videos import _resolve_transcript_json
+
+    episode_dir = tmp_path / "episode"
+    model_dir = episode_dir / "gemma4_26b"
+    model_dir.mkdir(parents=True)
+    video = tmp_path / "input" / "episode.mp4"
+
+    raw = episode_dir / "episode.json"
+    raw.write_text("{}", encoding="utf-8")
+    # Only the raw transcript exists yet.
+    assert _resolve_transcript_json(model_dir, video, None) == raw
+
+    proofread = episode_dir / "episode.proofread.json"
+    proofread.write_text("{}", encoding="utf-8")
+    # Once proofread output exists it wins.
+    assert _resolve_transcript_json(model_dir, video, None) == proofread
+
+    # An explicit path always wins over auto-detection.
+    explicit = episode_dir / "other.json"
+    assert _resolve_transcript_json(model_dir, video, explicit) == explicit
+
+
+def test_rerender_glob_fallback_prefers_proofread(tmp_path: Path) -> None:
+    """The glob fallback must not alphabetically pick the raw transcript."""
+    from podcast_reels_forge.scripts.rerender_videos import _resolve_transcript_json
+
+    episode_dir = tmp_path / "episode"
+    model_dir = episode_dir / "gemma4_26b"
+    model_dir.mkdir(parents=True)
+    # Video stem matches nothing on disk, so resolution falls through to the glob.
+    video = tmp_path / "input" / "unrelated-name.mp4"
+
+    (episode_dir / "POS-1.json").write_text("{}", encoding="utf-8")
+    (episode_dir / "POS-1.proofread.json").write_text("{}", encoding="utf-8")
+    (episode_dir / "diarization.json").write_text("[]", encoding="utf-8")
+
+    assert _resolve_transcript_json(model_dir, video, None) == episode_dir / "POS-1.proofread.json"
