@@ -4,6 +4,47 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] — 2026-07-20
+
+### Added
+- **Viral-caption defaults** — the shipped subtitle style is now the format that
+  dominates podcast shorts: heavy condensed face, a thick black outline instead
+  of a drop shadow, and a `\kf` sweep from white (not yet spoken) to amber
+  `#FFD60A` (already spoken), anchored bottom-centre clear of the platform UI
+  (`MarginL/R 140`, `MarginV 470`).
+- **`fade_in_duration` / `fade_out_duration` now render** as an ASS `\fad` tag.
+  They were parsed and then dropped. Fades longer than a cue are scaled down
+  proportionally so it still reaches full opacity; `0` disables them.
+- **`max_width_ratio` now drives line length.** The 25 chars/line guideline is
+  measured at a 0.65 frame share, so the value scales from there (the new 0.74
+  default gives ~28).
+- **`vertical_offset` now renders** as a per-cue `MarginV` override on top of the
+  `.ass` style. `0.0` keeps output byte-identical to before.
+- Sentence-split `.srt` output — one short cue per screen instead of a
+  three-or-four-sentence block.
+
+### Fixed
+- **Subtitle style preview ignored most settings.** The font never loaded in the
+  GUI (a hardcoded `../../` 404'd from `gui/`, so the preview silently fell back
+  to sans-serif); words rendered glued together because they were adjacent flex
+  items whose only separation was `Spacing`, and the inter-word spaces inherited
+  a 16px font instead of the caption size; and "primary fill" was invisible
+  because it only applies to already-sung words, of which there were none while
+  the karaoke simulation was off. A frozen preview now shows the middle of a
+  `\kf` sweep so both fills stay visible and tunable.
+- Burned reel subtitles now come from the **proofread** transcript on every path:
+  `rerender_videos.py` preferred the raw `.json` when auto-detecting, which
+  silently undid the proofreading stage on a re-burn.
+- `fade_*` of `0` was clamped to `0.01`, so the fade could not be turned off.
+- Removed a duplicate `id="dynamic-font-face"` from the subtitles page, guarded a
+  platform lookup that could throw, and stopped the 400 ms karaoke tick from
+  rebuilding the DOM and re-fetching the font on every frame.
+
+### Removed
+- `subtitles.word_x_space` / `word_y_space` controls from the GUI and exported
+  config — they never affected rendering, and spacing comes from the `.ass` style
+  (`Spacing` in the editor). Still parsed so existing configs keep loading.
+
 ## [1.2.0] — 2026-07-19
 
 ### Added
@@ -147,5 +188,7 @@ Initial public release: Blackwell-GPU support, faster and more accurate
 transcription (faster-whisper `large-v3` with fast/quality modes), local
 llama.cpp analysis, and NVENC-accelerated 9:16 video rendering.
 
+[1.3.0]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Bormotoon/Podcast-Reels-Forge/releases/tag/v1.0.0

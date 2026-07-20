@@ -38,7 +38,7 @@
 
 Main workflow steps:
 
-1. **Speech Recognition (faster-whisper)**: Converts audio/video into text with per-word timestamps. Model `large-v3`, with two modes — fast batched and accurate context-aware (see [Run Modes by Task](#run-modes-by-task)).
+1. **Speech Recognition (faster-whisper)**: Converts audio/video into text with per-word timestamps. Model `large-v3`, with two modes — fast batched and accurate context-aware (see [Run Modes by Task](#run-modes-by-task)). A sentence-split `.srt` is written alongside it — one short cue per screen instead of a three-or-four-sentence wall of text.
 2. **Diarization (Optional)**: Identifies different speakers throughout the audio.
 3. **Transcript Proofreading (LLM)**: gemma4 fixes spelling and punctuation; a guardrail rejects any correction that adds, drops or paraphrases text.
 4. **AI Analysis (LLM)**: A staged `scout → cleanup → judge` flow on a local Gemma, with candidates verified against the transcript: quote matching, phrase-aligned boundaries, audio signals (loudness/pauses/speech rate) and whole-episode context. The clip count scales with runtime (`clips_per_hour`).
@@ -250,8 +250,13 @@ Flags for the standalone transcriber `transcribe_input_audio.py`:
   - `font`: Path to the subtitle font file. Default: `assets/fonts/bignoodletoooblique.ttf`.
   - `ass_style`: Path to the `.ass` style file. Default: `assets/subtitles/forge_subtitles.ass`. If the file is missing, a built-in fallback style is used.
   - `wrap_words`: Toggle word wrapping for captions. When disabled, the caption stays on one line.
-  - `font_size_px`, `max_lines`, `max_width_ratio`, `vertical_offset`, `word_x_space`, `word_y_space`, `fade_in_duration`, `fade_out_duration`: Fine-tune subtitle styling/timing.
+  - `max_width_ratio`: Share of the frame the text may span — this drives line length. Defaults to `0.74` (the frame minus the 140px insets that clear the right-hand action rail), i.e. ~28 characters per line.
+  - `vertical_offset`: Shifts a cue by a fraction of the frame height on top of the `MarginV` baked into the `.ass` style. `0.0` leaves placement entirely to the style editor.
+  - `fade_in_duration` / `fade_out_duration`: Fade a cue in and out (the ASS `\fad` tag). `0` disables it. If the two together outlast the cue, both are scaled down proportionally.
+  - `font_size_px`: Only applies when no `.ass` file is present; otherwise the size comes from the style.
+  - The default style is the viral karaoke caption look: a heavy condensed face, a thick black outline instead of a drop shadow, and a `\kf` sweep from white (not yet spoken) to amber `#FFD60A` (already spoken), anchored bottom-centre above the platform chrome.
   - The easiest way to tune the style is the visual [GUI](#graphical-interface-gui) (Subtitles tab). The "Save ASS File" button writes the style straight into `assets/subtitles/forge_subtitles.ass`, which the pipeline reads.
+  - `word_x_space` / `word_y_space` are legacy no-ops: spacing comes from the `.ass` style (`Spacing` in the editor).
 - **`diarization`**: Enable and configure speaker detection (requires a token in the `PYANNOTE_TOKEN` environment variable, see [`.env.example`](.env.example)). `num_speakers` pins the speaker count when it is known — less over-clustering on noisy recordings.
 
 ---
