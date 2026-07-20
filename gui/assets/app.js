@@ -167,7 +167,7 @@
         clips_reels_count: 'Reels всего (reels_count)', clips_reel_min: 'Reel мин. сек',
         clips_reel_max: 'Reel макс. сек',
         // Subtitles — extras
-        sub_voffset: 'Верт. смещение (доля)', sub_word_x: 'Зазор слов X (px)', sub_word_y: 'Зазор слов Y (px)',
+        sub_voffset: 'Верт. смещение (доля кадра)',
         sub_editor: 'Визуальный редактор стиля (.ass)', sub_editor_newtab: 'Открыть в новой вкладке',
         sub_editor_note: 'Все настройки субтитров — в одной панели слева от предпросмотра: параметры рендера, шрифт, цвет, контур и положение. Нажмите «Выбрать папку» и «Сохранить файл ASS» — пайплайн берёт стиль из этого файла.',
         sub_size_hint: 'Размер, цвет, контур и положение субтитров задаются ниже — в визуальном редакторе стиля (.ass).',
@@ -351,7 +351,7 @@
         clips_per_hour_desc: '0 — off (fixed counts above). Otherwise the counters above only set the type mix.',
         clips_reels_count: 'Total Reels (reels_count)', clips_reel_min: 'Reel min sec',
         clips_reel_max: 'Reel max sec',
-        sub_voffset: 'Vertical Offset (ratio)', sub_word_x: 'Word Gap X (px)', sub_word_y: 'Word Gap Y (px)',
+        sub_voffset: 'Vertical Offset (frame ratio)',
         sub_editor: 'Visual Style Editor (.ass)', sub_editor_newtab: 'Open in New Tab',
         sub_editor_note: 'Every subtitle setting lives in the single panel left of the preview: render parameters, font, color, outline and position. Use "Set Directory" and "Save ASS File" — the pipeline takes the style from that file.',
         sub_size_hint: 'Size, color, outline and position of subtitles are set below — in the visual style editor (.ass).',
@@ -483,9 +483,9 @@
       subsEnabled: true,
       subsFont: 'assets/fonts/bignoodletoooblique.ttf',
       subsAss: 'assets/subtitles/forge_subtitles.ass',
-      subsWrap: true, subsMaxLines: 2, subsMaxWidth: 0.65,
-      subsVOffset: 0.0, subsWordX: 6, subsWordY: 8,
-      subsFadeIn: 0.18, subsFadeOut: 0.12,
+      subsWrap: true, subsMaxLines: 2, subsMaxWidth: 0.74,
+      subsVOffset: 0.0,
+      subsFadeIn: 0.12, subsFadeOut: 0.08,
       settingsInputDir: 'input', settingsOutputDir: 'output',
       settingsCache: true, settingsValidateJson: true, settingsProofread: true, settingsDiarization: false,
       settingsDiarModel: 'pyannote/speaker-diarization', settingsDiarNumSpeakers: '',
@@ -856,8 +856,6 @@ subtitles:
   max_width_ratio: ${state.subsMaxWidth}
   vertical_align: "bottom"
   vertical_offset: ${state.subsVOffset}
-  word_x_space: ${state.subsWordX}
-  word_y_space: ${state.subsWordY}
   fade_in_duration: ${state.subsFadeIn}
   fade_out_duration: ${state.subsFadeOut}
 video:

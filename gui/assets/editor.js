@@ -126,10 +126,15 @@
     const DEFAULTS = {
       fontPath: "assets/fonts/bignoodletoooblique.ttf",
       fontSizePx: 96, spacingPx: 0, bold: true, italic: false, underline: false, strikeout: false,
-      primaryColor: "#FFFFFF", primaryOp: 1.0, secondaryColor: "#FFFFFF", secondaryOp: 1.0,
-      borderStyle: 1, outlineColor: "#000000", outlineOp: 1.0, outline: 5,
-      backColor: "#000000", backOp: 0.5, shadow: 2,
-      alignment: 2, marginV: 500, marginL: 45, marginR: 45,
+      // \kf заливает слово от вторичного цвета к основному: белое — ещё не
+      // произнесено, янтарное — уже прозвучало. Толстый контур вместо тени —
+      // именно он держит читаемость поверх любого видео.
+      primaryColor: "#FFD60A", primaryOp: 1.0, secondaryColor: "#FFFFFF", secondaryOp: 1.0,
+      borderStyle: 1, outlineColor: "#000000", outlineOp: 1.0, outline: 8,
+      backColor: "#000000", backOp: 0.5, shadow: 0,
+      // Поля 140px обходят правую панель кнопок Reels/TikTok/Shorts,
+      // MarginV 470 поднимает текст над подписью и строкой со звуком.
+      alignment: 2, marginV: 470, marginL: 140, marginR: 140,
       scaleX: 100, scaleY: 100, angle: 0,
       sampleText: "Разбираемся, почему этот выпуск вызывает споры.", autoAnimate: true,
       platform: "ig", showUI: true, showMask: true, showOutline: true, maskOpacity: 60
@@ -262,12 +267,71 @@
       return `rgba(${parseInt(hex.substring(0,2),16)}, ${parseInt(hex.substring(2,4),16)}, ${parseInt(hex.substring(4,6),16)}, ${op})`;
     }
 
+    // RU: Этот же разметочный блок открывается из gui/ (на уровень выше корня
+    //     репозитория) и из assets/subtitles/ (на два). Жёсткий "../../" ломал
+    //     шрифт в GUI: файл не находился и предпросмотр молча падал на sans-serif.
+    //     @font-face перебирает src по списку, пока какой-то не загрузится.
+    // EN: This markup is served both from gui/ (one level below the repo root)
+    //     and assets/subtitles/ (two). A hardcoded "../../" broke the font in the
+    //     GUI: it 404'd and the preview silently fell back to sans-serif.
+    //     @font-face walks the src list until one of them loads.
+    function repoRootPrefix() {
+      const dir = new URL('.', document.baseURI).pathname;
+      if (/\/gui\/$/.test(dir)) return '../';
+      if (/\/assets\/subtitles\/$/.test(dir)) return '../../';
+      return '';
+    }
+
+    function fontFaceSrc(rawPath) {
+      const path = String(rawPath || '').trim();
+      if (!path) return '';
+      const esc = path.replace(/"/g, '\\"');
+      if (/^(https?:|data:|file:|\/)/i.test(path)) return `url("${esc}")`;
+      // Known depth first (so the normal case costs no 404), the rest as a
+      // self-healing fallback if these files ever get moved.
+      const prefixes = [repoRootPrefix(), '../', '../../', ''];
+      const seen = new Set();
+      return prefixes
+        .filter(p => !seen.has(p) && seen.add(p))
+        .map(p => `url("${p}${esc}")`)
+        .join(', ');
+    }
+
+    let lastFontSrc = null;
+    function applyFontFace() {
+      const src = fontFaceSrc(state.fontPath);
+      // Rewriting the rule on every repaint restarts the font fetch and makes
+      // the preview flicker, so only touch it when the path actually changed.
+      if (src === lastFontSrc) return;
+      lastFontSrc = src;
+      const styleEl = document.getElementById('dynamic-font-face');
+      if (styleEl) {
+        styleEl.textContent = src
+          ? `@font-face { font-family: 'AssPreview'; src: ${src}; font-display: swap; }`
+          : '';
+      }
+    }
+
+    // Repaint just the karaoke highlight — the 400ms tick must not rebuild the
+    // DOM, refetch the font and force a full relayout.
+    function paintKaraoke() {
+      const words = document.querySelectorAll('#subContainer .ass-word');
+      // RU: Со стоп-кадром показываем середину \kf-свипа: начало строки уже
+      //     «спето» (PrimaryColour), хвост ещё нет (SecondaryColour). Так обе
+      //     заливки видны сразу и обе настраиваются — иначе одна из них молча
+      //     ни на что не влияет.
+      // EN: Frozen preview shows the middle of a \kf sweep: the head of the line
+      //     is already "sung" (PrimaryColour), the tail is not (SecondaryColour).
+      //     Both fills stay visible and tunable — otherwise one of them silently
+      //     does nothing.
+      const cut = state.autoAnimate ? activeIdx : Math.ceil(words.length * 0.6);
+      words.forEach((span, i) => span.classList.toggle('active', i < cut));
+    }
+
     function updatePreview() {
       const c = document.getElementById('subContainer');
-      
-      let fUrl = state.fontPath;
-      if (fUrl.startsWith("assets/")) fUrl = "../../" + fUrl; 
-      document.getElementById('dynamic-font-face').innerHTML = `@font-face { font-family: 'AssPreview'; src: url('${fUrl}'); }`;
+
+      applyFontFace();
 
       c.style.setProperty('--css-font', "'AssPreview'");
       c.style.setProperty('--css-font-size', `${state.fontSizePx}px`);
@@ -328,11 +392,20 @@
       let lineDiv = document.createElement('div');
       lineDiv.className = 'ass-line';
       words.forEach((w, i) => {
+        // RU: Реальный пробел между словами — как в прожиге (" ".join). Раньше
+        //     слова были соседними flex-элементами без разделителя, и зазор давал
+        //     только column-gap = Spacing, равный 0 по умолчанию: в предпросмотре
+        //     текст слипался в «почемуэтотвыпуск».
+        // EN: A real space between words, matching the burner's " ".join. They
+        //     used to be adjacent flex items whose only separation was
+        //     column-gap = Spacing (0 by default), so the preview glued words
+        //     together into "почемуэтотвыпуск".
+        if (i > 0) lineDiv.appendChild(document.createTextNode(' '));
         let span = document.createElement('span'); span.className = 'ass-word';
-        if (state.autoAnimate && i < activeIdx) span.classList.add('active');
         span.textContent = w; lineDiv.appendChild(span);
       });
       c.appendChild(lineDiv);
+      paintKaraoke();
 
       const platData = PLATFORMS[state.platform] || PLATFORMS.ig;
       document.getElementById('assEditorRoot').style.setProperty('--brand-color', platData.color);
@@ -352,9 +425,8 @@
       document.getElementById('safe-outline').style.opacity = state.showOutline ? '1' : '0';
       
       document.querySelectorAll('.plat-btn').forEach(b => b.classList.remove('active'));
-      document.querySelector(`.plat-btn[data-platform="${state.platform}"]`).classList.add('active');
-      
-      resizePreview();
+      const activePlatBtn = document.querySelector(`.plat-btn[data-platform="${state.platform}"]`);
+      if (activePlatBtn) activePlatBtn.classList.add('active');
     }
 
     function getASS() {
@@ -401,7 +473,8 @@
 
     document.querySelectorAll('.plat-btn').forEach(btn => {
       btn.addEventListener('click', e => {
-        state.platform = e.target.getAttribute('data-platform');
+        // currentTarget, not target: a click can land on a ripple/child node.
+        state.platform = e.currentTarget.getAttribute('data-platform');
         sync();
       });
     });
@@ -435,6 +508,12 @@
     });
 
     window.addEventListener('resize', resizePreview);
+    // The phone is scaled to fit its pane, which also changes when the sidebar
+    // reflows (sections expand, the window is split). updatePreview() no longer
+    // rescales on every repaint, so watch the pane itself instead.
+    if (window.ResizeObserver && workspace) {
+      new ResizeObserver(() => resizePreview()).observe(workspace);
+    }
     // Re-render the JS-built parts (safe-zone caption) when the page language changes.
     window.addEventListener('forge:langchange', () => updatePreview());
 
@@ -442,7 +521,7 @@
       if(state.autoAnimate) {
         let max = state.sampleText.trim().split(/\s+/).filter(Boolean).length;
         activeIdx = (activeIdx + 1) % (max + 1);
-        updatePreview();
+        paintKaraoke();
       }
     }, 400);
 

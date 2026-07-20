@@ -342,10 +342,17 @@
       left: var(--css-left); right: var(--css-right); top: var(--css-top); bottom: var(--css-bottom);
       align-items: var(--css-align-items); text-align: var(--css-text-align); transform: var(--css-transform-container);
     }
-    .ass-line { display: inline-flex; flex-wrap: wrap; justify-content: var(--css-justify); column-gap: var(--css-spacing); background-color: var(--css-box-bg); padding: var(--css-box-pad); }
+    .ass-line {
+      display: inline-block; max-width: 100%;
+      font-family: var(--css-font), sans-serif; font-size: var(--css-font-size);
+      font-weight: var(--css-weight); font-style: var(--css-style);
+      letter-spacing: var(--css-spacing);
+      background-color: var(--css-box-bg); padding: var(--css-box-pad);
+    }
     .ass-word {
-      font-family: var(--css-font), sans-serif; font-size: var(--css-font-size); font-weight: var(--css-weight);
-      font-style: var(--css-style); text-decoration: var(--css-decoration); letter-spacing: var(--css-spacing);
+      /* inline-block: transform (ScaleX/ScaleY/Angle) не действует на строчные элементы */
+      display: inline-block;
+      font: inherit; text-decoration: var(--css-decoration);
       color: var(--css-color-sec); text-shadow: var(--css-text-shadow); -webkit-text-stroke: var(--css-text-stroke);
       /* Рисуем обводку ПОЗАДИ заливки — как это делает libass (контур снаружи глифа),
          иначе толстый stroke «съедает» буквы и текст превращается в чёрное месиво. */
@@ -749,10 +756,15 @@
     const DEFAULTS = {
       fontPath: "assets/fonts/bignoodletoooblique.ttf",
       fontSizePx: 96, spacingPx: 0, bold: true, italic: false, underline: false, strikeout: false,
-      primaryColor: "#FFFFFF", primaryOp: 1.0, secondaryColor: "#FFFFFF", secondaryOp: 1.0,
-      borderStyle: 1, outlineColor: "#000000", outlineOp: 1.0, outline: 5,
-      backColor: "#000000", backOp: 0.5, shadow: 2,
-      alignment: 2, marginV: 500, marginL: 45, marginR: 45,
+      // \kf заливает слово от вторичного цвета к основному: белое — ещё не
+      // произнесено, янтарное — уже прозвучало. Толстый контур вместо тени —
+      // именно он держит читаемость поверх любого видео.
+      primaryColor: "#FFD60A", primaryOp: 1.0, secondaryColor: "#FFFFFF", secondaryOp: 1.0,
+      borderStyle: 1, outlineColor: "#000000", outlineOp: 1.0, outline: 8,
+      backColor: "#000000", backOp: 0.5, shadow: 0,
+      // Поля 140px обходят правую панель кнопок Reels/TikTok/Shorts,
+      // MarginV 470 поднимает текст над подписью и строкой со звуком.
+      alignment: 2, marginV: 470, marginL: 140, marginR: 140,
       scaleX: 100, scaleY: 100, angle: 0,
       sampleText: "Разбираемся, почему этот выпуск вызывает споры.", autoAnimate: true,
       platform: "ig", showUI: true, showMask: true, showOutline: true, maskOpacity: 60
@@ -885,12 +897,55 @@
       return `rgba(${parseInt(hex.substring(0,2),16)}, ${parseInt(hex.substring(2,4),16)}, ${parseInt(hex.substring(4,6),16)}, ${op})`;
     }
 
+    // Список src: этот редактор живёт и в assets/subtitles/, и встроен в gui/,
+    // поэтому даём оба относительных пути — @font-face берёт первый рабочий.
+    function repoRootPrefix() {
+      const dir = new URL('.', document.baseURI).pathname;
+      if (/\/gui\/$/.test(dir)) return '../';
+      if (/\/assets\/subtitles\/$/.test(dir)) return '../../';
+      return '';
+    }
+
+    function fontFaceSrc(rawPath) {
+      const path = String(rawPath || '').trim();
+      if (!path) return '';
+      const esc = path.replace(/"/g, '\\"');
+      if (/^(https?:|data:|file:|\/)/i.test(path)) return `url("${esc}")`;
+      // Сначала известная глубина (обычный случай — без лишнего 404),
+      // остальное — страховка, если файлы переедут.
+      const prefixes = [repoRootPrefix(), '../', '../../', ''];
+      const seen = new Set();
+      return prefixes
+        .filter(p => !seen.has(p) && seen.add(p))
+        .map(p => `url("${p}${esc}")`)
+        .join(', ');
+    }
+
+    let lastFontSrc = null;
+    function applyFontFace() {
+      const src = fontFaceSrc(state.fontPath);
+      if (src === lastFontSrc) return;   // не перезапускаем загрузку шрифта зря
+      lastFontSrc = src;
+      const styleEl = document.getElementById('dynamic-font-face');
+      if (styleEl) {
+        styleEl.textContent = src
+          ? `@font-face { font-family: 'AssPreview'; src: ${src}; font-display: swap; }`
+          : '';
+      }
+    }
+
+    // Перекраска караоке без перестройки DOM (тик идёт каждые 400мс).
+    function paintKaraoke() {
+      const words = document.querySelectorAll('#subContainer .ass-word');
+      // Стоп-кадр = середина \kf-свипа: видны обе заливки, обе настраиваются.
+      const cut = state.autoAnimate ? activeIdx : Math.ceil(words.length * 0.6);
+      words.forEach((span, i) => span.classList.toggle('active', i < cut));
+    }
+
     function updatePreview() {
       const c = document.getElementById('subContainer');
-      
-      let fUrl = state.fontPath;
-      if (fUrl.startsWith("assets/")) fUrl = "../../" + fUrl; 
-      document.getElementById('dynamic-font-face').innerHTML = `@font-face { font-family: 'AssPreview'; src: url('${fUrl}'); }`;
+
+      applyFontFace();
 
       c.style.setProperty('--css-font', "'AssPreview'");
       c.style.setProperty('--css-font-size', `${state.fontSizePx}px`);
@@ -951,11 +1006,13 @@
       let lineDiv = document.createElement('div');
       lineDiv.className = 'ass-line';
       words.forEach((w, i) => {
+        // Настоящий пробел между словами — как в прожиге (" ".join).
+        if (i > 0) lineDiv.appendChild(document.createTextNode(' '));
         let span = document.createElement('span'); span.className = 'ass-word';
-        if (state.autoAnimate && i < activeIdx) span.classList.add('active');
         span.textContent = w; lineDiv.appendChild(span);
       });
       c.appendChild(lineDiv);
+      paintKaraoke();
 
       const platData = PLATFORMS[state.platform] || PLATFORMS.ig;
       document.documentElement.style.setProperty('--brand-color', platData.color);
@@ -972,7 +1029,8 @@
       document.getElementById('safe-outline').style.opacity = state.showOutline ? '1' : '0';
       
       document.querySelectorAll('.plat-btn').forEach(b => b.classList.remove('active'));
-      document.querySelector(`.plat-btn[data-platform="${state.platform}"]`).classList.add('active');
+      const activePlatBtn = document.querySelector(`.plat-btn[data-platform="${state.platform}"]`);
+      if (activePlatBtn) activePlatBtn.classList.add('active');
       
       resizePreview();
     }
@@ -1021,7 +1079,7 @@
 
     document.querySelectorAll('.plat-btn').forEach(btn => {
       btn.addEventListener('click', e => {
-        state.platform = e.target.getAttribute('data-platform');
+        state.platform = e.currentTarget.getAttribute('data-platform');
         sync();
       });
     });
@@ -1060,7 +1118,7 @@
       if(state.autoAnimate) {
         let max = state.sampleText.trim().split(/\s+/).filter(Boolean).length;
         activeIdx = (activeIdx + 1) % (max + 1);
-        updatePreview();
+        paintKaraoke();
       }
     }, 400);
 

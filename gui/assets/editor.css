@@ -287,10 +287,24 @@
       left: var(--css-left); right: var(--css-right); top: var(--css-top); bottom: var(--css-bottom);
       align-items: var(--css-align-items); text-align: var(--css-text-align); transform: var(--css-transform-container);
     }
-    .ass-line { display: inline-flex; flex-wrap: wrap; justify-content: var(--css-justify); column-gap: var(--css-spacing); background-color: var(--css-box-bg); padding: var(--css-box-pad); }
+    /* Слова разделяет настоящий пробел (как в прожиге), поэтому строка — обычный
+       inline-block с переносом по словам, а не flex: во flex-контейнере
+       текстовые узлы-пробелы между элементами не отображаются. */
+    /* Метрики шрифта живут на строке, а не на слове: пробелы между словами —
+       это текстовые узлы внутри .ass-line, и если размер/семейство заданы только
+       на .ass-word, пробел рисуется дефолтным 16px-шрифтом (~4px вместо ~24px)
+       и слова визуально слипаются. */
+    .ass-line {
+      display: inline-block; max-width: 100%;
+      font-family: var(--css-font), sans-serif; font-size: var(--css-font-size);
+      font-weight: var(--css-weight); font-style: var(--css-style);
+      letter-spacing: var(--css-spacing);
+      background-color: var(--css-box-bg); padding: var(--css-box-pad);
+    }
     .ass-word {
-      font-family: var(--css-font), sans-serif; font-size: var(--css-font-size); font-weight: var(--css-weight);
-      font-style: var(--css-style); text-decoration: var(--css-decoration); letter-spacing: var(--css-spacing);
+      /* inline-block: transform (ScaleX/ScaleY/Angle) не действует на строчные элементы */
+      display: inline-block;
+      font: inherit; text-decoration: var(--css-decoration);
       color: var(--css-color-sec); text-shadow: var(--css-text-shadow); -webkit-text-stroke: var(--css-text-stroke);
       /* Рисуем обводку ПОЗАДИ заливки — как это делает libass (контур снаружи глифа),
          иначе толстый stroke «съедает» буквы и текст превращается в чёрное месиво. */
