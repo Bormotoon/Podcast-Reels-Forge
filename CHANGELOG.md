@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Episode long-read** — after proofreading, gemma4 edits the transcript into a
+  readable article: meaning-based sections with headings, paragraphs, corrected
+  errors. It is not a retelling; the speaker's words, phrasing and grammatical
+  person are kept verbatim, and only filler, slips and verbatim repetitions are
+  removed. Writes `<stem>.article.md` + `.json`.
+- **Run any subset of stages** — `start_forge.py --only`/`--skip`/`--list-stages`
+  (`transcribe`, `diarize`, `proofread`, `article`, `analyze`, `cut`). An unknown
+  stage name is an error, not a silent skip. The GUI offers the same choice as
+  checkboxes and assembles the matching command, since the pages run no backend.
+- `llama_cpp.roles.article`, the `article` config block, and `json_output` on the
+  llama.cpp provider for stages that want prose instead of JSON.
+
+### Fixed
+- Skipping the proofread stage no longer strands the ones after it: the pipeline
+  switched to the corrected transcript only inside that stage's block, so
+  `--only analyze` would have quietly fed the raw text downstream.
+- Chunk units read `str(segment.get("speaker", ""))`, but a transcript without
+  diarization stores an explicit `speaker=None` — so `str(None)` prefixed every
+  line sent to the model with a literal `(None)`, and the prefixes ate a third of
+  the per-chunk character budget.
+
 ## [1.3.0] — 2026-07-20
 
 ### Added
