@@ -253,6 +253,65 @@ async def _proofread_batch(
     return applied, rejected
 
 
+
+def _check_terms(
+    segments: list[dict[str, Any]],
+    *,
+    conf: Mapping[str, Any],
+    cache_path: Path,
+    quiet: bool,
+) -> list[dict[str, Any]]:
+    """RU: Перепроверяет редкие имена во внешнем источнике и правит их.
+
+    EN: Re-check rare names against an external source and fix them.
+
+    Off by default: it is the one part of the pipeline that leaves the machine.
+    Only the suspect word itself (plus at most one neighbouring word) is sent —
+    never transcript text.
+    """
+    from podcast_reels_forge.analysis.term_check import (
+        WikiTermVerifier,
+        apply_term_fixes,
+        find_suspect_terms,
+        load_cache,
+        save_cache,
+        verify_terms,
+    )
+
+    text = " ".join(str(seg.get("text", "")) for seg in segments)
+    suspects = find_suspect_terms(
+        text,
+        min_occurrences=int(conf.get("min_occurrences", 3)),
+    )
+    if not suspects:
+        return []
+
+    cache = load_cache(cache_path)
+    fixes = verify_terms(
+        suspects,
+        WikiTermVerifier(pause=float(conf.get("pause_seconds", 1.0))),
+        cache=cache,
+        max_terms=int(conf.get("max_terms", 20)),
+    )
+    save_cache(cache_path, cache)
+
+    if not fixes:
+        return []
+
+    total = 0
+    for seg in segments:
+        fixed, count = apply_term_fixes(str(seg.get("text", "")), fixes)
+        if count:
+            seg["text"] = fixed
+            total += count
+
+    if not quiet:
+        for fix in fixes:
+            LOGGER.info("[proofread] term: %s -> %s (%s)", fix.wrong, fix.right, fix.evidence)
+        LOGGER.info("[proofread] term fixes applied: %d occurrence(s)", total)
+    return [fix.to_dict() for fix in fixes]
+
+
 def _proofread_output_path(transcript_path: Path) -> Path:
     return transcript_path.with_name(transcript_path.stem + ".proofread.json")
 
@@ -363,8 +422,24 @@ async def run_proofread(
                 rejected,
             )
 
+    terms_conf = conf.get("terms")
+    term_fixes: list[dict[str, Any]] = []
+    if isinstance(terms_conf, Mapping) and terms_conf.get("enabled"):
+        out_path_hint = output_path or _proofread_output_path(transcript_path)
+        try:
+            term_fixes = _check_terms(
+                segment_dicts,
+                conf=terms_conf,
+                cache_path=out_path_hint.with_name("term_lookups.json"),
+                quiet=quiet,
+            )
+        except Exception as exc:
+            # An outside source is never allowed to fail the transcript.
+            LOGGER.warning("[proofread] term check skipped (%s)", exc)
+
     data["sentences"] = _build_sentence_groups(segment_dicts)
     data["proofread"] = {
+        "term_fixes": term_fixes,
         "model": model,
         "prompt_lang": prompt_lang,
         "segments_total": len(segment_dicts),

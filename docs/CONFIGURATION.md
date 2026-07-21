@@ -192,6 +192,69 @@ a neutral 0.5, so candidates with and without the signal stay comparable.
 > is written out with its defaults, so hand-edited values here are reset when
 > settings are saved from the interface.
 
+### Rare terms / Перепроверка редких слов
+
+```yaml
+proofread:
+  terms:
+    enabled: false      # network access — opt in
+    min_occurrences: 3
+    max_terms: 20
+    pause_seconds: 1.0
+```
+
+RU: Распознавание стабильно ошибается на именах и прозвищах: «Курокрад»
+превращается в «Курократ». Внутри эпизода это не поймать — правильной формы там
+просто нет, — а спрашивать человека про каждое слово незачем.
+
+Проверяется не «как правильно», а какое из написаний внешний источник **вообще
+знает**: у «курокрад» в Викисловаре 9 совпадений, у «курократ» — ноль. Кандидаты
+находятся по заглавной букве не в начале предложения, варианты написания
+получаются заменой звуков, которые путает ASR (звонкие/глухие на конце, е/э,
+о/а). Первая буква не меняется никогда: её распознавание почти не теряет, а
+подмена даёт просто другое слово.
+
+Правка вносится **только** когда исходное написание источнику неизвестно, а
+вариант известен уверенно. Оба известны, оба неизвестны, сеть недоступна —
+текст остаётся как есть. Неудачный запрос отличается от «ноль совпадений»:
+сбой сети не должен читаться как «слово неизвестно» и переписывать текст.
+
+Всё, что изменено, попадает в `<имя>.proofread.json` → `proofread.term_fixes`
+вместе с доказательством, так что правки можно проверить.
+
+**Приватность.** Это единственное место, где данные покидают машину. Наружу
+уходит только подозрительное слово и максимум одно соседнее (контекст помогает:
+клуб «Подземелье Деновалис» по одному второму слову не находится). Текст
+расшифровки не отправляется. Источник — официальный API Викисловаря и
+Википедии, без ключа; результаты кэшируются в `term_lookups.json`, поэтому слово
+запрашивается один раз.
+
+EN: Recognition reliably trips over names and nicknames: "Курокрад" comes back as
+"Курократ". The episode cannot settle it — the correct form is simply absent —
+and asking a human about every word defeats the point.
+
+The check is not "what is correct" but which spelling an outside source **knows
+at all**: Wiktionary has 9 hits for "курокрад" and none for "курократ".
+Candidates are spotted by a capital letter mid-sentence; variants come from
+swapping the sounds ASR confuses (final devoicing, е/э, о/а). The first letter is
+never swapped — recognition rarely loses it, and changing it just yields a
+different word.
+
+A fix lands **only** when the original is unknown to the source and a variant is
+known with confidence. Both known, neither known, or no network — the text stays
+as it is. A failed lookup is kept distinct from "zero hits": a flaky network must
+not read as "unknown word" and start rewriting.
+
+Everything changed is recorded in `<stem>.proofread.json` →
+`proofread.term_fixes`, with the evidence, so the edits can be audited.
+
+**Privacy.** This is the one place where data leaves the machine. Only the
+suspect word and at most one neighbouring word are sent (context matters: the
+club "Подземелье Деновалис" is unfindable by its second word alone). No
+transcript text is transmitted. The source is the official Wiktionary/Wikipedia
+API, keyless; results are cached in `term_lookups.json`, so a word is looked up
+once.
+
 ## Article / Лонгрид по эпизоду
 
 ```yaml
