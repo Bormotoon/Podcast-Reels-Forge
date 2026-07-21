@@ -27,6 +27,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   video's own audio. The models read the 16 kHz mono PCM — which is exactly what
   faster-whisper and pyannote resample to internally — instead of the MP3.
 
+- **Rare-name spell check** (`proofread.terms`, off by default) — the transcript
+  said "Курократ" where the person is "Курокрад", and nothing in the episode
+  could settle it. Instead of asking what is correct, it checks which spelling an
+  outside source knows at all: Wiktionary has 9 hits for one and none for the
+  other. A fix lands only when the original is unknown and a variant is known
+  with confidence; a failed lookup is kept distinct from zero hits so a flaky
+  network cannot rewrite text. Only the suspect word and one neighbour ever
+  leave the machine, and every edit is recorded with its evidence.
+
 ### Fixed
 - Diarization could not run at all: pyannote reads a file in chunks and raises on
   MP3 because a crop comes back a few samples short of what it requested.
