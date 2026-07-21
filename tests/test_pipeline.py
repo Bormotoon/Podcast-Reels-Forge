@@ -814,3 +814,129 @@ def test_run_pipeline_resyncs_cached_reels_from_proofread_transcript(
     pipeline.run_pipeline(conf=conf, repo_dir=tmp_path, quiet=True, verbose=False)
 
     assert sync_calls == [proofread_path]
+
+
+def test_run_pipeline_builds_the_article_from_the_proofread_transcript(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The article stage runs after proofreading and reads the corrected text."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "video.mp4").write_text("x")
+
+    def fake_ffmpeg_run(
+        cmd: list[str] | tuple[str, ...],
+        *,
+        capture_output: bool = False,
+        text: bool = False,
+        **_: object,
+    ) -> SimpleNamespace:
+        Path(list(cmd)[-1]).write_text("mp3")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fake_ffmpeg_run)
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
+
+    def fake_transcribe_file(config: pipeline.TranscribeConfig) -> Path:
+        out_path = config.outdir / config.input_path.with_suffix(".json").name
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps({"language": "ru", "segments": [
+                {"start": 0.0, "end": 10.0, "text": "привет мир"},
+            ]}),
+            encoding="utf-8",
+        )
+        out_path.with_suffix(".srt").write_text("1\n", encoding="utf-8")
+        return out_path
+
+    monkeypatch.setattr(pipeline, "transcribe_file", fake_transcribe_file)
+
+    async def fake_run_proofread(*, transcript_path: Path, output_path: Path, **_: object) -> Path:
+        output_path.write_text(
+            json.dumps({"language": "ru", "segments": [
+                {"start": 0.0, "end": 10.0, "text": "Привет, мир!"},
+            ]}),
+            encoding="utf-8",
+        )
+        output_path.with_suffix(".srt").write_text("1\n", encoding="utf-8")
+        return output_path
+
+    monkeypatch.setattr(pipeline, "run_proofread", fake_run_proofread)
+
+    article_calls: list[dict[str, object]] = []
+
+    async def fake_run_article(
+        *,
+        transcript_path: Path,
+        output_path: Path,
+        url: str,
+        model: str,
+        article_conf: dict[str, object],
+        prompts_conf: dict[str, object],
+        title: str | None = None,
+        quiet: bool = False,
+        verbose: bool = False,
+    ) -> Path:
+        article_calls.append({
+            "transcript_path": transcript_path,
+            "output_path": output_path,
+            "model": model,
+            "title": title,
+        })
+        output_path.write_text("# video\n\n## Раздел\n\nАбзац.\n", encoding="utf-8")
+        output_path.with_suffix(".json").write_text("{}", encoding="utf-8")
+        return output_path
+
+    monkeypatch.setattr(pipeline, "run_article", fake_run_article)
+
+    async def fake_run_staged_analysis(**kwargs: object) -> list[dict[str, object]]:
+        outdir = kwargs["outdir"]
+        outdir.mkdir(parents=True, exist_ok=True)
+        (outdir / "moments.json").write_text("[]", encoding="utf-8")
+        (outdir / "reels.md").write_text("# Reels Suggestions\n", encoding="utf-8")
+        return []
+
+    monkeypatch.setattr(pipeline, "run_staged_analysis", fake_run_staged_analysis)
+    monkeypatch.setattr(pipeline, "run_module", lambda *a, **kw: None)
+    monkeypatch.setattr(pipeline, "sync_reel_markdowns", lambda *a, **kw: [])
+    monkeypatch.setattr(pipeline, "llama_cpp_start", lambda **kw: None)
+    monkeypatch.setattr(pipeline, "llama_cpp_stop", lambda proc: None)
+    monkeypatch.setattr(pipeline, "wait_for_server_ready", lambda *a, **kw: None)
+    monkeypatch.setattr(pipeline, "_kill_llama_server", lambda *a: None)
+    monkeypatch.setattr(pipeline, "is_tcp_open", lambda *a: False)
+
+    conf = {
+        "paths": {"input_dir": str(input_dir), "output_dir": str(tmp_path / "output")},
+        "transcription": {"language": "ru", "device": "cpu"},
+        "llama_cpp": {
+            "roles": {
+                "scout": "gemma4",
+                "cleanup_refine": "gemma4",
+                "judge_metadata": "gemma4",
+                "proofread": "gemma4",
+                "article": "gemma4:12b",
+            },
+            "url": "http://127.0.0.1:8080/v1/chat/completions",
+            "service": {"auto_start": True, "model_path": str(tmp_path / "model.gguf")},
+        },
+        "processing": {"reels_count": 1, "reel_padding": 5},
+        "video": {"threads": 1},
+        "exports": {},
+        "subtitles": {"enabled": False},
+        "diarization": {"enabled": False},
+        "proofread": {"enabled": True},
+        "article": {"enabled": True},
+        "prompts": {"language": "auto", "variant": "default"},
+    }
+
+    pipeline.run_pipeline(conf=conf, repo_dir=tmp_path, quiet=True, verbose=False)
+
+    assert len(article_calls) == 1
+    episode_dir = tmp_path / "output" / "video"
+    # It retells the corrected transcript, not the raw one.
+    assert article_calls[0]["transcript_path"] == episode_dir / "video.proofread.json"
+    # ".proofread" must not leak into the article file name.
+    assert article_calls[0]["output_path"] == episode_dir / "video.article.md"
+    assert article_calls[0]["model"] == "gemma4:12b"
+    assert article_calls[0]["title"] == "video"
+    assert (episode_dir / "video.article.md").exists()

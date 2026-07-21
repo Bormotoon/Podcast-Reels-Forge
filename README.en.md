@@ -41,8 +41,9 @@ Main workflow steps:
 1. **Speech Recognition (faster-whisper)**: Converts audio/video into text with per-word timestamps. Model `large-v3`, with two modes — fast batched and accurate context-aware (see [Run Modes by Task](#run-modes-by-task)). A sentence-split `.srt` is written alongside it — one short cue per screen instead of a three-or-four-sentence wall of text.
 2. **Diarization (Optional)**: Identifies different speakers throughout the audio.
 3. **Transcript Proofreading (LLM)**: gemma4 fixes spelling and punctuation; a guardrail rejects any correction that adds, drops or paraphrases text.
-4. **AI Analysis (LLM)**: A staged `scout → cleanup → judge` flow on a local Gemma, with candidates verified against the transcript: quote matching, phrase-aligned boundaries, audio signals (loudness/pauses/speech rate) and whole-episode context. The clip count scales with runtime (`clips_per_hour`).
-5. **Video Editing (FFmpeg + NVENC)**: Cuts the video, applies vertical cropping (9:16), stabilized face framing, and burns karaoke subtitles timed from real word timestamps. GPU encoding via NVENC (~5× faster than software).
+4. **Episode article (LLM)**: gemma4 turns the proofread transcript into a readable article — third-person narration, meaning-based sections with headings, paragraphs. Two guardrails (length and vocabulary against the source) stop the model from padding it out.
+5. **AI Analysis (LLM)**: A staged `scout → cleanup → judge` flow on a local Gemma, with candidates verified against the transcript: quote matching, phrase-aligned boundaries, audio signals (loudness/pauses/speech rate) and whole-episode context. The clip count scales with runtime (`clips_per_hour`).
+6. **Video Editing (FFmpeg + NVENC)**: Cuts the video, applies vertical cropping (9:16), stabilized face framing, and burns karaoke subtitles timed from real word timestamps. GPU encoding via NVENC (~5× faster than software).
 
 Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 
@@ -55,6 +56,7 @@ Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 - **Hallucination guard**: Suppresses Whisper repetition loops (endless "Thank you." on silence/music) via a temperature ladder, repetition penalty, and `condition_on_previous_text`.
 - **Role-based llama.cpp pipeline**: Local staged flow through **llama.cpp** with a Gemma 4 lineup: `gemma4`. Model replies are constrained by a JSON grammar, unparseable JSON is re-asked, and one failed chunk doesn't abort the analysis.
 - **Transcript proofreading**: An LLM fixes spelling and punctuation before analysis; a letter-content check guarantees the model added and paraphrased nothing.
+- **Episode article**: A detailed, sectioned retelling (`<stem>.article.md`) that reads far better than a transcript. Passages that fail the faithfulness checks are flagged rather than passed off as verified.
 - **Clips grounded in reality**: Every candidate's quote is checked against what was actually said; clip bounds snap to the start of a phrase and the end of a thought; hallucinated timecodes are dropped.
 - **Audio signals**: Loudness, pause density and speech rate on each candidate's span are measured with ffmpeg and feed the ranking — text heuristics can't hear the episode, these can.
 - **Runtime-scaled clip counts**: `clips_per_hour: 10` — a 1.5-hour episode yields ~15 clips; the per-type counters only set the mix.
@@ -164,8 +166,9 @@ The orchestrator [start_forge.py](start_forge.py) runs [podcast_reels_forge/pipe
 1. **Transcription**: Uses `faster-whisper`. Output: `output/<file_stem>/audio.json` + `audio.srt`.
 2. **Diarization**: (If enabled) Creates `diarization.json` with speaker turns.
 3. **Proofread**: gemma4 proofreads the transcript (spelling/punctuation) with a guardrail check on every correction. Output: `<file_stem>.proofread.json` + `.srt`; the raw transcript is untouched.
-4. **Analyze (Staged)**: Episode overview → scout over overlapping chunks → cleanup (dedupe/merge) → judge that sees each clip's real opening and closing seconds. Deterministic validation runs between stages: timecode clamping, quote verification against the transcript, boundary snapping to phrases, audio probing. Final selection honours type quotas, overlaps and topic diversity. Artifacts go to `output/<file_stem>/<model>/` (e.g. `gemma4_26b/`).
-4. **Video Processing**: Cuts clips from the final `moments.json`. Forge burns ASS subtitles into each reel with ffmpeg, adds a ready-to-post `reel_XX.md`, keeps a local `reel_XX.srt`, and builds `reels_preview.mp4`.
+4. **Article**: gemma4 rebuilds the proofread transcript into an article: meaning-based sections, headings, paragraphs. Length and vocabulary checks catch padding; fragments that fail are flagged in `.article.json`. Output: `<file_stem>.article.md` + `.json`.
+5. **Analyze (Staged)**: Episode overview → scout over overlapping chunks → cleanup (dedupe/merge) → judge that sees each clip's real opening and closing seconds. Deterministic validation runs between stages: timecode clamping, quote verification against the transcript, boundary snapping to phrases, audio probing. Final selection honours type quotas, overlaps and topic diversity. Artifacts go to `output/<file_stem>/<model>/` (e.g. `gemma4_26b/`).
+6. **Video Processing**: Cuts clips from the final `moments.json`. Forge burns ASS subtitles into each reel with ffmpeg, adds a ready-to-post `reel_XX.md`, keeps a local `reel_XX.srt`, and builds `reels_preview.mp4`.
 
 
 ---
@@ -181,6 +184,8 @@ output/
     my_podcast.srt
     my_podcast.proofread.json  # Proofread transcript (used by analysis and subtitles)
     my_podcast.proofread.srt
+    my_podcast.article.md        # Episode retelling, ready to read
+    my_podcast.article.json      # Sections, timings and guardrail metadata
     diarization.json           # (Optional) Speaker info
     gemma4_26b/                # Analysis model folder
       analysis_manifest.json   # Run parameters: quotas, chunks, language
@@ -257,6 +262,7 @@ Flags for the standalone transcriber `transcribe_input_audio.py`:
   - The default style is the viral karaoke caption look: a heavy condensed face, a thick black outline instead of a drop shadow, and a `\kf` sweep from white (not yet spoken) to amber `#FFD60A` (already spoken), anchored bottom-centre above the platform chrome.
   - The easiest way to tune the style is the visual [GUI](#graphical-interface-gui) (Subtitles tab). The "Save ASS File" button writes the style straight into `assets/subtitles/forge_subtitles.ass`, which the pipeline reads.
   - `word_x_space` / `word_y_space` are legacy no-ops: spacing comes from the `.ass` style (`Spacing` in the editor).
+- **`article`**: The episode retelling. `enabled` turns the stage on; `max_length_ratio` and `max_novel_word_ratio` set the faithfulness thresholds (details in [docs/CONFIGURATION.md](docs/CONFIGURATION.md)).
 - **`diarization`**: Enable and configure speaker detection (requires a token in the `PYANNOTE_TOKEN` environment variable, see [`.env.example`](.env.example)). `num_speakers` pins the speaker count when it is known — less over-clustering on noisy recordings.
 
 ---

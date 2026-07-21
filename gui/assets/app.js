@@ -16,7 +16,7 @@
         dash_title: 'Панель управления', dash_desc: 'Управление очередью пайплайна и мониторинг прогресса',
         dash_pipeline_status: 'Статус пайплайна',
         stage_transcribe: 'Транскрибация', stage_diarize: 'Диаризация', stage_proofread: 'Вычитка',
-        stage_analyze: 'Анализ LLM', stage_cut: 'Нарезка', stage_subtitles: 'Субтитры',
+        stage_article: 'Пересказ', stage_analyze: 'Анализ LLM', stage_cut: 'Нарезка', stage_subtitles: 'Субтитры',
         stat_queue: 'В очереди', stat_reels: 'Рилсов создано', stat_duration: 'Общая длительность', stat_gpu: 'GPU VRAM',
         dash_add_queue: 'Добавить в очередь',
         dash_drop: 'Перетащите видео/аудио файлы сюда или нажмите для выбора',
@@ -101,6 +101,8 @@
         set_diar: 'Диаризация (ID спикеров)', set_diar_desc: 'Определять спикеров в аудио',
         set_proofread: 'Вычитка транскрипта (LLM)',
         set_proofread_desc: 'Исправлять орфографию и пунктуацию моделью gemma4 перед анализом',
+        set_article: 'Пересказ эпизода (LLM)',
+        set_article_desc: 'Собрать читаемую статью с разделами и заголовками по вычитанному транскрипту',
         set_diar_model: 'Модель диаризации',
         set_diar_num_speakers: 'Количество спикеров',
         set_diar_num_speakers_desc: 'Оставьте пустым, чтобы pyannote определял число спикеров автоматически',
@@ -212,7 +214,7 @@
         dash_title: 'Dashboard', dash_desc: 'Manage your pipeline queue and monitor progress',
         dash_pipeline_status: 'Pipeline Status',
         stage_transcribe: 'Transcribe', stage_diarize: 'Diarize', stage_proofread: 'Proofread',
-        stage_analyze: 'LLM Analysis', stage_cut: 'Cut & Export', stage_subtitles: 'Subtitles',
+        stage_article: 'Article', stage_analyze: 'LLM Analysis', stage_cut: 'Cut & Export', stage_subtitles: 'Subtitles',
         stat_queue: 'In Queue', stat_reels: 'Reels Created', stat_duration: 'Total Duration', stat_gpu: 'GPU VRAM',
         dash_add_queue: 'Add to Queue',
         dash_drop: 'Drop video/audio files here or click to browse',
@@ -292,6 +294,8 @@
         set_diar: 'Diarization (Speaker ID)', set_diar_desc: 'Identify speakers in the audio',
         set_proofread: 'Transcript proofreading (LLM)',
         set_proofread_desc: 'Fix spelling and punctuation with gemma4 before analysis',
+        set_article: 'Episode article (LLM)',
+        set_article_desc: 'Build a readable, sectioned article from the proofread transcript',
         set_diar_model: 'Diarization Model',
         set_diar_num_speakers: 'Number of Speakers',
         set_diar_num_speakers_desc: 'Leave empty to let pyannote estimate the speaker count automatically',
@@ -487,7 +491,8 @@
       subsVOffset: 0.0,
       subsFadeIn: 0.12, subsFadeOut: 0.08,
       settingsInputDir: 'input', settingsOutputDir: 'output',
-      settingsCache: true, settingsValidateJson: true, settingsProofread: true, settingsDiarization: false,
+      settingsCache: true, settingsValidateJson: true, settingsProofread: true,
+      settingsArticle: true, settingsDiarization: false,
       settingsDiarModel: 'pyannote/speaker-diarization', settingsDiarNumSpeakers: '',
       settingsQuiet: false, settingsVerbose: false, settingsSkipExisting: true,
       settingsNoProgress: false,
@@ -634,7 +639,7 @@
       const visual = document.getElementById('pipelineVisual');
       const overview = document.getElementById('pipelineOverview');
       if (!visual && !overview) return;  // dashboard pipeline visual / footer overview
-      const stages = ['transcribe', 'diarize', 'proofread', 'analyze', 'cut', 'subtitles'];
+      const stages = ['transcribe', 'diarize', 'proofread', 'article', 'analyze', 'cut', 'subtitles'];
       const idx = stages.indexOf(stage);
       if (visual) {
         if (status === 'active') {
@@ -753,6 +758,7 @@ llama_cpp:
     cleanup_refine: "${state.analyzeCleanup}"
     judge_metadata: "${state.analyzeJudge}"
     proofread: "${state.analyzeCleanup}"
+    article: "${state.analyzeCleanup}"
   timeout: ${state.analyzeTimeout}
   temperature: ${state.analyzeTemp}
   chunk_seconds: ${state.analyzeChunk}
@@ -779,6 +785,14 @@ llama_cpp:
 prompts:
   language: "${state.analyzeLang}"
   variant: "${state.analyzeVariant}"
+article:
+  enabled: ${state.settingsArticle}
+  chunk_seconds: 600
+  max_chars_chunk: 6000
+  temperature: 0.2
+  timeout: 900
+  max_novel_word_ratio: 0.3
+  max_length_ratio: 1.1
 proofread:
   enabled: ${state.settingsProofread}
   max_chars_chunk: 4000
@@ -902,6 +916,7 @@ diarization:
       if (queue.length === 0) { addLog(t('log_no_files'), 'warn'); return; }
       pipelineRunning = true; setRunDisabled(true);
       const stages = ['transcribe', 'analyze', 'cut'];
+      if (state.settingsArticle) stages.splice(1, 0, 'article');
       if (state.settingsProofread) stages.splice(1, 0, 'proofread');
       if (state.settingsDiarization) stages.splice(1, 0, 'diarize');
       if (state.subsEnabled) stages.push('subtitles');

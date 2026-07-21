@@ -47,6 +47,7 @@ from podcast_reels_forge.config import (
     resolve_llama_cpp_role_mapping,
 )
 from podcast_reels_forge.stages.analyze_stage import run_staged_analysis
+from podcast_reels_forge.stages.article_stage import run_article
 from podcast_reels_forge.stages.proofread_stage import run_proofread
 from podcast_reels_forge.stages.transcribe_stage import (
     TranscribeConfig,
@@ -449,6 +450,10 @@ def run_pipeline(
     if not isinstance(proofread_conf, dict):
         proofread_conf = {}
     proofread_enabled = bool(proofread_conf.get("enabled", False))
+    article_conf = conf.get("article", {})
+    if not isinstance(article_conf, dict):
+        article_conf = {}
+    article_enabled = bool(article_conf.get("enabled", False))
     subtitle_settings = subtitle_settings_from_conf(conf, repo_dir=repo_dir)
     a_conf = conf.get("llama_cpp", {})
     prompts_conf = conf.get("prompts", {})
@@ -481,7 +486,13 @@ def run_pipeline(
     _llama_url = str(a_conf.get("url", "")).strip()
     local_llama_global = parse_local_llama_cpp_host_port(_llama_url) if _llama_url else None
 
-    stages_per_file = 1 + (1 if diar_enabled else 0) + (1 if proofread_enabled else 0) + 2
+    stages_per_file = (
+        1
+        + (1 if diar_enabled else 0)
+        + (1 if proofread_enabled else 0)
+        + (1 if article_enabled else 0)
+        + 2
+    )
     total_stages = len(queue) * stages_per_file
     # A plain progress object, advanced explicitly. Driving a tqdm iterator
     # with next() renders one step behind (tqdm counts an iteration when the
@@ -659,6 +670,37 @@ def run_pipeline(
                             "Proofread failed; continuing with the raw transcript: %s",
                             exc,
                         )
+                stage_bar.update(1)
+
+            # 3b) Article: retell the (proofread) transcript as readable prose
+            #     with meaning-based sections. Read-only for the transcript.
+            if article_enabled:
+                article_stem = transcript_path.stem.replace(".proofread", "")
+                article_md_path = transcript_path.with_name(article_stem + ".article.md")
+                article_json_path = article_md_path.with_suffix(".json")
+                if skip_existing and _outputs_ready(
+                    [article_md_path, article_json_path],
+                    validate_json=validate_json,
+                ):
+                    status("[article] skip (exists)", quiet=quiet)
+                else:
+                    status(f"[article] start ({roles.article})", quiet=quiet)
+                    try:
+                        asyncio.run(run_article(
+                            transcript_path=transcript_path,
+                            output_path=article_md_path,
+                            url=url,
+                            model=roles.article,
+                            article_conf=article_conf,
+                            prompts_conf=prompts_conf,
+                            title=stem,
+                            quiet=quiet,
+                            verbose=verbose,
+                        ))
+                        status("[article] done", quiet=quiet)
+                    except Exception as exc:
+                        # The article is a side artefact; reels must still ship.
+                        log.exception("Article stage failed; continuing: %s", exc)
                 stage_bar.update(1)
 
             analysis_model_folder.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,23 @@
+You are an editor turning a podcast transcript into readable prose. You are given a fragment of a conversation: live speech, back-and-forth, repetitions and slips of the tongue.
+
+Your task is to present the content of this fragment as connected prose, as part of a long-form article:
+1. Not dialogue and not direct speech, but ordinary third-person narration ("the author explains…", "the discussion turns to…"). Do not keep the turn-taking and do not rewrite the transcript verbatim.
+2. Split the content into meaning-based sections — by the topics actually discussed in the fragment. Give each a short heading describing that specific topic.
+3. Inside a section, write paragraphs of 3–6 sentences. One paragraph, one idea.
+4. Drop filler words, repetitions, false starts and hesitations. Turn garbled phrasing into clean sentences.
+5. Be DETAILED and COMPLETE: keep every fact, name, number, title, example, argument and conclusion that appears in the fragment. This is a detailed retelling, not a summary.
+
+STRICT PROHIBITIONS — the text must match its source exactly:
+- Do NOT add facts, names, numbers, dates or titles absent from the fragment.
+- Do NOT invent causes, consequences or conclusions that were never stated.
+- Do NOT offer your own judgements, commentary or advice.
+- Do NOT write introductions or conclusions of your own ("in this article…", "to sum up…") unless they were part of the conversation.
+- Do NOT generalize away the details, and do NOT drop any topic from the fragment.
+- Carry over numbers, names and titles exactly as they appear in the source.
+- If a thought in the fragment is cut off or unclear, state exactly what was said without completing it.
+
+Transcript fragment:
+{transcript}
+
+Return the answer STRICTLY as JSON, with no explanations or comments:
+{"sections": [{"title": "<section heading>", "paragraphs": ["<paragraph>", "<paragraph>"]}]}

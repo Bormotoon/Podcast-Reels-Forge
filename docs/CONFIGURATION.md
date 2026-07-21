@@ -192,6 +192,63 @@ a neutral 0.5, so candidates with and without the signal stay comparable.
 > is written out with its defaults, so hand-edited values here are reset when
 > settings are saved from the interface.
 
+## Article / Пересказ эпизода
+
+```yaml
+article:
+  enabled: true
+  chunk_seconds: 600        # transcript window per request
+  max_chars_chunk: 6000
+  temperature: 0.2
+  timeout: 900
+  max_novel_word_ratio: 0.3 # share of words absent from the source fragment
+  max_length_ratio: 1.1     # how much longer than its source a retelling may be
+```
+
+RU: После вычитки gemma4 превращает транскрипт в читаемую статью: прямая речь
+становится повествованием от третьего лица, содержание делится на разделы по
+смыслу с заголовками, внутри — абзацы. Это подробный пересказ, а не краткое
+содержание: факты, имена, числа и примеры сохраняются.
+
+Достоверность держат две проверки, потому что сверять текст дословно здесь
+нельзя — он намеренно переписан:
+
+- **Объём** — пересказ не может быть длиннее источника больше чем в
+  `max_length_ratio` раз. Раздувание означает, что модель дописывает своё.
+- **Лексика** — доля слов, которых нет в исходном фрагменте, не должна
+  превышать `max_novel_word_ratio`. Сравнение идёт по основам слов (первые
+  буквы), иначе русская морфология давала бы ложные срабатывания.
+
+Нарушение любой проверки — повторный запрос при `temperature=0` с явным
+напоминанием о запрете. Если и он не прошёл, фрагмент сохраняется, но
+помечается в `<имя>.article.json` (`chunks_flagged`, `faithfulness[].reasons`)
+— чтобы недостоверный кусок не выдавался за проверенный.
+
+Результат: `<имя>.article.md` (для чтения) и `<имя>.article.json` (структура
+разделов, тайминги и метаданные проверок). Транскрипт не изменяется.
+
+EN: After proofreading, gemma4 turns the transcript into a readable article:
+dialogue becomes third-person narration, the content is split into meaning-based
+sections with headings, and each section is written as paragraphs. It is a
+detailed retelling, not a summary — facts, names, numbers and examples are kept.
+
+Two guardrails keep it honest, since the text is deliberately rewritten and
+cannot be diffed word for word:
+
+- **Length** — a retelling may not exceed `max_length_ratio` times its source.
+  Growth means the model is padding.
+- **Vocabulary** — the share of words absent from the source fragment must stay
+  under `max_novel_word_ratio`. Comparison runs on word stems, otherwise Russian
+  inflection would trip it constantly.
+
+Either violation triggers one retry at `temperature=0` with the constraint
+restated. If that also fails the fragment is kept but flagged in
+`<stem>.article.json` (`chunks_flagged`, `faithfulness[].reasons`), so an
+unverified passage is never presented as verified.
+
+The model is selected via `llama_cpp.roles.article` (falls back to the
+`cleanup_refine` model when omitted).
+
 ## Processing / Обработка
 
 ```yaml
