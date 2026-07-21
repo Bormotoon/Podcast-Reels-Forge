@@ -272,6 +272,47 @@ timings, guardrail metadata). The transcript is left untouched.
 The model is selected via `llama_cpp.roles.article` (falls back to the
 `cleanup_refine` model when omitted).
 
+### Speakers / Разбивка по спикерам
+
+RU: Если включена диаризация и рядом лежит `diarization.json`, лонгрид
+собирается с разбивкой по говорящим: каждая реплика начинается с имени.
+
+Единица текста в этом режиме — реплика, а не сегмент Whisper: Whisper режет речь
+по паузам, и один его сегмент на 36 секунд запросто содержит троих. Поэтому
+спикер назначается каждому слову (по пословным таймингам), а границы реплик
+подтягиваются к концу предложения — иначе реплика начиналась бы с середины
+фразы. Текст при этом берётся вычитанный, а не из списка слов: после вычитки
+слова хранят исходное написание ASR, и сборка реплик из них отменила бы стадию
+вычитки.
+
+Имена подставляются из самого разговора: модель читает начало эпизода, где люди
+представляются и обращаются друг к другу, и сопоставляет `SPEAKER_00` с именем.
+Метка, для которой имя нигде не названо, остаётся технической — «Ведущий» и
+«Гость» не выдумываются.
+
+EN: With diarization enabled and a `diarization.json` alongside, the long-read is
+built with speaker separation: every turn starts with a name.
+
+The unit here is a turn, not a Whisper segment: Whisper splits on pauses, and one
+36-second segment of its output happily holds three people. So the speaker is
+assigned per word (from the word timings) and turn boundaries are nudged onto
+sentence ends — otherwise a turn would start mid-phrase. The text comes from the
+proofread segment rather than the word list: after proofreading those words still
+carry the raw ASR spelling, and rebuilding turns from them would undo the
+proofreading stage.
+
+Names come from the conversation itself: the model reads the opening, where
+people introduce and address each other, and maps `SPEAKER_00` to a name. A label
+whose name is never stated keeps its technical id — no invented "Host" or "Guest".
+
+> RU: pyannote склонен дробить голоса: на реальном эпизоде с тремя участниками
+> он выделил пять. Если число участников известно, задайте
+> `diarization.num_speakers` — это заметно улучшает разбивку.
+>
+> EN: pyannote tends to over-split: on a real three-person episode it found five
+> speakers. When the count is known, set `diarization.num_speakers` — it
+> noticeably improves the split.
+
 ## Running single stages / Запуск отдельных этапов
 
 ```bash

@@ -119,41 +119,68 @@ def _file_has_content(path: Path) -> bool:
         return False
 
 
-def _ensure_mp3_companion(video_path: Path) -> Path:
-    """Create a same-stem MP3 companion from video if it does not exist yet."""
-    mp3_path = video_path.with_suffix(".mp3")
-    if _file_has_content(mp3_path):
-        return mp3_path
+#: Listening copy. 320k keeps the MP3 transparent for a human ear.
+MP3_BITRATE = "320k"
+#: Working copy for the models. Both faster-whisper and pyannote decode to
+#: 16 kHz mono internally, so this is exactly what they consume — a 48 kHz
+#: stereo file would only make them do the downmix themselves. Storing it as
+#: PCM also sidesteps a real pyannote failure: cropping an MP3 yields a chunk a
+#: few samples short of what it asked for, and the pipeline raises.
+WAV_SAMPLE_RATE = 16000
 
-    log.info(
-        "Creating MP3 companion for %s -> %s",
-        video_path.name,
-        mp3_path.name,
+
+def _ensure_audio_companions(video_path: Path) -> tuple[Path, Path]:
+    """RU: Готовит рядом с видео MP3 и WAV — одним проходом ffmpeg.
+
+    EN: Produce the MP3 and WAV companions next to a video in one ffmpeg pass.
+
+    Both are encoded from the video's own audio stream, decoded once. Deriving
+    the WAV from the MP3 instead would bake the lossy artefacts into what the
+    models hear.
+    """
+    mp3_path = video_path.with_suffix(".mp3")
+    wav_path = video_path.with_suffix(".wav")
+
+    need_mp3 = not _file_has_content(mp3_path)
+    need_wav = not _file_has_content(wav_path)
+    if not need_mp3 and not need_wav:
+        return mp3_path, wav_path
+
+    wanted = ", ".join(
+        name for name, needed in (("MP3", need_mp3), ("WAV", need_wav)) if needed
     )
-    cmd = [
-        ffmpeg_bin(),
-        "-y",
-        "-i",
-        str(video_path),
-        "-vn",
-        "-c:a",
-        "libmp3lame",
-        "-b:a",
-        "320k",
-        str(mp3_path),
-    ]
+    log.info("Creating %s companion(s) for %s", wanted, video_path.name)
+
+    cmd = [ffmpeg_bin(), "-y", "-i", str(video_path)]
+    if need_mp3:
+        cmd += ["-vn", "-c:a", "libmp3lame", "-b:a", MP3_BITRATE, str(mp3_path)]
+    if need_wav:
+        cmd += [
+            "-vn",
+            "-ac", "1",
+            "-ar", str(WAV_SAMPLE_RATE),
+            "-c:a", "pcm_s16le",
+            str(wav_path),
+        ]
+
     try:
         res = subprocess.run(cmd, capture_output=True, text=True)
     except FileNotFoundError as exc:
-        raise SystemExit("ffmpeg not found; required to create MP3 companions") from exc
+        raise SystemExit("ffmpeg not found; required to create audio companions") from exc
     if res.returncode != 0:
         stderr = (res.stderr or "").strip()
         stdout = (res.stdout or "").strip()
         detail = stderr or stdout or "unknown ffmpeg error"
         raise SystemExit(
-            f"Failed to create MP3 companion for {video_path.name}: {detail[-500:]}",
+            f"Failed to create audio companions for {video_path.name}: {detail[-500:]}",
         )
-    return mp3_path
+    return mp3_path, wav_path
+
+
+def _ensure_mp3_companion(video_path: Path) -> Path:
+    """Backward-compatible wrapper: the MP3 half of the companion pair."""
+
+    return _ensure_audio_companions(video_path)[0]
 
 
 def find_input_queue(input_dir: Path) -> list[dict[str, Any]]:
@@ -182,11 +209,13 @@ def find_input_queue(input_dir: Path) -> list[dict[str, Any]]:
     queue = []
     for stem in sorted(stems.keys()):
         video_path = stems[stem]
-        mp3_path = _ensure_mp3_companion(video_path)
+        mp3_path, wav_path = _ensure_audio_companions(video_path)
         queue.append({
             "stem": stem,
             "video": video_path,
+            # MP3 is the listening copy; the models get the PCM one.
             "audio": mp3_path,
+            "wav": wav_path,
         })
     return queue
 
@@ -570,6 +599,14 @@ def run_pipeline(
     for item in queue:
         video_path = item["video"]
         target_audio = item["audio"]
+        # RU: Моделям отдаём PCM: у Whisper нет артефактов mp3, а pyannote на
+        #     mp3 просто падает (обрезка даёт на несколько сэмплов меньше).
+        # EN: The models get the PCM copy: Whisper avoids the mp3 artefacts and
+        #     pyannote outright fails on mp3 (a crop comes back a few samples
+        #     short of what it asked for).
+        model_audio = item.get("wav") or target_audio
+        if not _file_has_content(model_audio):
+            model_audio = target_audio
         stem = item["stem"]
 
         io = PipelineIO(
@@ -581,7 +618,7 @@ def run_pipeline(
 
         status(f"\n[forge] processing: {stem}", quiet=quiet)
         status(f"[forge] video: {video_path.name}", quiet=quiet)
-        status(f"[forge] transcribe input: {target_audio.name}", quiet=quiet)
+        status(f"[forge] transcribe input: {model_audio.name}", quiet=quiet)
 
         # 1) Transcribe
         t_conf = conf.get("transcription", {})
@@ -622,7 +659,7 @@ def run_pipeline(
                     compute_type = None
 
             transcribe_config = TranscribeConfig(
-                input_path=target_audio,
+                input_path=model_audio,
                 outdir=io.output_dir,
                 model_name=str(t_conf.get("model", "large-v3")),
                 device=device_raw,
@@ -658,7 +695,7 @@ def run_pipeline(
                 status("[diarize] start", quiet=quiet)
                 diarize_args = [
                     "--input",
-                    str(target_audio),
+                    str(model_audio),
                     "--outdir",
                     str(io.output_dir),
                     "--model",
@@ -774,6 +811,9 @@ def run_pipeline(
                             model=roles.article,
                             article_conf=article_conf,
                             prompts_conf=prompts_conf,
+                            diarization_path=(
+                                diar_path if diar_path.exists() else None
+                            ),
                             title=stem,
                             quiet=quiet,
                             verbose=verbose,

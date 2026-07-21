@@ -1,0 +1,30 @@
+You are a copy editor. You are given a fragment of a podcast transcript in which the turns are already tagged by speaker: every line starts with a name and a colon.
+
+Turn this fragment into comfortably readable text — a part of a long-form article.
+
+WHAT TO DO:
+1. Keep the speakers' text as it is: the same words, the same turns of phrase, the same person and tense. This is not a retelling — you are editing someone else's text, not writing your own.
+2. Keep the speaker tagging. Every turn starts with a name and a colon, exactly as in the source fragment: "Name: turn text". Do not turn it into dashed dialogue, reported speech or "he said that".
+3. Group neighbouring turns into paragraphs: several short turns in a row make one paragraph. Leave a blank line between paragraphs. Split a long monologue into paragraphs by meaning, repeating that person's name at the start of each.
+4. Split the fragment into meaning-based sections and give each a short heading. Start every heading with "## ".
+5. Fix the errors: spelling, punctuation, agreement, and word order in garbled phrases.
+6. Remove what gets in the way of reading: filler ("uh", "you know", "like"), slips of the tongue, self-interruptions and verbatim repetitions. When a phrase is abandoned and restarted, keep the finished version.
+
+WHAT IS FORBIDDEN:
+- Do NOT retell or rewrite in your own words. Keep the speakers' phrasing, jokes, comparisons and colloquialisms verbatim.
+- Do NOT change speaker names and do NOT reorder turns: who says what, and in what order, must stay the same.
+- Do NOT add anything of your own: no facts, names, numbers, dates, conclusions, explanations or introductions.
+- Do NOT compress the content: every thought, fact, example, name and number must survive.
+- Do NOT correct numbers or titles from your own knowledge. If the source says "till '29", leave it — do not turn it into "2029".
+- Do NOT comment on your own work.
+
+RESPONSE FORMAT — finished markdown only, with nothing before or after it:
+
+## Section heading
+
+Name: First turn. Other name: The reply to it. Name: And the conversation continues.
+
+Name: A new paragraph when the conversation moves on.
+
+Transcript fragment:
+{transcript}

@@ -44,12 +44,20 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from podcast_reels_forge.analysis.chunking import build_analysis_chunks
+from podcast_reels_forge.analysis.speaker_turns import (
+    SpeakerTurn,
+    build_speaker_turns,
+    distinct_speakers,
+    load_diarization,
+    render_turns,
+)
 from podcast_reels_forge.analysis.serializers import atomic_write_json
 from podcast_reels_forge.llm.providers import (
     LlamaCppConfig,
     LlamaCppProvider,
     LLMProvider,
 )
+from podcast_reels_forge.utils.json_utils import extract_first_json_value
 from podcast_reels_forge.utils.llama_cpp_service import (
     ENV_MANAGED_BY_PIPELINE,
     llama_cpp_start,
@@ -358,6 +366,39 @@ def chunk_plain_text(
 _CHUNK_LINE_PREFIX_RE = re.compile(r"^\s*\[\d+-\d+\]\s*(\([^)]*\)\s*)?")
 
 
+def chunk_turns(
+    turns: Sequence[SpeakerTurn],
+    *,
+    max_chars: int,
+    names: Mapping[str, str] | None = None,
+) -> list[list[SpeakerTurn]]:
+    """RU: Режет реплики на пачки по бюджету символов, не разрывая реплику.
+
+    EN: Split turns into batches under a character budget, never mid-turn.
+
+    A turn cut in half would strand its speaker label, so an oversized single
+    turn simply gets a batch of its own.
+    """
+    mapping = dict(names or {})
+    budget = max(500, int(max_chars))
+    batches: list[list[SpeakerTurn]] = []
+    current: list[SpeakerTurn] = []
+    current_chars = 0
+
+    for turn in turns:
+        cost = len(mapping.get(turn.speaker, turn.speaker)) + 2 + len(turn.text) + 1
+        if current and current_chars + cost > budget:
+            batches.append(current)
+            current = []
+            current_chars = 0
+        current.append(turn)
+        current_chars += cost
+
+    if current:
+        batches.append(current)
+    return batches
+
+
 def _normalize_prompt_lang(prompt_lang: str | None, transcript_lang: str | None) -> str:
     pl = (prompt_lang or "auto").strip().lower()
     if pl != "auto":
@@ -368,17 +409,93 @@ def _normalize_prompt_lang(prompt_lang: str | None, transcript_lang: str | None)
     return "ru"
 
 
-def _load_article_prompt(lang: str, variant: str = "default") -> str:
+def _prompt_path(lang: str, *names: str) -> str:
     repo_prompts = Path(__file__).resolve().parent.parent.parent / "prompts"
-    candidates = [
-        repo_prompts / lang / f"article_{variant}.txt",
-        repo_prompts / lang / "article_default.txt",
-        repo_prompts / "ru" / "article_default.txt",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate.read_text(encoding="utf-8")
-    raise FileNotFoundError(f"Article prompt not found in {repo_prompts}")
+    for name in names:
+        for base in (repo_prompts / lang, repo_prompts / "ru"):
+            candidate = base / f"{name}.txt"
+            if candidate.exists():
+                return candidate.read_text(encoding="utf-8")
+    raise FileNotFoundError(f"Prompt not found in {repo_prompts}: {names}")
+
+
+def _load_article_prompt(lang: str, variant: str = "default") -> str:
+    return _prompt_path(lang, f"article_{variant}", "article_default")
+
+
+async def resolve_speaker_names(
+    provider: LLMProvider,
+    turns: Sequence[SpeakerTurn],
+    *,
+    lang: str,
+    timeout: int,
+    max_chars: int = 6000,
+) -> dict[str, str]:
+    """RU: Выясняет имена спикеров из самого разговора.
+
+    EN: Work out the speakers' names from the conversation itself.
+
+    Diarization only ever produces SPEAKER_00/01. People introduce each other in
+    the opening minutes, so the model is shown that opening and asked who is
+    who. Labels it cannot name keep their technical id rather than getting a
+    made-up "Host".
+    """
+    ids = distinct_speakers(turns)
+    if len(ids) < 2:
+        return {}
+
+    # RU: Смотрим оба конца эпизода. Представляются в начале, но прощаются
+    #     поимённо в конце — на реальном выпуске имя ведущего звучало ровно
+    #     один раз, за 300 символов до финала.
+    # EN: Look at both ends of the episode. People introduce themselves at the
+    #     start, but the sign-off names everyone — on a real episode the host's
+    #     name appeared exactly once, 300 characters before the end.
+    whole = render_turns(turns, names=None)
+    if len(whole) <= max_chars:
+        excerpt = whole
+    else:
+        head = int(max_chars * 0.6)
+        tail = max_chars - head
+        excerpt = f"{whole[:head]}\n\n[...]\n\n{whole[-tail:]}"
+
+    prompt = _prompt_path(lang, "speaker_names_default").replace("{transcript}", excerpt)
+
+    try:
+        raw = await provider.generate(prompt, temperature=0.0, timeout=timeout)
+        payload = extract_first_json_value(raw)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("[article] speaker naming failed (%s); keeping the ids", exc)
+        return {}
+
+    entries: list[Any] = []
+    if isinstance(payload, Mapping):
+        raw_entries = payload.get("speakers")
+        if isinstance(raw_entries, list):
+            entries = raw_entries
+    elif isinstance(payload, list):
+        entries = payload
+
+    names: dict[str, str] = {}
+    used: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            continue
+        speaker_id = str(entry.get("id", "")).strip()
+        name = " ".join(str(entry.get("name", "")).split()).strip()
+        if speaker_id not in ids or not name:
+            continue
+        # Two labels answering to one name would make the turns unreadable.
+        if name.casefold() in used:
+            continue
+        used.add(name.casefold())
+        names[speaker_id] = name
+
+    if names:
+        LOGGER.info(
+            "[article] speakers: %s",
+            ", ".join(f"{k}={v}" for k, v in sorted(names.items())),
+        )
+    return names
 
 
 def merge_adjacent_sections(sections: Sequence[ArticleSection]) -> list[ArticleSection]:
@@ -518,6 +635,7 @@ async def run_article(
     model: str = "gemma4:26b",
     article_conf: Mapping[str, Any] | None = None,
     prompts_conf: Mapping[str, Any] | None = None,
+    diarization_path: Path | None = None,
     title: str | None = None,
     quiet: bool = False,
     verbose: bool = False,
@@ -554,8 +672,6 @@ async def run_article(
         str((prompts_conf or {}).get("language", "auto")),
         str(data.get("language") or ""),
     )
-    prompt_template = _load_article_prompt(prompt_lang)
-
     if provider is None:
         provider = LlamaCppProvider(
             # Prose, not JSON: the article comes back as markdown.
@@ -563,21 +679,48 @@ async def run_article(
         )
 
     segment_dicts = [seg for seg in segments if isinstance(seg, dict)]
-    # No overlap: an overlapping window would retell the same words twice.
-    chunks = build_analysis_chunks(
-        segment_dicts,
-        chunk_seconds=chunk_seconds,
-        max_chars=max_chars,
-        overlap_seconds=0,
-    )
+
+    # RU: С диаризацией единица текста — реплика, а не сегмент: Whisper режет по
+    #     паузам, и один его сегмент запросто содержит реплики троих.
+    # EN: With diarization the unit is a turn, not a segment: Whisper splits on
+    #     pauses, and one of its segments happily holds three people talking.
+    turns = build_speaker_turns(segment_dicts, load_diarization(diarization_path))
+    speaker_names: dict[str, str] = {}
+    if turns and len(distinct_speakers(turns)) > 1:
+        speaker_names = await resolve_speaker_names(
+            provider, turns, lang=prompt_lang, timeout=timeout,
+        )
+        prompt_template = _load_article_prompt(prompt_lang, "speakers")
+        chunk_texts = [
+            render_turns(batch, names=speaker_names)
+            for batch in chunk_turns(turns, max_chars=max_chars, names=speaker_names)
+        ]
+        chunk_bounds = [
+            (batch[0].start, batch[-1].end)
+            for batch in chunk_turns(turns, max_chars=max_chars, names=speaker_names)
+        ]
+    else:
+        turns = []
+        prompt_template = _load_article_prompt(prompt_lang)
+        # No overlap: an overlapping window would edit the same words twice.
+        chunks = build_analysis_chunks(
+            segment_dicts,
+            chunk_seconds=chunk_seconds,
+            max_chars=max_chars,
+            overlap_seconds=0,
+        )
+        chunk_texts = [chunk_plain_text(chunk, segment_dicts) for chunk in chunks]
+        chunk_bounds = [(float(chunk.start), float(chunk.end)) for chunk in chunks]
 
     if not quiet:
         LOGGER.info(
-            "[article] model=%s segments=%d chunks=%d lang=%s",
+            "[article] model=%s segments=%d chunks=%d lang=%s speakers=%s",
             model,
             len(segment_dicts),
-            len(chunks),
+            len(chunk_texts),
             prompt_lang,
+            ", ".join(speaker_names.values()) if speaker_names
+            else (f"{len(distinct_speakers(turns))} unnamed" if turns else "none"),
         )
 
     sections: list[ArticleSection] = []
@@ -585,10 +728,10 @@ async def run_article(
     failed_chunks = 0
     reports: list[dict[str, Any]] = []
 
-    for index, chunk in enumerate(chunks, 1):
-        chunk_text = chunk_plain_text(chunk, segment_dicts)
+    for index, chunk_text in enumerate(chunk_texts, 1):
         if not chunk_text:
             continue
+        chunk_start, chunk_end = chunk_bounds[index - 1]
         try:
             raw_sections, report = await _write_one_chunk(
                 provider,
@@ -608,7 +751,7 @@ async def run_article(
             LOGGER.warning(
                 "[article] chunk %d/%d failed (%s); it will be missing from the article",
                 index,
-                len(chunks),
+                len(chunk_texts),
                 exc,
             )
             continue
@@ -616,13 +759,13 @@ async def run_article(
         if not raw_sections:
             failed_chunks += 1
             LOGGER.warning(
-                "[article] chunk %d/%d produced nothing usable", index, len(chunks),
+                "[article] chunk %d/%d produced nothing usable", index, len(chunk_texts),
             )
             continue
 
         if report is not None:
             entry = report.to_dict()
-            entry["chunk"] = chunk.chunk_id
+            entry["chunk"] = f"chunk_{index:03d}"
             reports.append(entry)
             if not report.ok:
                 flagged_chunks += 1
@@ -632,14 +775,14 @@ async def run_article(
                 ArticleSection(
                     title=raw["title"],
                     paragraphs=tuple(raw["paragraphs"]),
-                    start=float(chunk.start),
-                    end=float(chunk.end),
+                    start=float(chunk_start),
+                    end=float(chunk_end),
                 ),
             )
 
         if verbose and not quiet:
             LOGGER.info(
-                "[article] chunk %d/%d: sections=%d", index, len(chunks), len(raw_sections),
+                "[article] chunk %d/%d: sections=%d", index, len(chunk_texts), len(raw_sections),
             )
 
     sections = merge_adjacent_sections(sections)
@@ -660,9 +803,12 @@ async def run_article(
             "source_transcript": str(transcript_path.resolve()),
             "model": model,
             "prompt_lang": prompt_lang,
-            "chunks_total": len(chunks),
+            "chunks_total": len(chunk_texts),
             "chunks_failed": failed_chunks,
             "chunks_flagged": flagged_chunks,
+            "speakers": speaker_names or {
+                sid: sid for sid in distinct_speakers(turns)
+            },
             "sections": [section.to_dict() for section in sections],
             "faithfulness": reports,
         },
@@ -690,6 +836,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--transcript", type=Path, required=True, help="Path to transcript JSON")
     ap.add_argument("--output", type=Path, help="Output .md path (default: <stem>.article.md)")
     ap.add_argument("--title", help="Article title (default: the transcript file stem)")
+    ap.add_argument(
+        "--diarization",
+        type=Path,
+        help="diarization.json; turns the article into speaker-tagged text",
+    )
     ap.add_argument(
         "--url",
         default="http://127.0.0.1:11440/completion",
@@ -775,6 +926,7 @@ def main(argv: list[str] | None = None) -> None:
                 "min_source_coverage": args.min_source_coverage,
             },
             prompts_conf={"language": args.prompt_lang},
+            diarization_path=args.diarization,
             quiet=bool(args.quiet),
             verbose=bool(args.verbose),
         ))

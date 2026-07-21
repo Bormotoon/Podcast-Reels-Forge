@@ -1,0 +1,15 @@
+You are given the opening of a podcast transcript in which turns are already tagged with technical speaker labels (SPEAKER_00, SPEAKER_01 and so on). The labels were assigned automatically by voice; the system does not know anyone's name.
+
+Your task is to work out what each speaker is called, using ONLY the text of the conversation. People usually introduce themselves or address each other by name.
+
+RULES:
+- Take the name verbatim from the conversation: as the others address them, or as they introduced themselves.
+- If a label's name is never stated, return an empty string for it. Do not invent names and do not substitute "Host", "Guest", "First speaker" or the like.
+- Do not confuse third parties who are merely mentioned with the people speaking: a name counts only if it belongs to whoever is talking under that label.
+- Return exactly the labels present in the fragment.
+
+Transcript fragment:
+{transcript}
+
+Return the answer STRICTLY as JSON, with no explanations:
+{"speakers": [{"id": "SPEAKER_00", "name": "<name or empty string>"}]}

@@ -291,9 +291,13 @@ video:
   face_samples: 9
   face_min_size: 72
 
+# Диаризация: кто когда говорит. Нужна лонгриду, чтобы разбить текст по
+# спикерам; имена подставляются из самого разговора (см. article ниже).
+# Модели pyannote требуют токена Hugging Face (PYANNOTE_TOKEN), но если они уже
+# в локальном кэше — работают офлайн.
 diarization:
   enabled: false
-  model: "pyannote/speaker-diarization"
+  model: "pyannote/speaker-diarization-3.1"
   # Exact number of speakers, if known (curbs over-clustering on noise/overlap).
   # Leave empty/null to let pyannote estimate it automatically.
   num_speakers: null
