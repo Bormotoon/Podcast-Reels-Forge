@@ -29,11 +29,16 @@ Requirements:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
+import subprocess
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from podcast_reels_forge.utils.ffmpeg import ffmpeg_bin
 from podcast_reels_forge.utils.logging_utils import setup_logging
 
 LOGGER = setup_logging()
@@ -68,6 +73,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--quiet", action="store_true", help="Suppress non-error output")
     ap.add_argument("--verbose", action="store_true", help="Verbose output")
     return ap.parse_args(argv)
+
+
+@contextlib.contextmanager
+def _pcm_input(path: Path, *, quiet: bool) -> Iterator[Path]:
+    """RU: Отдаёт 16 кГц моно WAV для входа, декодируя его при необходимости.
+
+    EN: Yield a 16 kHz mono WAV for *path*, decoding it first when needed.
+    """
+    if path.suffix.lower() == ".wav":
+        yield path
+        return
+
+    with tempfile.TemporaryDirectory(prefix="forge-diarize-") as tmp:
+        wav_path = Path(tmp) / (path.stem + ".wav")
+        _status(f"[diarize] decoding {path.name} to 16 kHz mono WAV", quiet=quiet)
+        res = subprocess.run(
+            [
+                ffmpeg_bin(), "-y", "-loglevel", "error", "-i", str(path),
+                "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode != 0:
+            detail = (res.stderr or res.stdout or "unknown ffmpeg error").strip()
+            raise SystemExit(
+                f"Failed to decode {path.name} for diarization: {detail[-400:]}",
+            )
+        yield wav_path
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -127,7 +161,15 @@ def main(argv: list[str] | None = None) -> None:
     pipeline_kwargs: dict[str, Any] = {}
     if args.num_speakers:
         pipeline_kwargs["num_speakers"] = args.num_speakers
-    diarization = pipeline(str(args.input), **pipeline_kwargs)
+
+    # RU: pyannote читает файл кусками и на mp3 падает: обрезка возвращает на
+    #     несколько сэмплов меньше запрошенного. Поэтому не-PCM вход сначала
+    #     декодируем в 16 кГц моно WAV — ровно то, на чём работает модель.
+    # EN: pyannote reads the file in chunks and fails on mp3: a crop comes back
+    #     a few samples short of what it asked for. So a non-PCM input is
+    #     decoded to 16 kHz mono WAV first — exactly what the model runs on.
+    with _pcm_input(args.input, quiet=bool(args.quiet)) as audio_path:
+        diarization = pipeline(str(audio_path), **pipeline_kwargs)
     # RU: pyannote.audio>=4.0 возвращает DiarizeOutput (.speaker_diarization),
     #     а не Annotation напрямую.
     # EN: pyannote.audio>=4.0 returns a DiarizeOutput (.speaker_diarization)

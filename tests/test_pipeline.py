@@ -16,6 +16,19 @@ if TYPE_CHECKING:
     MonkeyPatch = pytest.MonkeyPatch
 
 
+
+def _write_ffmpeg_outputs(cmd: list[str]) -> None:
+    """Create every output file an ffmpeg command names.
+
+    The pipeline builds the MP3 and WAV companions in one pass, so a fake that
+    only writes ``cmd[-1]`` silently loses the first output.
+    """
+    for arg in cmd:
+        suffix = Path(arg).suffix.lower()
+        if suffix in {".mp3", ".wav"}:
+            Path(arg).write_text(suffix.lstrip("."))
+
+
 def test_pick_input_file_picks_newest(tmp_path: Path) -> None:
     """Ensure the newest media file is selected."""
     d = tmp_path / "input"
@@ -58,8 +71,7 @@ def test_find_input_queue_creates_mp3_companion(
     ) -> SimpleNamespace:
         cmd_list = list(cmd)
         calls.append(cmd_list)
-        out_path = Path(cmd_list[-1])
-        out_path.write_text("mp3")
+        _write_ffmpeg_outputs(cmd_list)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(pipeline.subprocess, "run", fake_run)
@@ -94,9 +106,7 @@ def test_run_pipeline_builds_and_calls_stages(
         text: bool = False,
         **_: object,
     ) -> SimpleNamespace:
-        cmd_list = list(cmd)
-        out_path = Path(cmd_list[-1])
-        out_path.write_text("mp3")
+        _write_ffmpeg_outputs(list(cmd))
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(pipeline.subprocess, "run", fake_ffmpeg_run)
@@ -292,7 +302,8 @@ def test_run_pipeline_builds_and_calls_stages(
     pipeline.run_pipeline(conf=conf, repo_dir=repo_dir, quiet=True, verbose=False)
 
     assert len(transcribe_calls) == 1
-    assert transcribe_calls[0].input_path == input_dir / "video.mp3"
+    # The models read the WAV; the transcript still lands under the shared stem.
+    assert transcribe_calls[0].input_path == input_dir / "video.wav"
     assert transcribe_calls[0].outdir == tmp_path / "output" / "video"
 
     assert len(analysis_calls) == 1
@@ -346,9 +357,7 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
         text: bool = False,
         **_: object,
     ) -> SimpleNamespace:
-        cmd_list = list(cmd)
-        out_path = Path(cmd_list[-1])
-        out_path.write_text("mp3")
+        _write_ffmpeg_outputs(list(cmd))
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(pipeline.subprocess, "run", fake_ffmpeg_run)
@@ -638,7 +647,7 @@ def test_run_pipeline_burns_proofread_transcript_into_reels(
         text: bool = False,
         **_: object,
     ) -> SimpleNamespace:
-        Path(list(cmd)[-1]).write_text("mp3")
+        _write_ffmpeg_outputs(list(cmd))
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(pipeline.subprocess, "run", fake_ffmpeg_run)
@@ -740,6 +749,7 @@ def test_run_pipeline_resyncs_cached_reels_from_proofread_transcript(
     input_dir.mkdir()
     (input_dir / "video.mp4").write_text("x")
     (input_dir / "video.mp3").write_text("mp3")
+    (input_dir / "video.wav").write_text("wav")
 
     monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
 
@@ -831,7 +841,7 @@ def test_run_pipeline_builds_the_article_from_the_proofread_transcript(
         text: bool = False,
         **_: object,
     ) -> SimpleNamespace:
-        Path(list(cmd)[-1]).write_text("mp3")
+        _write_ffmpeg_outputs(list(cmd))
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(pipeline.subprocess, "run", fake_ffmpeg_run)
@@ -873,6 +883,7 @@ def test_run_pipeline_builds_the_article_from_the_proofread_transcript(
         model: str,
         article_conf: dict[str, object],
         prompts_conf: dict[str, object],
+        diarization_path: Path | None = None,
         title: str | None = None,
         quiet: bool = False,
         verbose: bool = False,
@@ -972,6 +983,7 @@ def test_run_pipeline_only_article_skips_the_other_stages(
     input_dir.mkdir()
     (input_dir / "video.mp4").write_text("x")
     (input_dir / "video.mp3").write_text("mp3")
+    (input_dir / "video.wav").write_text("wav")
 
     monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
 

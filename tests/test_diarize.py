@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,7 +18,9 @@ def test_diarize_missing_token(tmp_path: Path) -> None:
             main(["--input", str(input_file)])
 
 def test_diarize_success(tmp_path: Path) -> None:
-    input_file = tmp_path / "audio.mp3"
+    # A .wav input is handed to pyannote as-is; see the mp3 test below for the
+    # decoding path.
+    input_file = tmp_path / "audio.wav"
     input_file.write_text("dummy")
     out_dir = tmp_path / "out"
 
@@ -48,3 +51,48 @@ def test_diarize_success(tmp_path: Path) -> None:
         data = json.load(f)
     assert data[0]["speaker"] == "SPEAKER_01"
     assert data[0]["start"] == 1.0
+
+
+def test_diarize_decodes_non_pcm_input(tmp_path: Path) -> None:
+    """pyannote fails on mp3, so a non-PCM input must be decoded first."""
+    from podcast_reels_forge.scripts import diarize as diarize_mod
+
+    input_file = tmp_path / "audio.mp3"
+    input_file.write_text("dummy")
+
+    ffmpeg_calls: list[list[str]] = []
+
+    def fake_run(cmd, **_kwargs):  # type: ignore[no-untyped-def]
+        cmd_list = list(cmd)
+        ffmpeg_calls.append(cmd_list)
+        Path(cmd_list[-1]).write_text("wav")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    seen: list[str] = []
+
+    with patch.object(diarize_mod.subprocess, "run", fake_run):
+        with diarize_mod._pcm_input(input_file, quiet=True) as path:
+            seen.append(path.suffix)
+            assert path.exists()
+
+    assert seen == [".wav"]
+    # ffmpeg_bin() probes the binary first, so pick the call that does the work.
+    decode_calls = [cmd for cmd in ffmpeg_calls if "pcm_s16le" in cmd]
+    assert decode_calls, "the mp3 must be decoded before pyannote sees it"
+    cmd = decode_calls[0]
+    assert "16000" in cmd, "the model runs at 16 kHz"
+    assert "1" == cmd[cmd.index("-ac") + 1], "mono"
+
+
+def test_diarize_passes_wav_through_untouched(tmp_path: Path) -> None:
+    from podcast_reels_forge.scripts import diarize as diarize_mod
+
+    wav = tmp_path / "audio.wav"
+    wav.write_text("dummy")
+
+    def explode(*_a: object, **_kw: object) -> None:
+        raise AssertionError("a .wav must not be re-encoded")
+
+    with patch.object(diarize_mod.subprocess, "run", explode):
+        with diarize_mod._pcm_input(wav, quiet=True) as path:
+            assert path == wav
