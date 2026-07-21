@@ -87,7 +87,7 @@
             <div class="pipeline-connector"></div>
             <div class="pipeline-stage" data-stage="article">
               <div class="pipeline-stage-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="16" y2="7"/><line x1="9" y1="11" x2="16" y2="11"/></svg></div>
-              <div class="pipeline-stage-label" data-i18n="stage_article">Пересказ</div>
+              <div class="pipeline-stage-label" data-i18n="stage_article">Лонгрид</div>
             </div>
             <div class="pipeline-connector"></div>
             <div class="pipeline-stage" data-stage="analyze">
@@ -123,6 +123,28 @@
           <div class="stat-card">
             <div class="stat-value" id="statGPU">--</div>
             <div class="stat-label" data-i18n="stat_gpu">GPU VRAM</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            <span data-i18n="dash_stages">Какие этапы запускать</span>
+          </div>
+          <p style="margin:0 0 12px; font-size:12px; color:var(--md-sys-color-outline); line-height:1.5;" data-i18n="dash_stages_hint">
+            Снимите галочки с этапов, которые нужно пропустить, и скопируйте готовую команду. Выбор влияет только на команду — страницы работают без сервера.
+          </p>
+          <div class="stage-picker" id="stagePicker">
+            <label class="stage-chip"><input type="checkbox" data-stage-pick="transcribe" checked><span data-i18n="stage_transcribe">Транскрибация</span></label>
+            <label class="stage-chip"><input type="checkbox" data-stage-pick="diarize"><span data-i18n="stage_diarize">Диаризация</span></label>
+            <label class="stage-chip"><input type="checkbox" data-stage-pick="proofread" checked><span data-i18n="stage_proofread">Вычитка</span></label>
+            <label class="stage-chip"><input type="checkbox" data-stage-pick="article" checked><span data-i18n="stage_article">Лонгрид</span></label>
+            <label class="stage-chip"><input type="checkbox" data-stage-pick="analyze" checked><span data-i18n="stage_analyze">Анализ LLM</span></label>
+            <label class="stage-chip"><input type="checkbox" data-stage-pick="cut" checked><span data-i18n="stage_cut">Нарезка</span></label>
+          </div>
+          <div class="code-inline">
+            <code id="stageCommand">python3 start_forge.py</code>
+            <button class="btn btn-outlined" id="btnCopyStageCmd" data-i18n="dash_copy_cmd">Копировать</button>
           </div>
         </div>
 

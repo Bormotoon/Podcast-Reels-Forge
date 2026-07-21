@@ -41,7 +41,7 @@ Main workflow steps:
 1. **Speech Recognition (faster-whisper)**: Converts audio/video into text with per-word timestamps. Model `large-v3`, with two modes — fast batched and accurate context-aware (see [Run Modes by Task](#run-modes-by-task)). A sentence-split `.srt` is written alongside it — one short cue per screen instead of a three-or-four-sentence wall of text.
 2. **Diarization (Optional)**: Identifies different speakers throughout the audio.
 3. **Transcript Proofreading (LLM)**: gemma4 fixes spelling and punctuation; a guardrail rejects any correction that adds, drops or paraphrases text.
-4. **Episode article (LLM)**: gemma4 turns the proofread transcript into a readable article — third-person narration, meaning-based sections with headings, paragraphs. Two guardrails (length and vocabulary against the source) stop the model from padding it out.
+4. **Episode long-read (LLM)**: gemma4 edits the proofread transcript into a readable article — meaning-based sections with headings and paragraphs. It is not a retelling: the author's words, phrasing and grammatical person are kept, and only filler, slips and repetitions go. Three guardrails catch rewriting, padding and abridging alike.
 5. **AI Analysis (LLM)**: A staged `scout → cleanup → judge` flow on a local Gemma, with candidates verified against the transcript: quote matching, phrase-aligned boundaries, audio signals (loudness/pauses/speech rate) and whole-episode context. The clip count scales with runtime (`clips_per_hour`).
 6. **Video Editing (FFmpeg + NVENC)**: Cuts the video, applies vertical cropping (9:16), stabilized face framing, and burns karaoke subtitles timed from real word timestamps. GPU encoding via NVENC (~5× faster than software).
 
@@ -213,6 +213,19 @@ Main flags for `start_forge.py`:
 - `--no-skip-existing`: Rerun all stages even if files already exist (ignore cache).
 - `--autotune`: Automatically tune parameters for current hardware (smaller chunks, longer timeouts).
 - `--no-progress`: Disable progress bar (useful for CI/logging).
+- `--only <stages>`: Run only these stages, comma-separated. Example: `--only proofread,article`.
+- `--skip <stages>`: Run everything except these stages. Example: `--skip cut`.
+- `--list-stages`: Print the stages in order and exit.
+
+Stages: `transcribe`, `diarize`, `proofread`, `article`, `analyze`, `cut`. A typo is an error, not a silent skip of half the pipeline. Skipping a stage does not strand the others: when a proofread transcript already exists from an earlier run, `--only article` picks it up.
+
+```bash
+# Build long-reads from existing transcripts without re-cutting anything
+python3 start_forge.py --only article
+
+# Everything except video cutting
+python3 start_forge.py --skip cut
+```
 
 Flags for the standalone transcriber `transcribe_input_audio.py`:
 

@@ -26,6 +26,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Collection, Sequence
 from typing import Any
 
 try:
@@ -402,6 +403,53 @@ def run_module(
         raise SystemExit(res.returncode)
 
 
+#: Stages in execution order, as accepted by ``--only`` / ``--skip``.
+PIPELINE_STAGES: tuple[str, ...] = (
+    "transcribe",
+    "diarize",
+    "proofread",
+    "article",
+    "analyze",
+    "cut",
+)
+
+
+def resolve_stages(
+    *,
+    only: str | Sequence[str] | None = None,
+    skip: str | Sequence[str] | None = None,
+) -> set[str]:
+    """RU: Превращает --only/--skip в набор стадий к запуску.
+
+    EN: Turn ``--only`` / ``--skip`` into the set of stages to run.
+
+    Accepts comma-separated strings or sequences. Unknown names raise rather
+    than being ignored: a typo must not silently skip half the pipeline.
+    """
+
+    def parse(value: str | Sequence[str] | None) -> list[str]:
+        if value is None:
+            return []
+        items = value.split(",") if isinstance(value, str) else list(value)
+        return [str(item).strip().lower() for item in items if str(item).strip()]
+
+    only_names = parse(only)
+    skip_names = parse(skip)
+
+    unknown = sorted(set(only_names + skip_names) - set(PIPELINE_STAGES))
+    if unknown:
+        raise SystemExit(
+            f"Unknown pipeline stage(s): {', '.join(unknown)}. "
+            f"Available: {', '.join(PIPELINE_STAGES)}",
+        )
+
+    selected = set(only_names) if only_names else set(PIPELINE_STAGES)
+    selected -= set(skip_names)
+    if not selected:
+        raise SystemExit("No pipeline stages left to run after --only/--skip")
+    return selected
+
+
 def run_pipeline(
     *,
     conf: dict[str, Any],
@@ -411,6 +459,7 @@ def run_pipeline(
     skip_existing: bool = True,
     autotune: bool = False,
     progress: bool = True,
+    stages: Collection[str] | None = None,
 ) -> None:
     """RU: Запускает полный пайплайн на основе config.yaml и файлов на диске.
 
@@ -454,6 +503,20 @@ def run_pipeline(
     if not isinstance(article_conf, dict):
         article_conf = {}
     article_enabled = bool(article_conf.get("enabled", False))
+
+    # A stage runs when the config enables it AND the caller selected it.
+    active = set(stages) if stages is not None else set(PIPELINE_STAGES)
+    diar_enabled = diar_enabled and "diarize" in active
+    proofread_enabled = proofread_enabled and "proofread" in active
+    article_enabled = article_enabled and "article" in active
+    transcribe_enabled = "transcribe" in active
+    analyze_enabled = "analyze" in active
+    cut_enabled = "cut" in active
+    if not quiet and stages is not None:
+        status(
+            "[forge] stages: " + ", ".join(s for s in PIPELINE_STAGES if s in active),
+            quiet=quiet,
+        )
     subtitle_settings = subtitle_settings_from_conf(conf, repo_dir=repo_dir)
     a_conf = conf.get("llama_cpp", {})
     prompts_conf = conf.get("prompts", {})
@@ -487,11 +550,12 @@ def run_pipeline(
     local_llama_global = parse_local_llama_cpp_host_port(_llama_url) if _llama_url else None
 
     stages_per_file = (
-        1
+        (1 if transcribe_enabled else 0)
         + (1 if diar_enabled else 0)
         + (1 if proofread_enabled else 0)
         + (1 if article_enabled else 0)
-        + 2
+        + (1 if analyze_enabled else 0)
+        + (1 if cut_enabled else 0)
     )
     total_stages = len(queue) * stages_per_file
     # A plain progress object, advanced explicitly. Driving a tqdm iterator
@@ -529,7 +593,7 @@ def run_pipeline(
             transcript_path = legacy_audio_json
             transcript_srt_path = legacy_audio_json.with_suffix(".srt")
 
-        _transcribe_needed = not (skip_existing and _outputs_ready(
+        _transcribe_needed = transcribe_enabled and not (skip_existing and _outputs_ready(
             [transcript_path, transcript_srt_path],
             validate_json=validate_json,
         ))
@@ -538,7 +602,9 @@ def run_pipeline(
             # holds the GPU before we start transcription.
             _kill_llama_server(local_llama_global[1])
 
-        if not _transcribe_needed:
+        if not transcribe_enabled:
+            status("[transcribe] skip (not selected)", quiet=quiet)
+        elif not _transcribe_needed:
             status("[transcribe] skip (exists)", quiet=quiet)
         else:
             status("[transcribe] start", quiet=quiet)
@@ -580,7 +646,8 @@ def run_pipeline(
             transcript_path = transcribe_file(transcribe_config)
             status("[transcribe] done", quiet=quiet)
 
-        stage_bar.update(1)
+        if transcribe_enabled:
+            stage_bar.update(1)
 
         # 2) Optional diarization
         diar_path = io.output_dir / "diarization.json"
@@ -672,6 +739,20 @@ def run_pipeline(
                         )
                 stage_bar.update(1)
 
+            # RU: Вычитанный транскрипт мог быть сделан прошлым запуском. Даже
+            #     если стадия сейчас не запускалась (--only analyze), дальше
+            #     должен идти исправленный текст, а не сырой.
+            # EN: The proofread transcript may come from an earlier run. Even
+            #     when the stage did not execute this time (--only analyze), the
+            #     corrected text is what the rest of the pipeline must use.
+            _existing_proofread = transcript_path.with_name(
+                transcript_path.stem + ".proofread.json",
+            )
+            if _existing_proofread.exists() and _outputs_ready(
+                [_existing_proofread], validate_json=validate_json,
+            ):
+                transcript_path = _existing_proofread
+
             # 3b) Article: retell the (proofread) transcript as readable prose
             #     with meaning-based sections. Read-only for the transcript.
             if article_enabled:
@@ -707,7 +788,9 @@ def run_pipeline(
             moments_path = analysis_model_folder / "moments.json"
             reels_md_path = analysis_model_folder / "reels.md"
 
-            if skip_existing and _outputs_ready(
+            if not analyze_enabled:
+                status("[analyze] skip (not selected)", quiet=quiet)
+            elif skip_existing and _outputs_ready(
                 [moments_path, reels_md_path],
                 validate_json=validate_json,
             ):
@@ -756,7 +839,8 @@ def run_pipeline(
                     _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
                 else:
                     _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
-            stage_bar.update(1)
+            if analyze_enabled:
+                stage_bar.update(1)
         finally:
             if llama_cpp_proc:
                 llama_cpp_stop(llama_cpp_proc)
@@ -776,7 +860,8 @@ def run_pipeline(
                 f"[cut] skip ({final_model_folder}): no moments",
                 quiet=quiet,
             )
-            stage_bar.update(1)
+            if cut_enabled:
+                stage_bar.update(1)
             continue
 
         import re as _re
@@ -784,8 +869,10 @@ def run_pipeline(
             p for p in (reels_dir.glob("reel_*.mp4") if reels_dir.exists() else [])
             if _re.match(r"^reel_\d+\.mp4$", p.name)
         ]
-        skip_cut = skip_existing and bool(existing_reels)
-        if skip_cut:
+        skip_cut = (not cut_enabled) or (skip_existing and bool(existing_reels))
+        if not cut_enabled:
+            status("[cut] skip (not selected)", quiet=quiet)
+        elif skip_cut:
             status(
                 f"[cut] skip ({final_model_folder}): exists",
                 quiet=quiet,
@@ -881,7 +968,8 @@ def run_pipeline(
                     verbose=verbose and not quiet,
                 )
 
-        stage_bar.update(1)
+        if cut_enabled:
+            stage_bar.update(1)
 
     stage_bar.close()
     status("[forge] done", quiet=quiet)

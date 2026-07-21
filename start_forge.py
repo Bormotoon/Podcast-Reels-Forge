@@ -15,7 +15,7 @@ from typing import Any
 
 # import yaml  <-- Move this down to avoid ModuleNotFoundError before venv activation
 
-from podcast_reels_forge.pipeline import run_pipeline
+from podcast_reels_forge.pipeline import PIPELINE_STAGES, resolve_stages, run_pipeline
 
 log = logging.getLogger("Forge")
 
@@ -83,7 +83,37 @@ def main() -> None:
         action="store_true",
         help="Disable progress UI (useful for logs/CI)",
     )
+    ap.add_argument(
+        "--only",
+        metavar="STAGES",
+        help=(
+            "Run only these pipeline stages, comma-separated "
+            f"({', '.join(PIPELINE_STAGES)}). Example: --only proofread,article"
+        ),
+    )
+    ap.add_argument(
+        "--skip",
+        metavar="STAGES",
+        help="Run every stage except these, comma-separated",
+    )
+    ap.add_argument(
+        "--list-stages",
+        action="store_true",
+        help="Print the pipeline stages in order and exit",
+    )
     args = ap.parse_args()
+
+    if args.list_stages:
+        for name in PIPELINE_STAGES:
+            print(name)
+        return
+
+    # Validate before loading the config so a typo fails immediately.
+    stages = (
+        resolve_stages(only=args.only, skip=args.skip)
+        if (args.only or args.skip)
+        else None
+    )
 
     _configure_logging(verbose=args.verbose, quiet=args.quiet)
 
@@ -110,6 +140,7 @@ def main() -> None:
         skip_existing=not args.no_skip_existing,
         autotune=bool(args.autotune),
         progress=not args.no_progress,
+        stages=stages,
     )
 
 

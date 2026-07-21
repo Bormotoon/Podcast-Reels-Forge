@@ -740,3 +740,33 @@ a.nav-rail-item, a.nav-rail-brand { text-decoration: none; }
   }
   .main-content { scroll-behavior: auto; }
 }
+
+/* ---- Stage picker (dashboard): choose which pipeline stages to run ---- */
+.stage-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.stage-chip {
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  padding: 8px 14px; border-radius: 999px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 13px; font-weight: 500;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.stage-chip:hover { background: var(--md-sys-color-surface-container-high); }
+.stage-chip input { accent-color: var(--md-sys-color-primary); margin: 0; }
+.stage-chip:has(input:checked) {
+  background: var(--md-sys-color-secondary-container);
+  border-color: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.code-inline {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 12px; border-radius: 12px;
+  background: var(--md-sys-color-surface-container-highest);
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+.code-inline code {
+  flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap;
+  font-family: var(--font-code); font-size: 12px;
+  color: var(--md-sys-color-primary);
+}

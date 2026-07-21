@@ -16,8 +16,11 @@
         dash_title: 'Панель управления', dash_desc: 'Управление очередью пайплайна и мониторинг прогресса',
         dash_pipeline_status: 'Статус пайплайна',
         stage_transcribe: 'Транскрибация', stage_diarize: 'Диаризация', stage_proofread: 'Вычитка',
-        stage_article: 'Пересказ', stage_analyze: 'Анализ LLM', stage_cut: 'Нарезка', stage_subtitles: 'Субтитры',
+        stage_article: 'Лонгрид', stage_analyze: 'Анализ LLM', stage_cut: 'Нарезка', stage_subtitles: 'Субтитры',
         stat_queue: 'В очереди', stat_reels: 'Рилсов создано', stat_duration: 'Общая длительность', stat_gpu: 'GPU VRAM',
+        dash_stages: 'Какие этапы запускать',
+        dash_stages_hint: 'Снимите галочки с этапов, которые нужно пропустить, и скопируйте готовую команду. Выбор влияет только на команду — страницы работают без сервера.',
+        dash_copy_cmd: 'Копировать', dash_cmd_copied: 'Команда скопирована',
         dash_add_queue: 'Добавить в очередь',
         dash_drop: 'Перетащите видео/аудио файлы сюда или нажмите для выбора',
         dash_formats: 'Поддерживаются: MP4, MKV, MOV, AVI, MP3',
@@ -101,8 +104,8 @@
         set_diar: 'Диаризация (ID спикеров)', set_diar_desc: 'Определять спикеров в аудио',
         set_proofread: 'Вычитка транскрипта (LLM)',
         set_proofread_desc: 'Исправлять орфографию и пунктуацию моделью gemma4 перед анализом',
-        set_article: 'Пересказ эпизода (LLM)',
-        set_article_desc: 'Собрать читаемую статью с разделами и заголовками по вычитанному транскрипту',
+        set_article: 'Лонгрид по эпизоду (LLM)',
+        set_article_desc: 'Привести транскрипт в вид читаемой статьи: разделы, заголовки, абзацы. Слова автора сохраняются',
         set_diar_model: 'Модель диаризации',
         set_diar_num_speakers: 'Количество спикеров',
         set_diar_num_speakers_desc: 'Оставьте пустым, чтобы pyannote определял число спикеров автоматически',
@@ -214,8 +217,11 @@
         dash_title: 'Dashboard', dash_desc: 'Manage your pipeline queue and monitor progress',
         dash_pipeline_status: 'Pipeline Status',
         stage_transcribe: 'Transcribe', stage_diarize: 'Diarize', stage_proofread: 'Proofread',
-        stage_article: 'Article', stage_analyze: 'LLM Analysis', stage_cut: 'Cut & Export', stage_subtitles: 'Subtitles',
+        stage_article: 'Long-read', stage_analyze: 'LLM Analysis', stage_cut: 'Cut & Export', stage_subtitles: 'Subtitles',
         stat_queue: 'In Queue', stat_reels: 'Reels Created', stat_duration: 'Total Duration', stat_gpu: 'GPU VRAM',
+        dash_stages: 'Stages to run',
+        dash_stages_hint: 'Untick the stages you want to skip and copy the ready command. The choice only shapes the command — these pages run without a server.',
+        dash_copy_cmd: 'Copy', dash_cmd_copied: 'Command copied',
         dash_add_queue: 'Add to Queue',
         dash_drop: 'Drop video/audio files here or click to browse',
         dash_formats: 'Supports MP4, MKV, MOV, AVI, MP3',
@@ -294,8 +300,8 @@
         set_diar: 'Diarization (Speaker ID)', set_diar_desc: 'Identify speakers in the audio',
         set_proofread: 'Transcript proofreading (LLM)',
         set_proofread_desc: 'Fix spelling and punctuation with gemma4 before analysis',
-        set_article: 'Episode article (LLM)',
-        set_article_desc: 'Build a readable, sectioned article from the proofread transcript',
+        set_article: 'Episode long-read (LLM)',
+        set_article_desc: 'Edit the transcript into a readable article: sections, headings, paragraphs. The author\'s words are kept',
         set_diar_model: 'Diarization Model',
         set_diar_num_speakers: 'Number of Speakers',
         set_diar_num_speakers_desc: 'Leave empty to let pyannote estimate the speaker count automatically',
@@ -494,6 +500,7 @@
       settingsCache: true, settingsValidateJson: true, settingsProofread: true,
       settingsArticle: true, settingsDiarization: false,
       settingsDiarModel: 'pyannote/speaker-diarization', settingsDiarNumSpeakers: '',
+      stagePicks: ['transcribe', 'proofread', 'article', 'analyze', 'cut'],
       settingsQuiet: false, settingsVerbose: false, settingsSkipExisting: true,
       settingsNoProgress: false,
     };
@@ -892,6 +899,79 @@ diarization:
     }
 
     function updateConfigPreview() { const el = document.getElementById('configPreview'); if (el) el.value = generateConfig(); }
+
+    // ---- Stage picker (dashboard): build the start_forge.py command ----
+    // The GUI is a set of static pages with no backend, so it cannot execute a
+    // stage itself. What it can do is assemble the exact command, which is the
+    // part that is easy to get wrong by hand.
+    const ALL_STAGES = ['transcribe', 'diarize', 'proofread', 'article', 'analyze', 'cut'];
+
+    function selectedStages() {
+      return ALL_STAGES.filter(name => {
+        const el = document.querySelector(`[data-stage-pick="${name}"]`);
+        return el ? el.checked : false;
+      });
+    }
+
+    function buildStageCommand() {
+      const chosen = selectedStages();
+      const parts = ['python3 start_forge.py'];
+      if (chosen.length === 0) return 'python3 start_forge.py --list-stages';
+      if (chosen.length < ALL_STAGES.length) {
+        const dropped = ALL_STAGES.filter(s => !chosen.includes(s));
+        // --skip stays shorter (and reads better) when most stages are kept.
+        parts.push(dropped.length <= chosen.length
+          ? `--skip ${dropped.join(',')}`
+          : `--only ${chosen.join(',')}`);
+      }
+      if (state.settingsVerbose) parts.push('--verbose');
+      if (state.settingsQuiet) parts.push('--quiet');
+      if (!state.settingsSkipExisting) parts.push('--no-skip-existing');
+      return parts.join(' ');
+    }
+
+    function updateStageCommand() {
+      const el = document.getElementById('stageCommand');
+      if (el) el.textContent = buildStageCommand();
+    }
+
+    document.querySelectorAll('[data-stage-pick]').forEach(el => {
+      el.addEventListener('change', () => {
+        state.stagePicks = selectedStages();
+        saveState();
+        updateStageCommand();
+      });
+    });
+
+    document.getElementById('btnCopyStageCmd')?.addEventListener('click', async () => {
+      const cmd = buildStageCommand();
+      try {
+        await navigator.clipboard.writeText(cmd);
+      } catch {
+        // Clipboard is blocked on file:// in some browsers; select it instead
+        // so the user can still copy manually.
+        const el = document.getElementById('stageCommand');
+        if (el) {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+      addLog(t('dash_cmd_copied') + ': ' + cmd, 'success');
+    });
+
+    // Restore the saved picks, then render the command once on load.
+    if (document.getElementById('stagePicker')) {
+      const saved = Array.isArray(state.stagePicks) ? state.stagePicks : null;
+      if (saved) {
+        document.querySelectorAll('[data-stage-pick]').forEach(el => {
+          el.checked = saved.includes(el.dataset.stagePick);
+        });
+      }
+      updateStageCommand();
+    }
 
     // ---- Config Export / Reset (settings page) ----
     document.getElementById('btnExportConfig')?.addEventListener('click', () => {

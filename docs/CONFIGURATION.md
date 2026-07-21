@@ -192,62 +192,108 @@ a neutral 0.5, so candidates with and without the signal stay comparable.
 > is written out with its defaults, so hand-edited values here are reset when
 > settings are saved from the interface.
 
-## Article / Пересказ эпизода
+## Article / Лонгрид по эпизоду
 
 ```yaml
 article:
   enabled: true
-  chunk_seconds: 600        # transcript window per request
+  chunk_seconds: 600          # transcript window per request
   max_chars_chunk: 6000
   temperature: 0.2
   timeout: 900
-  max_novel_word_ratio: 0.3 # share of words absent from the source fragment
-  max_length_ratio: 1.1     # how much longer than its source a retelling may be
+  max_novel_word_ratio: 0.15  # rewritten in the model's own words
+  max_length_ratio: 1.15      # padded
+  min_length_ratio: 0.25      # abridged
+  min_source_coverage: 0.45   # source vocabulary that must survive
 ```
 
-RU: После вычитки gemma4 превращает транскрипт в читаемую статью: прямая речь
-становится повествованием от третьего лица, содержание делится на разделы по
-смыслу с заголовками, внутри — абзацы. Это подробный пересказ, а не краткое
-содержание: факты, имена, числа и примеры сохраняются.
+RU: После вычитки gemma4 приводит транскрипт в вид читаемой статьи: разделы по
+смыслу с заголовками, абзацы, исправленные ошибки. **Это не пересказ.** Слова,
+обороты и лицо автора («я», «мы») сохраняются дословно; убираются только
+слова-паразиты, оговорки, самоперебивы и дословные повторы.
 
-Достоверность держат две проверки, потому что сверять текст дословно здесь
-нельзя — он намеренно переписан:
+Модель отвечает готовым markdown, а не JSON: текст почти дословный, длинный и
+полон кавычек и тире — JSON-экранирование на нём регулярно ломалось (в одном
+прогоне в текст статьи утёк литерал `paragraphs [`). У заголовков и пустых строк
+экранировать нечего.
 
-- **Объём** — пересказ не может быть длиннее источника больше чем в
-  `max_length_ratio` раз. Раздувание означает, что модель дописывает своё.
-- **Лексика** — доля слов, которых нет в исходном фрагменте, не должна
-  превышать `max_novel_word_ratio`. Сравнение идёт по основам слов (первые
-  буквы), иначе русская морфология давала бы ложные срабатывания.
+Три проверки ловят три разных способа отклониться:
 
-Нарушение любой проверки — повторный запрос при `temperature=0` с явным
-напоминанием о запрете. Если и он не прошёл, фрагмент сохраняется, но
-помечается в `<имя>.article.json` (`chunks_flagged`, `faithfulness[].reasons`)
-— чтобы недостоверный кусок не выдавался за проверенный.
+- `max_novel_word_ratio` — доля слов, которых нет в исходном фрагменте. Выше
+  порога означает, что текст **переписан своими словами**, а не отредактирован.
+- `max_length_ratio` — текст **дописан**.
+- `min_length_ratio` вместе с `min_source_coverage` — текст **сокращён**:
+  ужался или растерял лексику источника.
 
-Результат: `<имя>.article.md` (для чтения) и `<имя>.article.json` (структура
-разделов, тайминги и метаданные проверок). Транскрипт не изменяется.
+Пороги откалиброваны по эталонной ручной вычитке реального 72-минутного эпизода:
+у неё 3% новых слов, сохранено 64% лексики источника, длина 42% от исходной
+(уходят слова-паразиты). Пересказ того же эпизода от третьего лица дал 24% новых
+слов — именно это пороги и обязаны отсекать.
 
-EN: After proofreading, gemma4 turns the transcript into a readable article:
-dialogue becomes third-person narration, the content is split into meaning-based
-sections with headings, and each section is written as paragraphs. It is a
-detailed retelling, not a summary — facts, names, numbers and examples are kept.
+Нарушение — повтор запроса при `temperature=0` с явным напоминанием. Если и он
+не прошёл, фрагмент сохраняется, но помечается в `<имя>.article.json`
+(`chunks_flagged`, `faithfulness[].reasons`), чтобы непроверенный кусок не
+выдавался за проверенный.
 
-Two guardrails keep it honest, since the text is deliberately rewritten and
-cannot be diffed word for word:
+Результат: `<имя>.article.md` (для чтения) и `<имя>.article.json` (разделы,
+тайминги, метаданные проверок). Транскрипт не изменяется.
 
-- **Length** — a retelling may not exceed `max_length_ratio` times its source.
-  Growth means the model is padding.
-- **Vocabulary** — the share of words absent from the source fragment must stay
-  under `max_novel_word_ratio`. Comparison runs on word stems, otherwise Russian
-  inflection would trip it constantly.
+EN: After proofreading, gemma4 edits the transcript into a readable article:
+meaning-based sections with headings, paragraphs, corrected errors. **This is not
+a retelling.** The author's words, phrasing and grammatical person are kept
+verbatim; only filler, slips, self-interruptions and verbatim repetitions go.
 
-Either violation triggers one retry at `temperature=0` with the constraint
-restated. If that also fails the fragment is kept but flagged in
-`<stem>.article.json` (`chunks_flagged`, `faithfulness[].reasons`), so an
-unverified passage is never presented as verified.
+The model answers in finished markdown rather than JSON: the text is
+near-verbatim, long and full of quotes and dashes, and JSON escaping of that kept
+breaking (one run leaked a literal `paragraphs [` into the prose). Headings and
+blank lines have nothing to escape.
+
+Three guardrails catch three different ways to drift:
+
+- `max_novel_word_ratio` — share of words absent from the source fragment. Above
+  the threshold the text was **rewritten**, not edited.
+- `max_length_ratio` — the text was **padded**.
+- `min_length_ratio` together with `min_source_coverage` — the text was
+  **abridged**: it shrank or lost the source's vocabulary.
+
+The thresholds are calibrated against a hand-approved reference edit of a real
+72-minute episode: 3% new words, 64% of the source vocabulary kept, 42% of the
+original length (spoken filler is what disappears). A third-person retelling of
+the same episode scored 24% new words — exactly what these numbers must catch.
+
+A violation triggers one retry at `temperature=0` with the constraint restated.
+If that also fails the fragment is kept but flagged in `<stem>.article.json`
+(`chunks_flagged`, `faithfulness[].reasons`), so an unverified passage is never
+presented as verified.
+
+Output: `<stem>.article.md` (to read) and `<stem>.article.json` (sections,
+timings, guardrail metadata). The transcript is left untouched.
 
 The model is selected via `llama_cpp.roles.article` (falls back to the
 `cleanup_refine` model when omitted).
+
+## Running single stages / Запуск отдельных этапов
+
+```bash
+python3 start_forge.py --list-stages          # transcribe diarize proofread article analyze cut
+python3 start_forge.py --only article         # only the long-read stage
+python3 start_forge.py --only proofread,article
+python3 start_forge.py --skip cut             # everything but video cutting
+```
+
+RU: `--only` и `--skip` принимают имена этапов через запятую. Неизвестное имя —
+ошибка, а не молчаливый пропуск. Пропуск этапа не ломает остальные: если
+вычитанный транскрипт остался от прошлого запуска, следующие этапы возьмут
+именно его, а не сырой.
+
+EN: `--only` and `--skip` take comma-separated stage names. An unknown name is an
+error rather than a silent skip. Skipping a stage does not strand the others: a
+proofread transcript left by an earlier run is what the later stages pick up.
+
+В GUI те же этапы выбираются галочками на главной странице — страницы статические
+и ничего не запускают сами, поэтому там собирается готовая команда для терминала.
+/ The GUI offers the same choice as checkboxes on the dashboard; the pages are
+static and run nothing themselves, so they assemble the command for you.
 
 ## Processing / Обработка
 

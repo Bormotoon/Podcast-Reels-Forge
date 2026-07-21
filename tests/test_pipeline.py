@@ -940,3 +940,116 @@ def test_run_pipeline_builds_the_article_from_the_proofread_transcript(
     assert article_calls[0]["model"] == "gemma4:12b"
     assert article_calls[0]["title"] == "video"
     assert (episode_dir / "video.article.md").exists()
+
+
+def test_resolve_stages_only_skip_and_typos() -> None:
+    """--only/--skip must be explicit, and a typo must fail loudly."""
+    import pytest
+
+    assert pipeline.resolve_stages() == set(pipeline.PIPELINE_STAGES)
+    assert pipeline.resolve_stages(only="proofread,article") == {"proofread", "article"}
+    assert pipeline.resolve_stages(only=["article"]) == {"article"}
+
+    without_cut = pipeline.resolve_stages(skip="cut")
+    assert "cut" not in without_cut
+    assert "analyze" in without_cut
+
+    # Whitespace and case are tolerated; --skip wins over --only.
+    assert pipeline.resolve_stages(only=" Proofread , Article ", skip="article") == {"proofread"}
+
+    # A typo must not silently drop half the pipeline.
+    with pytest.raises(SystemExit, match="proofred"):
+        pipeline.resolve_stages(only="proofred")
+    with pytest.raises(SystemExit, match="No pipeline stages left"):
+        pipeline.resolve_stages(only="cut", skip="cut")
+
+
+def test_run_pipeline_only_article_skips_the_other_stages(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """--only article must run just that stage over an existing transcript."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "video.mp4").write_text("x")
+    (input_dir / "video.mp3").write_text("mp3")
+
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
+
+    output_root = tmp_path / "output"
+    episode_dir = output_root / "video"
+    episode_dir.mkdir(parents=True)
+    (episode_dir / "video.json").write_text(
+        json.dumps({"language": "ru", "segments": [
+            {"start": 0.0, "end": 10.0, "text": "сырой текст"},
+        ]}),
+        encoding="utf-8",
+    )
+    (episode_dir / "video.srt").write_text("1\n", encoding="utf-8")
+    # A proofread transcript exists from an earlier run.
+    (episode_dir / "video.proofread.json").write_text(
+        json.dumps({"language": "ru", "segments": [
+            {"start": 0.0, "end": 10.0, "text": "Исправленный текст."},
+        ]}),
+        encoding="utf-8",
+    )
+    (episode_dir / "video.proofread.srt").write_text("1\n", encoding="utf-8")
+
+    called: dict[str, object] = {}
+
+    def fail(name: str):
+        def _fail(*a: object, **kw: object) -> None:
+            called[name] = True
+            raise AssertionError(f"{name} must not run under --only article")
+        return _fail
+
+    monkeypatch.setattr(pipeline, "transcribe_file", fail("transcribe"))
+    monkeypatch.setattr(pipeline, "run_proofread", fail("proofread"))
+    monkeypatch.setattr(pipeline, "run_staged_analysis", fail("analyze"))
+    monkeypatch.setattr(pipeline, "run_module", fail("cut"))
+
+    article_calls: list[Path] = []
+
+    async def fake_run_article(*, transcript_path: Path, output_path: Path, **_: object) -> Path:
+        article_calls.append(transcript_path)
+        output_path.write_text("# video\n\n## Раздел\n\nАбзац.\n", encoding="utf-8")
+        output_path.with_suffix(".json").write_text("{}", encoding="utf-8")
+        return output_path
+
+    monkeypatch.setattr(pipeline, "run_article", fake_run_article)
+    monkeypatch.setattr(pipeline, "sync_reel_markdowns", lambda *a, **kw: [])
+    monkeypatch.setattr(pipeline, "llama_cpp_start", lambda **kw: None)
+    monkeypatch.setattr(pipeline, "llama_cpp_stop", lambda proc: None)
+    monkeypatch.setattr(pipeline, "wait_for_server_ready", lambda *a, **kw: None)
+    monkeypatch.setattr(pipeline, "_kill_llama_server", lambda *a: None)
+    monkeypatch.setattr(pipeline, "is_tcp_open", lambda *a: False)
+
+    conf = {
+        "paths": {"input_dir": str(input_dir), "output_dir": str(output_root)},
+        "transcription": {"language": "ru", "device": "cpu"},
+        "llama_cpp": {
+            "roles": {
+                "scout": "gemma4", "cleanup_refine": "gemma4",
+                "judge_metadata": "gemma4", "proofread": "gemma4", "article": "gemma4",
+            },
+            "url": "http://127.0.0.1:8080/v1/chat/completions",
+            "service": {"auto_start": True, "model_path": str(tmp_path / "model.gguf")},
+        },
+        "processing": {"reels_count": 1, "reel_padding": 5},
+        "video": {"threads": 1},
+        "exports": {},
+        "subtitles": {"enabled": False},
+        "diarization": {"enabled": True},
+        "proofread": {"enabled": True},
+        "article": {"enabled": True},
+        "prompts": {"language": "auto", "variant": "default"},
+    }
+
+    pipeline.run_pipeline(
+        conf=conf, repo_dir=tmp_path, quiet=True, verbose=False,
+        stages={"article"},
+    )
+
+    assert called == {}, "no other stage may run"
+    assert len(article_calls) == 1
+    # Even though proofreading did not run now, its output is what gets edited.
+    assert article_calls[0] == episode_dir / "video.proofread.json"
