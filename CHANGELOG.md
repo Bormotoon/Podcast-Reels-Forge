@@ -18,8 +18,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   checkboxes and assembles the matching command, since the pages run no backend.
 - `llama_cpp.roles.article`, the `article` config block, and `json_output` on the
   llama.cpp provider for stages that want prose instead of JSON.
+- **Speaker separation in the long-read** — with a `diarization.json` alongside,
+  every turn starts with the speaker's name. Speakers are assigned per word (a
+  36-second Whisper segment can hold three people), boundaries snap to sentence
+  ends, and names are read out of the conversation rather than invented. A label
+  whose name is never stated keeps its technical id.
+- **MP3 and WAV companions built in one ffmpeg pass**, both decoded from the
+  video's own audio. The models read the 16 kHz mono PCM — which is exactly what
+  faster-whisper and pyannote resample to internally — instead of the MP3.
 
 ### Fixed
+- Diarization could not run at all: pyannote reads a file in chunks and raises on
+  MP3 because a crop comes back a few samples short of what it requested.
+  `diarize.py` now decodes any non-PCM input first.
 - Skipping the proofread stage no longer strands the ones after it: the pipeline
   switched to the corrected transcript only inside that stage's block, so
   `--only analyze` would have quietly fed the raw text downstream.
