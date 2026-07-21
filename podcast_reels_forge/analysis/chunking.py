@@ -100,7 +100,10 @@ def transcript_units_from_segments(segments: Sequence[Mapping[str, Any]]) -> lis
         if end <= start or not text:
             continue
 
-        speaker = str(segment.get("speaker", "")).strip()
+        # `or ""` matters: a transcript without diarization stores speaker=None,
+        # and str(None) is the truthy "None", which prefixed every single line
+        # sent to the model with a literal "(None)".
+        speaker = str(segment.get("speaker") or "").strip()
         sentence_parts = _split_text_to_sentences(text)
         if len(sentence_parts) == 1:
             units.append(
