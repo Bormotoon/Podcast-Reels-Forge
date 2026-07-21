@@ -53,6 +53,11 @@ class LlamaCppConfig:
     # permissive "any object" schema.
     json_schema: Mapping[str, Any] | None = None
 
+    # Whether to constrain sampling to JSON at all. Stages that want prose (the
+    # article editor) must turn this off: the grammar makes the model emit JSON
+    # no matter what the prompt asks for, so a markdown request comes back empty.
+    json_output: bool = True
+
     # Retry / logging controls
     max_retries: int = 2
     log_interval_s: int = 10
@@ -134,16 +139,20 @@ def build_completion_payload(
     so the schema wiring is testable without a server.
     """
 
-    schema: Mapping[str, Any] = cfg.json_schema or ANY_OBJECT_SCHEMA
-    if schema_downgraded:
-        schema = ANY_OBJECT_SCHEMA
-    return {
+    payload: dict[str, Any] = {
         "prompt": wrapped_prompt,
         "stream": False,
         "temperature": float(temperature),
         "n_predict": int(cfg.n_predict),
-        "json_schema": dict(schema),
     }
+    if not cfg.json_output:
+        return payload
+
+    schema: Mapping[str, Any] = cfg.json_schema or ANY_OBJECT_SCHEMA
+    if schema_downgraded:
+        schema = ANY_OBJECT_SCHEMA
+    payload["json_schema"] = dict(schema)
+    return payload
 
 
 def _looks_like_schema_rejection(body: str) -> bool:

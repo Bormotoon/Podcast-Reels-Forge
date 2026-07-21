@@ -9,7 +9,8 @@ from pathlib import Path
 from podcast_reels_forge.stages.article_stage import (
     chunk_plain_text,
     ArticleSection,
-    _parse_sections,
+    parse_markdown_sections,
+    source_coverage,
     check_faithfulness,
     length_ratio,
     merge_adjacent_sections,
@@ -36,10 +37,9 @@ class FakeProvider:
 
 
 def _sections_payload(paragraphs: list[str], title: str = "Тема") -> str:
-    return json.dumps(
-        {"sections": [{"title": title, "paragraphs": paragraphs}]},
-        ensure_ascii=False,
-    )
+    """The model answers in markdown, so tests speak markdown too."""
+    body = "\n\n".join(paragraphs)
+    return f"## {title}\n\n{body}\n"
 
 
 def test_novel_word_ratio_ignores_russian_inflection() -> None:
@@ -64,39 +64,84 @@ def test_length_ratio() -> None:
     assert length_ratio("", "abc") == 0.0
 
 
-def test_check_faithfulness_flags_padding_and_invention() -> None:
-    source = "Ведущий рассказывает про фудкорты в торговых центрах города"
+def test_check_faithfulness_accepts_an_edit_and_rejects_a_rewrite() -> None:
+    source = (
+        "Ну вот, значит, сегодня мы обсуждаем фудкорты в торговых центрах города, "
+        "и родители постоянно спрашивают, почему подростки там сидят целыми днями"
+    )
 
-    ok = check_faithfulness(source, "Речь о фудкортах в торговых центрах")
-    assert ok.ok
-    assert ok.reasons() == []
+    # Filler removed, wording kept: this is what an edit looks like.
+    edited = (
+        "Сегодня мы обсуждаем фудкорты в торговых центрах города. Родители "
+        "постоянно спрашивают, почему подростки там сидят целыми днями."
+    )
+    assert check_faithfulness(source, edited).ok
 
     padded = check_faithfulness(source, source * 3)
-    assert padded.padded
-    assert not padded.ok
-    assert any("length" in reason for reason in padded.reasons())
+    assert padded.padded and not padded.ok
 
-    invented = check_faithfulness(
+    # Same facts, but rewritten in the model's own words.
+    rewritten = check_faithfulness(
         source,
-        "Спикер подробно разбирает криптовалюты, ипотечное кредитование и путешествия",
+        "Спикер анализирует феномен посещаемости ресторанных зон, разбирая "
+        "мотивацию несовершеннолетних посетителей коммерческих помещений",
     )
-    assert invented.invented_vocabulary
-    assert not invented.ok
+    assert rewritten.invented_vocabulary and not rewritten.ok
+
+    abridged = check_faithfulness(source, "Обсуждаем фудкорты.")
+    assert abridged.abridged and not abridged.ok
 
 
-def test_parse_sections_tolerates_shapes() -> None:
-    wrapped = {"sections": [{"title": "A", "paragraphs": ["один", "два"]}]}
-    assert _parse_sections(wrapped) == [{"title": "A", "paragraphs": ["один", "два"]}]
+def test_parse_markdown_sections() -> None:
+    text = """## Первый раздел
 
-    # A bare list, a single string instead of a list, and junk entries.
-    bare = [
-        {"heading": "B", "paragraphs": "один абзац"},
-        {"title": "C", "paragraphs": []},
-        "junk",
+Абзац, который
+переносится на две строки.
+
+Второй абзац.
+
+## Второй раздел
+
+Текст.
+"""
+
+    assert parse_markdown_sections(text) == [
+        {
+            "title": "Первый раздел",
+            "paragraphs": ["Абзац, который переносится на две строки.", "Второй абзац."],
+        },
+        {"title": "Второй раздел", "paragraphs": ["Текст."]},
     ]
-    assert _parse_sections(bare) == [{"title": "B", "paragraphs": ["один абзац"]}]
 
-    assert _parse_sections({"nothing": 1}) == []
+    # Text before any heading still counts as a section.
+    assert parse_markdown_sections("Просто абзац.") == [
+        {"title": "", "paragraphs": ["Просто абзац."]},
+    ]
+    assert parse_markdown_sections("") == []
+
+
+def test_parse_markdown_drops_json_scaffolding() -> None:
+    """A model half-answering in JSON must not leak braces into the prose."""
+    text = """```markdown
+## Раздел
+
+{
+
+paragraphs [
+
+Нормальный абзац.
+```"""
+
+    assert parse_markdown_sections(text) == [
+        {"title": "Раздел", "paragraphs": ["Нормальный абзац."]},
+    ]
+
+
+def test_source_coverage_catches_abridgement() -> None:
+    source = "Обсуждаем фудкорты, торговые центры, школьные проекты и подростков"
+    assert source_coverage(source, source) == 1.0
+    assert source_coverage(source, "Обсуждаем фудкорты") < 0.5
+    assert source_coverage("", "что угодно") == 1.0
 
 
 def test_merge_adjacent_sections_joins_same_topic_across_chunks() -> None:
@@ -191,8 +236,8 @@ def test_run_article_retries_then_flags_an_unfaithful_chunk(tmp_path: Path) -> N
     transcript_path.write_text(json.dumps(transcript, ensure_ascii=False), encoding="utf-8")
 
     invented = _sections_payload([
-        "Ведущий подробно разбирает криптовалюту, ипотечное кредитование, "
-        "путешествия по Азии и ремонт загородной недвижимости.",
+        "Спикер анализирует криптовалютные инструменты, ипотечное кредитование, "
+        "туристические направления Азии и реконструкцию загородной недвижимости.",
     ])
     provider = FakeProvider([invented, invented])
 

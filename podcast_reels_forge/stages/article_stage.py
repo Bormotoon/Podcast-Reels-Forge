@@ -1,24 +1,30 @@
-"""RU: Стадия пересказа: транскрипт → связная статья с разделами.
+"""RU: Стадия лонгрида: транскрипт → читаемая статья с разделами.
 
 Модель (gemma4 через llama.cpp) получает вычитанный транскрипт по частям и
-превращает прямую речь в читаемый текст: абзацы, разделы по смыслу,
-заголовки. Стадия защищена от «творчества» модели двумя проверками — объём
-результата не должен превышать источник, а доля незнакомой лексики
-(относительно исходного фрагмента) должна оставаться низкой. Нарушение —
-повтор запроса; если и он не помог, результат сохраняется, но помечается
-в метаданных, а не выдаётся за достоверный.
+приводит его в вид статьи: разделы по смыслу с заголовками, абзацы,
+исправленные ошибки, без слов-паразитов и оговорок. Это НЕ пересказ: слова,
+обороты и лицо автора сохраняются дословно.
+
+Отклонения ловят три проверки — доля новой лексики (текст переписан своими
+словами), длина сверху (дописано) и снизу вместе с сохранностью лексики
+(сокращено). Нарушение — повтор запроса; если и он не помог, фрагмент
+сохраняется, но помечается в метаданных, а не выдаётся за достоверный.
 
 Результат: ``<имя>.article.md`` (для чтения) и ``<имя>.article.json``
 (структура + метаданные проверок). Транскрипт не изменяется.
 
-EN: Retelling stage: transcript -> a readable, sectioned article.
+EN: Long-read stage: transcript -> a readable, sectioned article.
 
 The model (gemma4 via llama.cpp) receives the proofread transcript in parts and
-turns spoken dialogue into readable prose: paragraphs, meaning-based sections,
-headings. Two guardrails keep it honest — the retelling may not outgrow its
-source, and the share of vocabulary absent from that source must stay low. A
-violation triggers one retry; if that also fails the result is kept but flagged
-in the metadata rather than passed off as faithful.
+edits it into an article: meaning-based sections with headings, paragraphs,
+corrected errors, no filler or slips. This is NOT a retelling — the author's
+words, phrasing and grammatical person are kept verbatim.
+
+Three guardrails catch drift: the share of new vocabulary (rewritten in the
+model's own words), an upper length bound (padded), and a lower one together
+with source-vocabulary coverage (abridged). A violation triggers one retry; if
+that also fails the fragment is kept but flagged in the metadata rather than
+passed off as faithful.
 
 Output: ``<stem>.article.md`` (to read) and ``<stem>.article.json`` (structure
 plus guardrail metadata). The transcript itself is left untouched.
@@ -44,7 +50,6 @@ from podcast_reels_forge.llm.providers import (
     LlamaCppProvider,
     LLMProvider,
 )
-from podcast_reels_forge.utils.json_utils import extract_first_json_value
 from podcast_reels_forge.utils.llama_cpp_service import (
     ENV_MANAGED_BY_PIPELINE,
     llama_cpp_start,
@@ -60,11 +65,23 @@ DEFAULT_MAX_CHARS_CHUNK = 6000
 DEFAULT_TEMPERATURE = 0.2
 DEFAULT_TIMEOUT = 900
 DEFAULT_N_PREDICT = 4096
-# A faithful retelling compresses; it never meaningfully outgrows its source.
-DEFAULT_MAX_LENGTH_RATIO = 1.10
-# Share of long words absent from the source chunk. Paraphrasing introduces a
-# few, wholesale invention introduces many.
-DEFAULT_MAX_NOVEL_WORD_RATIO = 0.30
+
+# Thresholds calibrated against a hand-approved reference edit of a real
+# 72-minute episode. On that reference: 3% of the words were new, the text kept
+# 64% of the source's vocabulary and came out at 42% of its length (spoken
+# filler is what disappears). A third-person paraphrase of the same episode
+# scored 24% new words — which is exactly the failure these numbers must catch.
+#
+# The editor keeps the author's own words, so anything above a sliver of new
+# vocabulary means it started writing instead of editing.
+DEFAULT_MAX_NOVEL_WORD_RATIO = 0.15
+# Padding: the edit removes filler, it never outgrows the transcript.
+DEFAULT_MAX_LENGTH_RATIO = 1.15
+# Summarizing: dropping this much text means it stopped editing and started
+# abridging.
+DEFAULT_MIN_LENGTH_RATIO = 0.25
+# Share of the source's own vocabulary that must survive the edit.
+DEFAULT_MIN_SOURCE_COVERAGE = 0.45
 
 # Words shorter than this are function words and connectives — reused freely by
 # any paraphrase, so they carry no signal about invented content.
@@ -134,17 +151,36 @@ def length_ratio(source: str, retelling: str) -> float:
     return len(str(retelling).strip()) / source_len
 
 
+def source_coverage(source: str, edited: str) -> float:
+    """RU: Доля основ источника, уцелевших в отредактированном тексте (0..1).
+
+    EN: Share of the source's word stems that survive into the edited text.
+
+    Catches the opposite failure from ``novel_word_ratio``: an edit that quietly
+    summarizes the fragment instead of tidying it up.
+    """
+    source_stems = _content_stems(source)
+    if not source_stems:
+        return 1.0
+    return len(source_stems & _content_stems(edited)) / len(source_stems)
+
+
 @dataclass(frozen=True)
 class FaithfulnessReport:
     """Outcome of the guardrail checks for one chunk."""
 
     novel_ratio: float
     length_ratio: float
+    coverage: float
     max_novel_ratio: float
     max_length_ratio: float
+    min_length_ratio: float
+    min_coverage: float
 
     @property
     def invented_vocabulary(self) -> bool:
+        """The editor started writing its own words instead of keeping the author's."""
+
         return self.novel_ratio > self.max_novel_ratio
 
     @property
@@ -152,18 +188,35 @@ class FaithfulnessReport:
         return self.length_ratio > self.max_length_ratio
 
     @property
+    def abridged(self) -> bool:
+        """It summarized rather than edited."""
+
+        return self.length_ratio < self.min_length_ratio or self.coverage < self.min_coverage
+
+    @property
     def ok(self) -> bool:
-        return not (self.invented_vocabulary or self.padded)
+        return not (self.invented_vocabulary or self.padded or self.abridged)
 
     def reasons(self) -> list[str]:
         out: list[str] = []
         if self.invented_vocabulary:
             out.append(
-                f"novel vocabulary {self.novel_ratio:.0%} > {self.max_novel_ratio:.0%}",
+                f"new vocabulary {self.novel_ratio:.0%} > {self.max_novel_ratio:.0%} "
+                "(rewritten instead of edited)",
             )
         if self.padded:
             out.append(
                 f"length {self.length_ratio:.0%} of source > {self.max_length_ratio:.0%}",
+            )
+        if self.length_ratio < self.min_length_ratio:
+            out.append(
+                f"length {self.length_ratio:.0%} of source < {self.min_length_ratio:.0%} "
+                "(summarized)",
+            )
+        if self.coverage < self.min_coverage:
+            out.append(
+                f"kept only {self.coverage:.0%} of the source vocabulary "
+                f"< {self.min_coverage:.0%}",
             )
         return out
 
@@ -171,6 +224,7 @@ class FaithfulnessReport:
         return {
             "novel_word_ratio": round(self.novel_ratio, 4),
             "length_ratio": round(self.length_ratio, 4),
+            "source_coverage": round(self.coverage, 4),
             "ok": self.ok,
             "reasons": self.reasons(),
         }
@@ -182,51 +236,87 @@ def check_faithfulness(
     *,
     max_novel_ratio: float = DEFAULT_MAX_NOVEL_WORD_RATIO,
     max_length_ratio: float = DEFAULT_MAX_LENGTH_RATIO,
+    min_length_ratio: float = DEFAULT_MIN_LENGTH_RATIO,
+    min_coverage: float = DEFAULT_MIN_SOURCE_COVERAGE,
 ) -> FaithfulnessReport:
-    """RU: Проверяет, что пересказ не выдумывает и не раздувает текст.
+    """RU: Проверяет, что текст отредактирован, а не переписан или сокращён.
 
-    EN: Check that a retelling neither invents content nor pads it out.
+    EN: Check that the text was edited — not rewritten, padded or abridged.
     """
     return FaithfulnessReport(
         novel_ratio=novel_word_ratio(source, retelling),
         length_ratio=length_ratio(source, retelling),
+        coverage=source_coverage(source, retelling),
         max_novel_ratio=float(max_novel_ratio),
         max_length_ratio=float(max_length_ratio),
+        min_length_ratio=float(min_length_ratio),
+        min_coverage=float(min_coverage),
     )
 
 
-def _parse_sections(payload: Any) -> list[dict[str, Any]]:
-    """Pull a section list out of whatever shape the model returned."""
+def parse_markdown_sections(text: str) -> list[dict[str, Any]]:
+    """RU: Разбирает markdown-ответ модели на разделы и абзацы.
 
-    items: list[Any] = []
-    if isinstance(payload, list):
-        items = payload
-    elif isinstance(payload, dict):
-        for key in ("sections", "article", "parts", "chapters"):
-            raw = payload.get(key)
-            if isinstance(raw, list):
-                items = raw
-                break
+    EN: Parse the model's markdown answer into sections and paragraphs.
 
+    Markdown rather than JSON on purpose: the edited text is long, near-verbatim
+    and full of quotes and dashes, and JSON escaping of that reliably broke —
+    one run leaked a literal ``paragraphs [`` into the prose. Headings and blank
+    lines have nothing to escape.
+    """
     sections: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
+    current_title = ""
+    buffer: list[str] = []
+
+    def flush() -> None:
+        paragraphs = [" ".join(block.split()) for block in buffer if block.strip()]
+        paragraphs = [p for p in paragraphs if p and not _is_scaffolding(p)]
+        if paragraphs:
+            sections.append({"title": current_title, "paragraphs": paragraphs})
+        buffer.clear()
+
+    block: list[str] = []
+    for raw_line in _strip_code_fences(text).splitlines():
+        line = raw_line.rstrip()
+        heading = _HEADING_RE.match(line)
+        if heading:
+            if block:
+                buffer.append(" ".join(block))
+                block = []
+            flush()
+            current_title = heading.group(1).strip()
             continue
-        title = str(item.get("title") or item.get("heading") or "").strip()
-        raw_paragraphs = item.get("paragraphs")
-        if isinstance(raw_paragraphs, str):
-            raw_paragraphs = [raw_paragraphs]
-        if not isinstance(raw_paragraphs, list):
-            raw_paragraphs = []
-        paragraphs = [
-            " ".join(str(p).split())
-            for p in raw_paragraphs
-            if isinstance(p, (str, int, float)) and str(p).strip()
-        ]
-        if not paragraphs:
+        if not line.strip():
+            if block:
+                buffer.append(" ".join(block))
+                block = []
             continue
-        sections.append({"title": title, "paragraphs": paragraphs})
+        block.append(line.strip())
+
+    if block:
+        buffer.append(" ".join(block))
+    flush()
     return sections
+
+
+_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$")
+# Leftovers of a model that started answering in JSON or narrating its own work.
+_SCAFFOLDING_RE = re.compile(
+    r"^\s*(\{|\}|\[|\]|\"?(sections|paragraphs|title|article)\"?\s*[:\[]|```)",
+    flags=re.IGNORECASE,
+)
+
+
+def _strip_code_fences(text: str) -> str:
+    cleaned = str(text).strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
+        cleaned = re.sub(r"\n?```\s*$", "", cleaned)
+    return cleaned
+
+
+def _is_scaffolding(paragraph: str) -> bool:
+    return bool(_SCAFFOLDING_RE.match(paragraph))
 
 
 def chunk_plain_text(
@@ -350,6 +440,8 @@ async def _write_one_chunk(
     timeout: int,
     max_novel_ratio: float,
     max_length_ratio: float,
+    min_length_ratio: float,
+    min_coverage: float,
 ) -> tuple[list[dict[str, Any]], FaithfulnessReport | None]:
     """RU: Пересказывает один фрагмент, при нарушении — один повтор.
 
@@ -363,12 +455,16 @@ async def _write_one_chunk(
         if attempt > 1:
             # Second pass: the first drifted, so restate the hard constraint.
             prompt += (
-                "\n\nВНИМАНИЕ: предыдущий ответ добавил то, чего нет в исходном "
-                "тексте. Пиши строго по фрагменту выше: никаких новых фактов, "
-                "имён, чисел, выводов и вступлений от себя.\n"
-                "WARNING: the previous answer added material absent from the "
-                "source. Follow the fragment above strictly: no new facts, names, "
-                "numbers, conclusions or introductions of your own."
+                "\n\nВНИМАНИЕ: предыдущий ответ отклонился от исходного текста — "
+                "был переписан своими словами, сокращён или дополнен. Ты редактор, "
+                "а не автор: сохраняй слова и обороты говорящего дословно, от того "
+                "же лица, ничего не добавляя и не сокращая. Убирать можно только "
+                "слова-паразиты, оговорки и дословные повторы.\n"
+                "WARNING: the previous answer drifted from the source — it was "
+                "rewritten, abridged or padded. You are an editor, not an author: "
+                "keep the speaker's words and phrasing verbatim, in the same "
+                "person, adding and cutting nothing. Only filler, slips and "
+                "verbatim repetitions may go."
             )
 
         # Temperature 0 on the retry: sampling variety is what let it drift.
@@ -378,18 +474,7 @@ async def _write_one_chunk(
             temperature=attempt_temperature,
             timeout=timeout,
         )
-        try:
-            parsed = extract_first_json_value(raw)
-        except (ValueError, TypeError):
-            preview = raw[:300].replace("\n", "\\n") if isinstance(raw, str) else str(raw)
-            LOGGER.warning(
-                "[article] failed to parse JSON (attempt %d); preview: %s",
-                attempt,
-                preview,
-            )
-            continue
-
-        sections = _parse_sections(parsed)
+        sections = parse_markdown_sections(raw if isinstance(raw, str) else str(raw))
         if not sections:
             LOGGER.warning("[article] model returned no usable sections (attempt %d)", attempt)
             continue
@@ -402,6 +487,8 @@ async def _write_one_chunk(
             produced,
             max_novel_ratio=max_novel_ratio,
             max_length_ratio=max_length_ratio,
+            min_length_ratio=min_length_ratio,
+            min_coverage=min_coverage,
         )
         if report.ok:
             return sections, report
@@ -459,6 +546,8 @@ async def run_article(
     timeout = int(conf.get("timeout", DEFAULT_TIMEOUT))
     max_novel_ratio = float(conf.get("max_novel_word_ratio", DEFAULT_MAX_NOVEL_WORD_RATIO))
     max_length_ratio = float(conf.get("max_length_ratio", DEFAULT_MAX_LENGTH_RATIO))
+    min_length_ratio = float(conf.get("min_length_ratio", DEFAULT_MIN_LENGTH_RATIO))
+    min_coverage = float(conf.get("min_source_coverage", DEFAULT_MIN_SOURCE_COVERAGE))
     n_predict = int(conf.get("n_predict", DEFAULT_N_PREDICT))
 
     prompt_lang = _normalize_prompt_lang(
@@ -469,7 +558,8 @@ async def run_article(
 
     if provider is None:
         provider = LlamaCppProvider(
-            LlamaCppConfig(url=url, model=model, n_predict=n_predict),
+            # Prose, not JSON: the article comes back as markdown.
+            LlamaCppConfig(url=url, model=model, n_predict=n_predict, json_output=False),
         )
 
     segment_dicts = [seg for seg in segments if isinstance(seg, dict)]
@@ -508,6 +598,8 @@ async def run_article(
                 timeout=timeout,
                 max_novel_ratio=max_novel_ratio,
                 max_length_ratio=max_length_ratio,
+                min_length_ratio=min_length_ratio,
+                min_coverage=min_coverage,
             )
         except Exception as exc:
             # RU: Один упавший фрагмент не должен ронять всю статью.
@@ -628,7 +720,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--max-length-ratio",
         type=float,
         default=DEFAULT_MAX_LENGTH_RATIO,
-        help="Reject a retelling longer than this multiple of its source",
+        help="Reject an edit longer than this multiple of its source",
+    )
+    ap.add_argument(
+        "--min-length-ratio",
+        type=float,
+        default=DEFAULT_MIN_LENGTH_RATIO,
+        help="Reject an edit shorter than this multiple of its source (summarized)",
+    )
+    ap.add_argument(
+        "--min-source-coverage",
+        type=float,
+        default=DEFAULT_MIN_SOURCE_COVERAGE,
+        help="Reject an edit that keeps less than this share of the source vocabulary",
     )
     ap.add_argument("--prompt-lang", default="auto", help="Prompt language: ru|en|auto")
     ap.add_argument("--quiet", action="store_true", help="Suppress non-error output")
@@ -667,6 +771,8 @@ def main(argv: list[str] | None = None) -> None:
                 "timeout": args.timeout,
                 "max_novel_word_ratio": args.max_novel_word_ratio,
                 "max_length_ratio": args.max_length_ratio,
+                "min_length_ratio": args.min_length_ratio,
+                "min_source_coverage": args.min_source_coverage,
             },
             prompts_conf={"language": args.prompt_lang},
             quiet=bool(args.quiet),
