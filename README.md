@@ -356,7 +356,7 @@ python3 rerender_videos.py --smart-crop-face --replace
 
 Forge бесплатен и работает полностью локально. Если он экономит вам часы монтажа — поддержите разработку:
 
-[![Поддержать Podcast Reels Forge](docs/images/donate_banner.png)](https://dalink.to/bormotoon)
+[![Поддержать Podcast Reels Forge](docs/images/donate_banner_ru.png)](https://dalink.to/bormotoon)
 
 ---
 
