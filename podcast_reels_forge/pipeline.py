@@ -244,6 +244,31 @@ def _ensure_placeholder_analyze_outputs(moments_path: Path, reels_md_path: Path)
         reels_md_path.write_text("# Reels Suggestions\n\n(no moments)\n", encoding="utf-8")
 
 
+def _analysis_outputs_ready(
+    moments_path: Path,
+    reels_md_path: Path,
+    *,
+    validate_json: bool,
+) -> bool:
+    """RU: Готов ли анализ на самом деле, а не только по наличию файлов.
+
+    EN: Whether the analysis is genuinely done, not merely present on disk.
+
+    RU: Упавшая стадия оставляет после себя плейсхолдер `[]` — по размеру и
+        синтаксису он неотличим от удачного разбора, поэтому кэш навсегда
+        пропускал анализ, и резать было нечего. Пустой список моментов — это не
+        результат, а повод пересчитать.
+    EN: A failed stage leaves a `[]` placeholder behind — by size and syntax it
+        is indistinguishable from a successful parse, so the cache skipped the
+        analysis forever and the cut stage had nothing to work with. An empty
+        moments list is not a result; it is a reason to redo the analysis.
+    """
+    if not _outputs_ready([moments_path, reels_md_path], validate_json=validate_json):
+        return False
+    moments = _read_json_if_valid(moments_path)
+    return isinstance(moments, list) and bool(moments)
+
+
 def _outputs_ready(outputs: list[Path], *, validate_json: bool) -> bool:
     for p in outputs:
         if not p.exists():
@@ -830,8 +855,9 @@ def run_pipeline(
 
             if not analyze_enabled:
                 status("[analyze] skip (not selected)", quiet=quiet)
-            elif skip_existing and _outputs_ready(
-                [moments_path, reels_md_path],
+            elif skip_existing and _analysis_outputs_ready(
+                moments_path,
+                reels_md_path,
                 validate_json=validate_json,
             ):
                 status(
@@ -895,9 +921,14 @@ def run_pipeline(
         padding = int(p_conf.get("reel_padding", 5))
         reels_dir = analysis_model_folder / "reels"
         moments_data = _read_json_if_valid(moments_path)
-        if moments_data is None:
+        if moments_data is None or (isinstance(moments_data, list) and not moments_data):
+            # RU: Пустой moments.json резать нечем, и молчать об этом нельзя:
+            #     именно так выглядит эпизод, у которого анализ не дал моментов.
+            # EN: An empty moments.json leaves nothing to cut, and that must be
+            #     said out loud: it is how an episode with no analysed moments looks.
             status(
-                f"[cut] skip ({final_model_folder}): no moments",
+                f"[cut] skip ({final_model_folder}): no moments — "
+                "анализ не дал ни одного момента, перезапустите стадию analyze",
                 quiet=quiet,
             )
             if cut_enabled:
