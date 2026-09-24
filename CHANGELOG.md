@@ -7,6 +7,78 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **YouTube as a source** — a new first stage, `fetch`, pulls a video by link, a
+  whole playlist or an entire channel into `input/youtube/`, after which the file
+  is indistinguishable from one placed by hand. Because it is an ordinary stage,
+  `--only` / `--skip` already compose with it: `--youtube "@channel" --skip cut`
+  runs everything but the cutting, `--only fetch` just fills the folder.
+  `--yt-list` shows what would be taken without downloading. Also available on
+  its own as `python -m podcast_reels_forge.scripts.fetch_youtube`.
+  - Files are named `YYYY-MM-DD - Title [id]`: the date sorts episode folders
+    chronologically, and the id recognises an already-downloaded video even after
+    it was retitled on YouTube. A repeat run checks the file on disk first, then
+    the `.archive.txt` archive, so a nightly channel run takes only new episodes.
+  - Only the audio track is fetched by default (`youtube.download: audio`): an
+    hour of podcast is ~64 MB instead of ~1 GB, which is what makes a
+    whole-channel run practical. There is then nothing to cut, and the cut stage
+    says so rather than failing. `--yt-video` (or `download: video` / `auto`)
+    fetches the picture, capped at 1080p — the output is a 1080-wide vertical
+    clip either way.
+  - `--youtube` narrows the run to the videos it names. Without that, one
+    YouTube link would drag along every local episode in `input/` and transcode
+    audio for each; `--yt-all-inputs` lifts it.
+  - **Exclusions** (`youtube.exclude`, `--yt-exclude`) keep part of a channel out
+    entirely — never downloaded, never processed. Naming a playlist rather than
+    ids keeps "everything except this show" true on its own as episodes are added
+    to it. An exclusion outranks a direct link and is applied before the cap, so
+    `--yt-limit 5` returns five usable videos rather than five minus the excluded
+    ones. `--yt-exclude` adds to the config list instead of replacing it: a
+    standing rule must not be lifted silently by one command.
+  - `YOUTUBE_API_KEY` is optional (yt-dlp can do the listing), and travels as an
+    `X-goog-api-key` header rather than in the query string, so `--verbose` does
+    not log it. Listing a whole channel costs ~41 units of the free daily quota;
+    the 100-unit `search.list` is only a last resort for an unresolvable handle.
+  - A failed download earns **one retry through other YouTube clients**
+    (`web_safari`, `tv`, `android`). For some older videos the default clients
+    see no formats at all and the video reads as "This video is not available",
+    though the API reports it public and unrestricted. Only after a failure:
+    forcing that client set on everything would trade what works for the unknown
+    (the `tv` client returns some formats DRM-protected). A rights-holder block
+    or region lock is beyond any client, and is reported without stopping the
+    queue. `youtube.ydl_options` passes raw yt-dlp options through for the next
+    time YouTube changes something, so it need not become a code change.
+  - `yt-dlp` is an optional dependency (`pip install -e ".[youtube]"`); a missing
+    one yields the install command instead of a traceback.
+- **Host RAM can be freed for the duration of a run** (`host_memory`, off by
+  default). The pipeline holds several gigabytes on the host, and on a machine
+  that also runs VMs that is enough to reach the OOM killer — which does not
+  necessarily kill the pipeline: it picks whatever has the highest
+  `oom_score_adj`, and a snap-packaged VS Code volunteers itself at 300.
+  - Memory is reclaimed live through virtio-balloon, sized from what each guest
+    reports as actually used rather than from a number typed months ago.
+    `virsh suspend` was not an option: it stops the vCPUs while qemu keeps every
+    page. Neither was `managedsave`, which libvirt refuses for a domain with an
+    assigned PCI device.
+  - **Ballooning frees nothing on a VM with PCI passthrough**, measured rather
+    than assumed: its whole guest memory is locked into RAM for IOMMU DMA, so the
+    balloon moves, the guest reports free pages, and qemu's RSS does not drop by
+    a byte. Such domains are detected via `VmLck` and skipped — squeezing them
+    only starves the guest. `host_memory.stop_domains` shuts them down instead
+    and starts them again afterwards.
+  - Returning the memory is the guaranteed part: original sizes are fsynced to a
+    state file *before* the first change, so a normal exit, an exception, Ctrl+C
+    and `kill` all restore immediately, and a SIGKILL or OOM is recovered by the
+    next run or by `python -m podcast_reels_forge.scripts.host_memory --restore`.
+    A restore that fails keeps its record rather than dropping it, so a VM cannot
+    be left shrunken with nothing tracking it.
+- **The input folder is scanned recursively**, and an episode may now be audio
+  with no video at all — that is what an audio-only fetch leaves behind. Every
+  stage but cutting works from the audio anyway, and cutting says so plainly
+  instead of failing.
+- **`.env` in the project root is finally read.** The repo has always shipped
+  `.env.example` and git-ignored `.env`, but nothing loaded it, so a
+  `PYANNOTE_TOKEN` written there never reached the process. A real environment
+  variable still wins over the file.
 - **Episode long-read** — after proofreading, gemma4 edits the transcript into a
   readable article: meaning-based sections with headings, paragraphs, corrected
   errors. It is not a retelling; the speaker's words, phrasing and grammatical
@@ -37,6 +109,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   leave the machine, and every edit is recorded with its evidence.
 
 ### Fixed
+- **llama-server's host-side prompt cache is now sized from free memory**
+  (`cache_ram_mb: auto`). llama-server allows it 8192 MiB regardless of how much
+  the machine has, and that cache — not the model weights — grew to ~6 GB of
+  anonymous host memory and became this pipeline's share of a host OOM: with
+  `n_gpu_layers: 999` the model sits entirely in VRAM while the host held 32
+  context checkpoints of ~160 MB each. `auto` takes what is free at startup minus
+  `cache_ram_reserve_mb`, capped by `cache_ram_max_mb`, so a run that shut a 12 GB
+  VM down spends that memory instead of leaving it idle, while a busy host gets a
+  small cache rather than an OOM. A plain number or `null` still work. Both this
+  and `ctx_checkpoints` are passed only when the installed server understands
+  them, since an unknown option makes llama-server exit rather than start.
+- **llama-server's output is no longer discarded.** It went to `/dev/null`, which
+  threw away the one report showing how many layers actually reached the GPU and
+  which buffers stayed in host RAM. That hid a real problem: with
+  `n_gpu_layers: 999` the server still held ~6 GB of *anonymous* host memory —
+  CPU-side weights, not reclaimable page cache — and there was no way to see it.
+  Output now appends to `llama_cpp.service.log_file` (`llama-server.log`);
+  set it empty to go back to discarding.
 - Diarization could not run at all: pyannote reads a file in chunks and raises on
   MP3 because a crop comes back a few samples short of what it requested.
   `diarize.py` now decodes any non-PCM input first.
