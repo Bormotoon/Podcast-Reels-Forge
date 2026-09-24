@@ -15,7 +15,11 @@ import pytest
 
 from podcast_reels_forge.config import LlamaCppRoleMapping
 from podcast_reels_forge.llm.providers import LlamaCppConfig, build_completion_payload
-from podcast_reels_forge.llm.schemas import ANY_OBJECT_SCHEMA, MOMENTS_JSON_SCHEMA
+from podcast_reels_forge.llm.schemas import (
+    ANY_OBJECT_SCHEMA,
+    MOMENTS_JSON_SCHEMA,
+    SCOUT_JSON_SCHEMA,
+)
 from podcast_reels_forge.stages import analyze_stage
 
 
@@ -40,8 +44,46 @@ class FakeProvider:
         return self._responder(prompt, self.calls)
 
 
-def _moments_json(*moments: dict[str, Any]) -> str:
-    return json.dumps({"moments": list(moments)}, ensure_ascii=False)
+SEGMENT_SECONDS = 30.0
+
+
+def spoken_sentence(index: int) -> str:
+    """The fixture transcript's sentence for segment ``index``."""
+
+    return f"Предложение номер {index} про школы, детей и результаты."
+
+
+def _fixture_words(start: float, end: float) -> list[str]:
+    """Words of the fixture transcript lying entirely inside [start, end]."""
+
+    words: list[str] = []
+    first = max(0, int(start // SEGMENT_SECONDS))
+    last = int(end // SEGMENT_SECONDS)
+    for index in range(first, last + 1):
+        word_list = spoken_sentence(index).split()
+        per_word = SEGMENT_SECONDS / len(word_list)
+        for offset, word in enumerate(word_list):
+            w_start = round(index * SEGMENT_SECONDS + offset * per_word, 3)
+            w_end = round(index * SEGMENT_SECONDS + (offset + 1) * per_word, 3)
+            if w_start >= start and w_end <= end:
+                words.append(word)
+    return words
+
+
+def _spoken_quote(start: float, end: float, *, max_words: int = 8) -> str:
+    """A verbatim, contiguous quote lying inside [start, end] of the fixture."""
+
+    words = _fixture_words(start, end)
+    assert len(words) >= 4, "clip too short to hold a quote"
+    return " ".join(words[:max_words])
+
+
+def _candidates_json(*candidates: dict[str, Any]) -> str:
+    return json.dumps({"candidates": list(candidates)}, ensure_ascii=False)
+
+
+# Legacy name kept for readability of older tests.
+_moments_json = _candidates_json
 
 
 def chunk_window(prompt: str) -> tuple[float, float]:
@@ -71,12 +113,12 @@ EPISODE_CONTEXT_REPLY = json.dumps(
 )
 
 
-def _moment_in_chunk(prompt: str, title: str, *, offset: float = 5.0, length: float = 45.0) -> dict[str, Any]:
+def _moment_in_chunk(prompt: str, title: str = "", *, offset: float = 5.0, length: float = 45.0) -> dict[str, Any]:
     """A candidate placed inside the chunk the prompt describes."""
 
     start, end = chunk_window(prompt)
     clip_start = min(start + offset, max(start, end - length))
-    return _moment(clip_start, min(clip_start + length, end), title)
+    return _moment(clip_start, min(clip_start + length, end))
 
 
 def prompt_candidates(prompt: str) -> list[dict[str, Any]]:
@@ -91,28 +133,59 @@ def prompt_candidates(prompt: str) -> list[dict[str, Any]]:
     return parsed
 
 
-def _refine_first(prompt: str, title: str, score: float = 8.0) -> str:
-    """Echo back the first input candidate, retitled and re-rated.
+def keep_all_decisions(prompt: str, _call_index: int = 0) -> str:
+    """A permissive cleanup: keep every candidate it was shown."""
 
-    Real cleanup/judge stages filter and re-rate what they were given, and the
-    stage now drops output that overlaps none of its input, so the fakes have
-    to stay anchored to the candidates in their prompt.
-    """
-
-    first = prompt_candidates(prompt)[0]
-    return _moments_json(_moment(first["start"], first["end"], title, score))
+    return json.dumps(
+        {"decisions": [{"candidate_id": c["candidate_id"], "keep": True} for c in prompt_candidates(prompt)]},
+    )
 
 
-def _moment(start: float, end: float, title: str, score: float = 8.0) -> dict[str, Any]:
+def keep_first_decision(prompt: str, _call_index: int = 0) -> str:
+    """An extreme cleanup: keep the first candidate, drop the rest."""
+
+    candidates = prompt_candidates(prompt)
+    return json.dumps(
+        {
+            "decisions": [
+                {"candidate_id": c["candidate_id"], "keep": offset == 0}
+                for offset, c in enumerate(candidates)
+            ],
+        },
+    )
+
+
+def review_all(prompt: str, title: str = "Финальный", score: float = 9.0) -> str:
+    """A judge that keeps and titles every candidate it was shown."""
+
+    return json.dumps(
+        {
+            "reviews": [
+                {
+                    "candidate_id": c["candidate_id"],
+                    "keep": True,
+                    "score": score,
+                    "title": f"{title} {offset}" if offset else title,
+                    "hook": f"Хук: {title}",
+                    "why": "Законченная мысль с понятной развязкой",
+                }
+                for offset, c in enumerate(prompt_candidates(prompt))
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+
+def _moment(start: float, end: float, title: str = "", score: float = 8.0) -> dict[str, Any]:
+    """A scout candidate whose quote is really in the fixture transcript."""
+
     return {
         "start": start,
         "end": end,
-        "clip_type": "reel",
-        "title": title,
-        "quote": f"Яркая цитата про {title}",
-        "why": "Понятная причина, почему это сработает в коротком видео",
+        "quote": _spoken_quote(start, end),
+        "evidence": "Понятная причина, почему это сработает в коротком видео",
+        "reason_codes": ["story"],
         "score": score,
-        "hook": f"Короткий хук про {title}",
     }
 
 
@@ -121,11 +194,11 @@ def _write_transcript(path: Path, *, duration: float = 2400.0) -> Path:
 
     segments = []
     sentences = []
-    step = 30.0
+    step = SEGMENT_SECONDS
     for index in range(int(duration // step)):
         start = index * step
         end = start + step
-        text = f"Предложение номер {index} про школы, детей и результаты."
+        text = spoken_sentence(index)
         words = []
         word_list = text.split()
         per_word = (end - start) / max(1, len(word_list))
@@ -180,10 +253,10 @@ def _run_analysis(
 ) -> tuple[list[Any], dict[str, FakeProvider], Path]:
     transcript = _write_transcript(tmp_path / "episode.json")
     outdir = tmp_path / "out"
-    outdir.mkdir()
+    outdir.mkdir(exist_ok=True)
 
-    default_cleanup = cleanup or (lambda p, _i: _refine_first(p, "Чистый"))
-    default_judge = judge or (lambda p, _i: _refine_first(p, "Финальный", 9.0))
+    default_cleanup = cleanup or keep_all_decisions
+    default_judge = judge or (lambda p, _i: review_all(p))
 
     def scout_with_context(prompt: str, call_index: int) -> str:
         # The stage asks the scout model for the episode overview first; tests
@@ -307,7 +380,7 @@ def test_unparseable_json_is_retried_once(
         seen.append(prompt)
         if call_index == 1:
             return "Sure! Here are the clips, but not as JSON."
-        return _refine_first(prompt, "После ретрая", 9.0)
+        return review_all(prompt, "После ретрая")
 
     moments, providers, _outdir = _run_analysis(
         monkeypatch,
@@ -340,26 +413,28 @@ def test_deduped_before_the_cleanup_cap(
         start, end = chunk_window(prompt)
         # Keep the unique moment well clear of the shared tail, so it is not
         # itself deduped against the repeat.
-        moments = [_moment_in_chunk(prompt, f"Уникальный {call_index}", offset=120.0)]
+        moments = [_moment_in_chunk(prompt, offset=120.0)]
         if not repeated:
-            repeated["start"] = end - 60.0
-            repeated["end"] = end - 15.0
+            # The adaptive overlap is 20-45s, so the shared tail holds the
+            # chunk's last sentence.
+            repeated["start"] = end - 30.0
+            repeated["end"] = end
         if start <= repeated["start"] and repeated["end"] <= end:
-            moments.append(_moment(repeated["start"], repeated["end"], "Повторяющийся"))
+            moments.append(_moment(repeated["start"], repeated["end"]))
         return _moments_json(*moments)
 
     _moments, providers, outdir = _run_analysis(monkeypatch, tmp_path, scout=scout)
 
     scouted = json.loads((outdir / "scout_candidates.json").read_text(encoding="utf-8"))
-    repeated_scouted = [m for m in scouted if m["title"] == "Повторяющийся"]
+    repeated_quote = _spoken_quote(repeated["start"], repeated["end"])
+    repeated_scouted = [m for m in scouted if m["quote"] == repeated_quote]
     assert len(repeated_scouted) > 1, "the fixture must actually produce duplicates"
 
     # The cleanup stage sees the repeat exactly once, and every unique moment.
     cleanup_prompt = providers["cleanup_refine"].prompts[0]
-    assert cleanup_prompt.count('"title": "Повторяющийся"') == 1
-    unique_titles = {m["title"] for m in scouted if m["title"].startswith("Уникальный")}
-    for title in unique_titles:
-        assert f'"title": "{title}"' in cleanup_prompt
+    assert cleanup_prompt.count(f'"quote": "{repeated_quote}"') == 1
+    for quote in {m["quote"] for m in scouted} - {repeated_quote}:
+        assert f'"quote": "{quote}"' in cleanup_prompt
 
 
 def test_episode_context_is_built_once_and_reused(
@@ -422,7 +497,7 @@ def test_judge_sees_the_real_clip_edges(
 
     def judge(prompt: str, _call_index: int) -> str:
         captured.extend(prompt_candidates(prompt))
-        return _refine_first(prompt, "Финальный", 9.0)
+        return review_all(prompt)
 
     _run_analysis(
         monkeypatch,
@@ -494,7 +569,8 @@ def test_clips_scale_with_runtime_and_stages_batch(
         return _moments_json(*moments)
 
     def echo_all(prompt: str, _call_index: int) -> str:
-        # Pass every input candidate through unchanged, like a permissive model.
+        # Echo every input back in the legacy full-record shape, like an old
+        # custom prompt would: it must still work, applied by candidate_id.
         return json.dumps({"moments": prompt_candidates(prompt)}, ensure_ascii=False)
 
     moments, providers, outdir = _run_analysis(
@@ -511,11 +587,14 @@ def test_clips_scale_with_runtime_and_stages_batch(
 
     assert len(moments) == 16
 
-    # The requirements shown to the model carry the scaled ask.
+    # The scaled ask reaches the stages that select; the scout only gets the
+    # clip lengths — quotas are the final selector's job, not recall's.
     scout_chunk_prompt = next(
         p for p in providers["scout"].prompts if "# Кусок транскрипта" in p
     )
-    assert "Reels: 16 clips" in scout_chunk_prompt
+    assert "Reels: up to 60s" in scout_chunk_prompt
+    assert "16 clips" not in scout_chunk_prompt
+    assert "Reels: 16 clips" in providers["judge_metadata"].prompts[0]
 
     # 32 candidates survive the x2-headroom cap: two cleanup batches of ≤16
     # and three judge batches of ≤14 (14 + 14 + 4).
@@ -542,7 +621,7 @@ def test_episode_context_uses_its_own_schema(
 
     assert (outdir / "episode_context.json").exists()
     assert EPISODE_CONTEXT_SCHEMA in providers["scout"].schemas
-    assert MOMENTS_JSON_SCHEMA in providers["scout"].schemas
+    assert SCOUT_JSON_SCHEMA in providers["scout"].schemas
 
 
 def test_cleanup_shrinkage_is_topped_up_from_scouted_pool(
@@ -573,7 +652,7 @@ def test_cleanup_shrinkage_is_topped_up_from_scouted_pool(
         monkeypatch,
         tmp_path,
         scout=scout,
-        cleanup=lambda p, _i: _refine_first(p, "Единственный выживший"),
+        cleanup=keep_first_decision,
         judge=lambda p, _i: json.dumps(
             {"moments": prompt_candidates(p)}, ensure_ascii=False,
         ),
@@ -604,3 +683,143 @@ def test_schema_downgrade_falls_back_to_any_object() -> None:
     cfg = LlamaCppConfig(url="http://x/completion", model="m", json_schema=MOMENTS_JSON_SCHEMA)
     payload = build_completion_payload(cfg, "p", temperature=0.2, schema_downgraded=True)
     assert payload["json_schema"] == ANY_OBJECT_SCHEMA
+
+
+def test_invented_quotes_never_reach_the_cut(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A quote nobody said is rejected before cleanup and logged with a reason."""
+
+    def scout(prompt: str, _call_index: int) -> str:
+        real = _moment_in_chunk(prompt)
+        invented = {**_moment_in_chunk(prompt, offset=200.0), "quote": "совершенно выдуманная фраза про пингвинов"}
+        quoteless = {**_moment_in_chunk(prompt, offset=300.0), "quote": ""}
+        return _candidates_json(real, invented, quoteless)
+
+    moments, providers, outdir = _run_analysis(monkeypatch, tmp_path, scout=scout)
+
+    assert moments
+    assert all("пингвин" not in m.quote for m in moments)
+    assert all("пингвин" not in p for p in providers["cleanup_refine"].prompts)
+    rejected = json.loads((outdir / "rejected_candidates.json").read_text(encoding="utf-8"))
+    assert rejected
+    assert {row["rejection_reason"] for row in rejected} == {"quote_not_in_transcript"}
+    metrics = json.loads((outdir / "analysis_metrics.json").read_text(encoding="utf-8"))
+    assert metrics["stages"]["scout"]["dropped_without_quote"] > 0
+    assert metrics["rejections"]["quote_not_in_transcript"] == len(rejected)
+
+
+def test_judge_cannot_rewrite_evidence_end_to_end(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    def judge(prompt: str, _call_index: int) -> str:
+        return json.dumps(
+            {
+                "reviews": [
+                    {
+                        "candidate_id": c["candidate_id"],
+                        "keep": True,
+                        "score": 9,
+                        "title": "Заголовок судьи",
+                        "quote": "красивая, но выдуманная цитата",
+                        "start": 0.0,
+                        "end": 1.0,
+                    }
+                    for c in prompt_candidates(prompt)
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+    moments, _providers, outdir = _run_analysis(
+        monkeypatch,
+        tmp_path,
+        scout=lambda p, _i: _candidates_json(_moment_in_chunk(p)),
+        judge=judge,
+    )
+
+    scouted = json.loads((outdir / "scout_candidates.json").read_text(encoding="utf-8"))
+    scouted_quotes = {m["quote"] for m in scouted}
+    assert moments
+    for moment in moments:
+        assert moment.title == "Заголовок судьи"
+        assert moment.quote in scouted_quotes
+        assert moment.end - moment.start > 30
+        assert moment.candidate_id
+
+
+def test_judge_batches_are_stratified_and_carry_ids(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    captured: list[list[dict[str, Any]]] = []
+
+    def scout(prompt: str, call_index: int) -> str:
+        start, end = chunk_window(prompt)
+        moments = []
+        cursor = start + 2.0
+        slot = 0
+        while cursor + 45.0 <= end and slot < 8:
+            moments.append(_moment(cursor, cursor + 45.0, score=float(1 + (slot + call_index) % 9)))
+            cursor += 70.0
+            slot += 1
+        return _candidates_json(*moments)
+
+    def judge(prompt: str, _call_index: int) -> str:
+        captured.append(prompt_candidates(prompt))
+        return review_all(prompt)
+
+    _run_analysis(
+        monkeypatch, tmp_path, scout=scout, judge=judge, processing_conf={"clips_per_hour": 24},
+    )
+
+    assert len(captured) >= 2
+    assert all(item["candidate_id"] for batch in captured for item in batch)
+    # Every batch sees a comparable spread, not best-first slices.
+    tops = [max(item["score"] for item in batch) for batch in captured]
+    assert max(tops) - min(tops) <= 1
+
+
+def test_metrics_describe_the_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    moments, _providers, outdir = _run_analysis(
+        monkeypatch,
+        tmp_path,
+        scout=lambda p, _i: _candidates_json(_moment_in_chunk(p)),
+    )
+    metrics = json.loads((outdir / "analysis_metrics.json").read_text(encoding="utf-8"))
+    assert metrics["counts"]["final"] == len(moments)
+    assert metrics["quote_exact_match_rate"] == 1.0
+    assert metrics["stages"]["scout"]["calls"] >= 1
+    for key in (
+        "scout_candidates_per_hour",
+        "candidate_survival_rate",
+        "quote_low_confidence_rate",
+        "boundary_shift_seconds",
+        "duplicate_rate",
+        "topic_diversity",
+        "quota_fill_rate",
+        "json_retries",
+    ):
+        assert key in metrics, key
+
+
+def test_stale_episode_context_cache_is_not_reused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A cache left by another transcript/model must be rebuilt, not trusted."""
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    (outdir / "episode_context.json").write_text(
+        json.dumps({"summary": "Совсем другой эпизод про космос.", "cache_key": "stale"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    _moments, providers, _ = _run_analysis(
+        monkeypatch,
+        tmp_path,
+        scout=lambda p, _i: _candidates_json(_moment_in_chunk(p)),
+    )
+
+    chunk_prompts = [p for p in providers["scout"].prompts if "# Кусок транскрипта" in p]
+    assert all("космос" not in prompt for prompt in chunk_prompts)
+    assert any("Эпизод про школу." in prompt for prompt in chunk_prompts)

@@ -882,6 +882,7 @@ processing:
   analysis:
     cleanup_cap: 16
     json_retry: 1
+    json_retry_budget: 10
     strict_json_schema: true
     validation:
       chunk_tolerance_s: 3.0
@@ -889,6 +890,7 @@ processing:
     quote_verification:
       enabled: true
       min_ratio: 0.55
+      min_final_ratio: 0.75
       refine_boundaries: true
     boundary_snap:
       enabled: true
@@ -907,11 +909,17 @@ processing:
       timeout_s: 30
       silence_noise_db: -30.0
       silence_min_s: 0.35
+      max_candidates: 40
+      parallelism: 4
+      cache: true
     scoring:
       weights: {}
     diversity:
       enabled: true
       max_topic_similarity: 0.5
+      mmr_lambda: 0.7
+    selection:
+      max_overlap_ratio: 0.2
   quality_filters:
     min_score: ${state.cutMinScore}
     min_duration: ${state.cutMinDur}

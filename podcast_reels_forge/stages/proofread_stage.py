@@ -34,6 +34,7 @@ from podcast_reels_forge.analysis.serializers import atomic_write_json
 from podcast_reels_forge.llm.providers import (
     LlamaCppConfig,
     LlamaCppProvider,
+    close_provider,
     LLMProvider,
 )
 from podcast_reels_forge.utils.json_utils import extract_first_json_value
@@ -364,6 +365,7 @@ async def run_proofread(
     )
     prompt_template = _load_proofread_prompt(prompt_lang)
 
+    owns_provider = provider is None
     if provider is None:
         provider = LlamaCppProvider(
             LlamaCppConfig(
@@ -372,96 +374,99 @@ async def run_proofread(
                 n_predict=n_predict,
             ),
         )
+    try:
+        segment_dicts = [seg for seg in segments if isinstance(seg, dict)]
+        batches = build_proofread_batches(segment_dicts, max_chars=max_chars)
 
-    segment_dicts = [seg for seg in segments if isinstance(seg, dict)]
-    batches = build_proofread_batches(segment_dicts, max_chars=max_chars)
-
-    if not quiet:
-        LOGGER.info(
-            "[proofread] model=%s segments=%d batches=%d lang=%s",
-            model,
-            len(segment_dicts),
-            len(batches),
-            prompt_lang,
-        )
-
-    applied_total = 0
-    rejected_total = 0
-    failed_batches = 0
-    for batch_no, indices in enumerate(batches, 1):
-        try:
-            applied, rejected = await _proofread_batch(
-                provider,
-                segment_dicts,
-                indices,
-                prompt_template=prompt_template,
-                temperature=temperature,
-                timeout=timeout,
-                min_similarity=min_similarity,
-                verbose=verbose and not quiet,
-            )
-        except Exception as exc:
-            # RU: Одна упавшая пачка не должна ронять стадию — текст остаётся как был.
-            # EN: One failed batch must not kill the stage — that text stays as-is.
-            failed_batches += 1
-            LOGGER.warning(
-                "[proofread] batch %d/%d failed (%s); keeping original text",
-                batch_no,
-                len(batches),
-                exc,
-            )
-            continue
-        applied_total += applied
-        rejected_total += rejected
-        if not quiet and verbose:
+        if not quiet:
             LOGGER.info(
-                "[proofread] batch %d/%d: applied=%d rejected=%d",
-                batch_no,
+                "[proofread] model=%s segments=%d batches=%d lang=%s",
+                model,
+                len(segment_dicts),
                 len(batches),
-                applied,
-                rejected,
+                prompt_lang,
             )
 
-    terms_conf = conf.get("terms")
-    term_fixes: list[dict[str, Any]] = []
-    if isinstance(terms_conf, Mapping) and terms_conf.get("enabled"):
-        out_path_hint = output_path or _proofread_output_path(transcript_path)
-        try:
-            term_fixes = _check_terms(
-                segment_dicts,
-                conf=terms_conf,
-                cache_path=out_path_hint.with_name("term_lookups.json"),
-                quiet=quiet,
+        applied_total = 0
+        rejected_total = 0
+        failed_batches = 0
+        for batch_no, indices in enumerate(batches, 1):
+            try:
+                applied, rejected = await _proofread_batch(
+                    provider,
+                    segment_dicts,
+                    indices,
+                    prompt_template=prompt_template,
+                    temperature=temperature,
+                    timeout=timeout,
+                    min_similarity=min_similarity,
+                    verbose=verbose and not quiet,
+                )
+            except Exception as exc:
+                # RU: Одна упавшая пачка не должна ронять стадию — текст остаётся как был.
+                # EN: One failed batch must not kill the stage — that text stays as-is.
+                failed_batches += 1
+                LOGGER.warning(
+                    "[proofread] batch %d/%d failed (%s); keeping original text",
+                    batch_no,
+                    len(batches),
+                    exc,
+                )
+                continue
+            applied_total += applied
+            rejected_total += rejected
+            if not quiet and verbose:
+                LOGGER.info(
+                    "[proofread] batch %d/%d: applied=%d rejected=%d",
+                    batch_no,
+                    len(batches),
+                    applied,
+                    rejected,
+                )
+
+        terms_conf = conf.get("terms")
+        term_fixes: list[dict[str, Any]] = []
+        if isinstance(terms_conf, Mapping) and terms_conf.get("enabled"):
+            out_path_hint = output_path or _proofread_output_path(transcript_path)
+            try:
+                term_fixes = _check_terms(
+                    segment_dicts,
+                    conf=terms_conf,
+                    cache_path=out_path_hint.with_name("term_lookups.json"),
+                    quiet=quiet,
+                )
+            except Exception as exc:
+                # An outside source is never allowed to fail the transcript.
+                LOGGER.warning("[proofread] term check skipped (%s)", exc)
+
+        data["sentences"] = _build_sentence_groups(segment_dicts)
+        data["proofread"] = {
+            "term_fixes": term_fixes,
+            "model": model,
+            "prompt_lang": prompt_lang,
+            "segments_total": len(segment_dicts),
+            "applied": applied_total,
+            "rejected": rejected_total,
+            "failed_batches": failed_batches,
+        }
+
+        out_path = output_path or _proofread_output_path(transcript_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(out_path, data)
+        _dump_srt_output(out_path.with_suffix(".srt"), segment_dicts)
+
+        if not quiet:
+            LOGGER.info(
+                "[proofread] done: applied=%d rejected=%d failed_batches=%d saved=%s",
+                applied_total,
+                rejected_total,
+                failed_batches,
+                out_path,
             )
-        except Exception as exc:
-            # An outside source is never allowed to fail the transcript.
-            LOGGER.warning("[proofread] term check skipped (%s)", exc)
-
-    data["sentences"] = _build_sentence_groups(segment_dicts)
-    data["proofread"] = {
-        "term_fixes": term_fixes,
-        "model": model,
-        "prompt_lang": prompt_lang,
-        "segments_total": len(segment_dicts),
-        "applied": applied_total,
-        "rejected": rejected_total,
-        "failed_batches": failed_batches,
-    }
-
-    out_path = output_path or _proofread_output_path(transcript_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(out_path, data)
-    _dump_srt_output(out_path.with_suffix(".srt"), segment_dicts)
-
-    if not quiet:
-        LOGGER.info(
-            "[proofread] done: applied=%d rejected=%d failed_batches=%d saved=%s",
-            applied_total,
-            rejected_total,
-            failed_batches,
-            out_path,
-        )
-    return out_path
+        return out_path
+    finally:
+        if owns_provider:
+            await close_provider(provider)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

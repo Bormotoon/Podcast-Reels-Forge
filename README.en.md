@@ -274,7 +274,7 @@ The orchestrator [start_forge.py](start_forge.py) runs [podcast_reels_forge/pipe
 2. **Diarization**: (If enabled) Creates `diarization.json` with speaker turns.
 3. **Proofread**: gemma4 proofreads the transcript (spelling/punctuation) with a guardrail check on every correction. Output: `<file_stem>.proofread.json` + `.srt`; the raw transcript is untouched.
 4. **Article**: gemma4 rebuilds the proofread transcript into an article: meaning-based sections, headings, paragraphs. Length and vocabulary checks catch padding; fragments that fail are flagged in `.article.json`. Output: `<file_stem>.article.md` + `.json`.
-5. **Analyze (Staged)**: Episode overview → scout over overlapping chunks → cleanup (dedupe/merge) → judge that sees each clip's real opening and closing seconds. Deterministic validation runs between stages: timecode clamping, quote verification against the transcript, boundary snapping to phrases, audio probing. Final selection honours type quotas, overlaps and topic diversity. Artifacts go to `output/<file_stem>/<model>/` (e.g. `gemma4_26b/`).
+5. **Analyze (Staged)**: *LLM discovers → Python proves → a deterministic selector chooses → LLM writes metadata.* Episode overview → scout over overlapping chunks (interval + verbatim quote only) → the quote is looked up in the transcript and unproven candidates are rejected → cleanup and judge answer with keep/drop/merge decisions by `candidate_id`, so they cannot move a clip or rewrite its quote; the judge sees each clip's real opening and closing seconds. Then boundary snapping that keeps the quote inside the clip, audio probing, and MMR selection under type quotas, an overlap policy and topic diversity. Artifacts go to `output/<file_stem>/<model>/` (e.g. `gemma4_26b/`).
 6. **Video Processing**: Cuts clips from the final `moments.json`. Forge burns ASS subtitles into each reel with ffmpeg, adds a ready-to-post `reel_XX.md`, keeps a local `reel_XX.srt`, and builds `reels_preview.mp4`.
 
 
@@ -298,7 +298,9 @@ output/
       analysis_manifest.json   # Run parameters: quotas, chunks, language
       episode_context.json     # Episode overview (cached)
       scout_candidates.json    # Everything the scout found
-      cleaned_candidates.json  # After dedupe, cleanup and audio probing
+      cleaned_candidates.json  # After quote checks, dedupe, cleanup and audio probing
+      rejected_candidates.json # Everything a gate threw out, with the reason
+      analysis_metrics.json    # Run metrics: survival, quotes, duplicates, stage timings
       moments.json             # Final list: score (1-10), priority, quote_match_ratio…
       reels.md                 # Clip summary
       reels/                   # Cut video clips .mp4

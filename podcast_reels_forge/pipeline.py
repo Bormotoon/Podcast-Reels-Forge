@@ -1294,6 +1294,9 @@ def run_pipeline(
                 video_args += ["--subtitle-font", str(subtitle_settings.font_path)]
                 if not subtitle_settings.wrap_words:
                     video_args.append("--no-subtitle-wrap-words")
+                subs_conf = conf.get("subtitles") if isinstance(conf, dict) else None
+                if isinstance(subs_conf, dict) and subs_conf.get("keep_nosubs"):
+                    video_args.append("--keep-nosubs")
             if quiet:
                 video_args.append("--quiet")
             if verbose:

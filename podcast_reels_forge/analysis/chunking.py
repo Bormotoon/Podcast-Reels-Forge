@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -151,6 +152,34 @@ def transcript_units_from_segments(segments: Sequence[Mapping[str, Any]]) -> lis
 
     units.sort(key=lambda unit: (unit.start, unit.end))
     return units
+
+
+def estimate_tokens(text: str) -> int:
+    """RU: Консервативная оценка числа токенов без токенизатора модели.
+
+    EN: Conservative token estimate without the model's tokenizer. Cyrillic
+    costs far more tokens per character than Latin text in most tokenizers
+    (≈2.5 vs ≈4 chars per token), so a character budget tuned on English
+    silently overflows ctx_size on a Russian episode. Digits and punctuation
+    are counted at the expensive rate as well.
+    """
+
+    cheap = sum(1 for char in text if char.isascii() and char.isalpha())
+    whitespace = sum(1 for char in text if char.isspace())
+    expensive = len(text) - cheap - whitespace
+    return int(math.ceil(cheap / 4.0 + expensive / 2.5 + whitespace / 8.0))
+
+
+def adaptive_overlap_seconds(chunk_seconds: int, *, low: int = 20, high: int = 45) -> int:
+    """Overlap between neighbouring scout chunks.
+
+    Overlap exists so a moment straddling a chunk border is seen whole at
+    least once; a sentence or two covers that. The old ``chunk_seconds // 8``
+    re-sent almost two minutes of a 15-minute chunk to the LLM at every
+    border, which dedupe fixed in the result but not in the cost.
+    """
+
+    return max(low, min(high, int(chunk_seconds) // 8))
 
 
 def _join_units(units: Sequence[AnalysisChunkUnit]) -> str:

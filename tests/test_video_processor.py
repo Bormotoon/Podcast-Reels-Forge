@@ -220,3 +220,91 @@ def test_rerender_glob_fallback_prefers_proofread(tmp_path: Path) -> None:
     (episode_dir / "diarization.json").write_text("[]", encoding="utf-8")
 
     assert _resolve_transcript_json(model_dir, video, None) == episode_dir / "POS-1.proofread.json"
+
+
+@patch("podcast_reels_forge.scripts.video_processor.ffmpeg_cut")
+@patch("podcast_reels_forge.scripts.video_processor._run_subprocess")
+def test_subtitles_are_burned_in_the_single_encode(
+    mock_run: MagicMock,
+    mock_ffmpeg_cut: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """One encode per clip, with the .ass built for the same padded interval."""
+    outdir = tmp_path / "out"
+    reel = outdir / "reels" / "reel_01.mp4"
+    mock_run.return_value = MagicMock(returncode=0)
+    mock_ffmpeg_cut.return_value = (True, reel, None)
+
+    input_video = tmp_path / "input.mp4"
+    input_video.write_text("video")
+    transcript_json = tmp_path / "video.json"
+    transcript_json.write_text(
+        json.dumps({"segments": [{"start": 9.0, "end": 14.0, "text": "Hello there friends"}]}),
+        encoding="utf-8",
+    )
+    subtitle_font = tmp_path / "font.ttf"
+    subtitle_font.write_text("font")
+    moments_path = tmp_path / "moments.json"
+    moments_path.write_text(
+        json.dumps([{"start": 10.0, "end": 20.0, "title": "Clip", "quote": "Hello there"}]),
+        encoding="utf-8",
+    )
+
+    main(
+        [
+            "--input", str(input_video),
+            "--moments", str(moments_path),
+            "--outdir", str(outdir),
+            "--threads", "1",
+            "--padding", "2",
+            "--burn-subtitles",
+            "--transcript-json", str(transcript_json),
+            "--subtitle-font", str(subtitle_font),
+        ],
+    )
+
+    assert mock_ffmpeg_cut.call_count == 1, "no second encode just for subtitles"
+    kwargs = mock_ffmpeg_cut.call_args.kwargs
+    assert kwargs["ass_path"] == reel.with_suffix(".ass")
+    assert reel.with_suffix(".ass").exists()
+    assert not (outdir / "reels" / "reel_01.nosubs.mp4").exists()
+
+
+@patch("podcast_reels_forge.scripts.video_processor.ffmpeg_cut")
+@patch("podcast_reels_forge.scripts.video_processor._run_subprocess")
+def test_failed_burn_falls_back_to_a_clean_cut(
+    mock_run: MagicMock,
+    mock_ffmpeg_cut: MagicMock,
+    tmp_path: Path,
+) -> None:
+    outdir = tmp_path / "out"
+    reel = outdir / "reels" / "reel_01.mp4"
+    mock_run.return_value = MagicMock(returncode=0)
+    mock_ffmpeg_cut.side_effect = [(False, reel, None), (True, reel, None)]
+
+    input_video = tmp_path / "input.mp4"
+    input_video.write_text("video")
+    transcript_json = tmp_path / "video.json"
+    transcript_json.write_text(
+        json.dumps({"segments": [{"start": 9.0, "end": 14.0, "text": "Hello there friends"}]}),
+        encoding="utf-8",
+    )
+    subtitle_font = tmp_path / "font.ttf"
+    subtitle_font.write_text("font")
+    moments_path = tmp_path / "moments.json"
+    moments_path.write_text(json.dumps([{"start": 10.0, "end": 20.0, "title": "Clip"}]), encoding="utf-8")
+
+    main(
+        [
+            "--input", str(input_video),
+            "--moments", str(moments_path),
+            "--outdir", str(outdir),
+            "--threads", "1",
+            "--burn-subtitles",
+            "--transcript-json", str(transcript_json),
+            "--subtitle-font", str(subtitle_font),
+        ],
+    )
+
+    assert mock_ffmpeg_cut.call_count == 2
+    assert mock_ffmpeg_cut.call_args_list[1].kwargs.get("ass_path") is None

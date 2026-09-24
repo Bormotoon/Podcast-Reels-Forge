@@ -55,6 +55,7 @@ from podcast_reels_forge.analysis.serializers import atomic_write_json
 from podcast_reels_forge.llm.providers import (
     LlamaCppConfig,
     LlamaCppProvider,
+    close_provider,
     LLMProvider,
 )
 from podcast_reels_forge.utils.json_utils import extract_first_json_value
@@ -672,157 +673,161 @@ async def run_article(
         str((prompts_conf or {}).get("language", "auto")),
         str(data.get("language") or ""),
     )
+    owns_provider = provider is None
     if provider is None:
         provider = LlamaCppProvider(
             # Prose, not JSON: the article comes back as markdown.
             LlamaCppConfig(url=url, model=model, n_predict=n_predict, json_output=False),
         )
+    try:
+        segment_dicts = [seg for seg in segments if isinstance(seg, dict)]
 
-    segment_dicts = [seg for seg in segments if isinstance(seg, dict)]
-
-    # RU: С диаризацией единица текста — реплика, а не сегмент: Whisper режет по
-    #     паузам, и один его сегмент запросто содержит реплики троих.
-    # EN: With diarization the unit is a turn, not a segment: Whisper splits on
-    #     pauses, and one of its segments happily holds three people talking.
-    turns = build_speaker_turns(segment_dicts, load_diarization(diarization_path))
-    speaker_names: dict[str, str] = {}
-    if turns and len(distinct_speakers(turns)) > 1:
-        speaker_names = await resolve_speaker_names(
-            provider, turns, lang=prompt_lang, timeout=timeout,
-        )
-        prompt_template = _load_article_prompt(prompt_lang, "speakers")
-        chunk_texts = [
-            render_turns(batch, names=speaker_names)
-            for batch in chunk_turns(turns, max_chars=max_chars, names=speaker_names)
-        ]
-        chunk_bounds = [
-            (batch[0].start, batch[-1].end)
-            for batch in chunk_turns(turns, max_chars=max_chars, names=speaker_names)
-        ]
-    else:
-        turns = []
-        prompt_template = _load_article_prompt(prompt_lang)
-        # No overlap: an overlapping window would edit the same words twice.
-        chunks = build_analysis_chunks(
-            segment_dicts,
-            chunk_seconds=chunk_seconds,
-            max_chars=max_chars,
-            overlap_seconds=0,
-        )
-        chunk_texts = [chunk_plain_text(chunk, segment_dicts) for chunk in chunks]
-        chunk_bounds = [(float(chunk.start), float(chunk.end)) for chunk in chunks]
-
-    if not quiet:
-        LOGGER.info(
-            "[article] model=%s segments=%d chunks=%d lang=%s speakers=%s",
-            model,
-            len(segment_dicts),
-            len(chunk_texts),
-            prompt_lang,
-            ", ".join(speaker_names.values()) if speaker_names
-            else (f"{len(distinct_speakers(turns))} unnamed" if turns else "none"),
-        )
-
-    sections: list[ArticleSection] = []
-    flagged_chunks = 0
-    failed_chunks = 0
-    reports: list[dict[str, Any]] = []
-
-    for index, chunk_text in enumerate(chunk_texts, 1):
-        if not chunk_text:
-            continue
-        chunk_start, chunk_end = chunk_bounds[index - 1]
-        try:
-            raw_sections, report = await _write_one_chunk(
-                provider,
-                chunk_text=chunk_text,
-                prompt_template=prompt_template,
-                temperature=temperature,
-                timeout=timeout,
-                max_novel_ratio=max_novel_ratio,
-                max_length_ratio=max_length_ratio,
-                min_length_ratio=min_length_ratio,
-                min_coverage=min_coverage,
+        # RU: С диаризацией единица текста — реплика, а не сегмент: Whisper режет по
+        #     паузам, и один его сегмент запросто содержит реплики троих.
+        # EN: With diarization the unit is a turn, not a segment: Whisper splits on
+        #     pauses, and one of its segments happily holds three people talking.
+        turns = build_speaker_turns(segment_dicts, load_diarization(diarization_path))
+        speaker_names: dict[str, str] = {}
+        if turns and len(distinct_speakers(turns)) > 1:
+            speaker_names = await resolve_speaker_names(
+                provider, turns, lang=prompt_lang, timeout=timeout,
             )
-        except Exception as exc:
-            # RU: Один упавший фрагмент не должен ронять всю статью.
-            # EN: One failed chunk must not kill the whole article.
-            failed_chunks += 1
-            LOGGER.warning(
-                "[article] chunk %d/%d failed (%s); it will be missing from the article",
-                index,
-                len(chunk_texts),
-                exc,
+            prompt_template = _load_article_prompt(prompt_lang, "speakers")
+            chunk_texts = [
+                render_turns(batch, names=speaker_names)
+                for batch in chunk_turns(turns, max_chars=max_chars, names=speaker_names)
+            ]
+            chunk_bounds = [
+                (batch[0].start, batch[-1].end)
+                for batch in chunk_turns(turns, max_chars=max_chars, names=speaker_names)
+            ]
+        else:
+            turns = []
+            prompt_template = _load_article_prompt(prompt_lang)
+            # No overlap: an overlapping window would edit the same words twice.
+            chunks = build_analysis_chunks(
+                segment_dicts,
+                chunk_seconds=chunk_seconds,
+                max_chars=max_chars,
+                overlap_seconds=0,
             )
-            continue
+            chunk_texts = [chunk_plain_text(chunk, segment_dicts) for chunk in chunks]
+            chunk_bounds = [(float(chunk.start), float(chunk.end)) for chunk in chunks]
 
-        if not raw_sections:
-            failed_chunks += 1
-            LOGGER.warning(
-                "[article] chunk %d/%d produced nothing usable", index, len(chunk_texts),
-            )
-            continue
-
-        if report is not None:
-            entry = report.to_dict()
-            entry["chunk"] = f"chunk_{index:03d}"
-            reports.append(entry)
-            if not report.ok:
-                flagged_chunks += 1
-
-        for raw in raw_sections:
-            sections.append(
-                ArticleSection(
-                    title=raw["title"],
-                    paragraphs=tuple(raw["paragraphs"]),
-                    start=float(chunk_start),
-                    end=float(chunk_end),
-                ),
-            )
-
-        if verbose and not quiet:
+        if not quiet:
             LOGGER.info(
-                "[article] chunk %d/%d: sections=%d", index, len(chunk_texts), len(raw_sections),
+                "[article] model=%s segments=%d chunks=%d lang=%s speakers=%s",
+                model,
+                len(segment_dicts),
+                len(chunk_texts),
+                prompt_lang,
+                ", ".join(speaker_names.values()) if speaker_names
+                else (f"{len(distinct_speakers(turns))} unnamed" if turns else "none"),
             )
 
-    sections = merge_adjacent_sections(sections)
+        sections: list[ArticleSection] = []
+        flagged_chunks = 0
+        failed_chunks = 0
+        reports: list[dict[str, Any]] = []
 
-    article_title = title or transcript_path.stem.replace(".proofread", "")
-    markdown = render_article_markdown(article_title, sections)
+        for index, chunk_text in enumerate(chunk_texts, 1):
+            if not chunk_text:
+                continue
+            chunk_start, chunk_end = chunk_bounds[index - 1]
+            try:
+                raw_sections, report = await _write_one_chunk(
+                    provider,
+                    chunk_text=chunk_text,
+                    prompt_template=prompt_template,
+                    temperature=temperature,
+                    timeout=timeout,
+                    max_novel_ratio=max_novel_ratio,
+                    max_length_ratio=max_length_ratio,
+                    min_length_ratio=min_length_ratio,
+                    min_coverage=min_coverage,
+                )
+            except Exception as exc:
+                # RU: Один упавший фрагмент не должен ронять всю статью.
+                # EN: One failed chunk must not kill the whole article.
+                failed_chunks += 1
+                LOGGER.warning(
+                    "[article] chunk %d/%d failed (%s); it will be missing from the article",
+                    index,
+                    len(chunk_texts),
+                    exc,
+                )
+                continue
 
-    md_path = output_path or transcript_path.with_name(
-        transcript_path.stem.replace(".proofread", "") + ".article.md",
-    )
-    md_path.parent.mkdir(parents=True, exist_ok=True)
-    md_path.write_text(markdown, encoding="utf-8")
+            if not raw_sections:
+                failed_chunks += 1
+                LOGGER.warning(
+                    "[article] chunk %d/%d produced nothing usable", index, len(chunk_texts),
+                )
+                continue
 
-    atomic_write_json(
-        md_path.with_suffix(".json"),
-        {
-            "title": article_title,
-            "source_transcript": str(transcript_path.resolve()),
-            "model": model,
-            "prompt_lang": prompt_lang,
-            "chunks_total": len(chunk_texts),
-            "chunks_failed": failed_chunks,
-            "chunks_flagged": flagged_chunks,
-            "speakers": speaker_names or {
-                sid: sid for sid in distinct_speakers(turns)
-            },
-            "sections": [section.to_dict() for section in sections],
-            "faithfulness": reports,
-        },
-    )
+            if report is not None:
+                entry = report.to_dict()
+                entry["chunk"] = f"chunk_{index:03d}"
+                reports.append(entry)
+                if not report.ok:
+                    flagged_chunks += 1
 
-    if not quiet:
-        LOGGER.info(
-            "[article] done: sections=%d flagged=%d failed=%d saved=%s",
-            len(sections),
-            flagged_chunks,
-            failed_chunks,
-            md_path,
+            for raw in raw_sections:
+                sections.append(
+                    ArticleSection(
+                        title=raw["title"],
+                        paragraphs=tuple(raw["paragraphs"]),
+                        start=float(chunk_start),
+                        end=float(chunk_end),
+                    ),
+                )
+
+            if verbose and not quiet:
+                LOGGER.info(
+                    "[article] chunk %d/%d: sections=%d", index, len(chunk_texts), len(raw_sections),
+                )
+
+        sections = merge_adjacent_sections(sections)
+
+        article_title = title or transcript_path.stem.replace(".proofread", "")
+        markdown = render_article_markdown(article_title, sections)
+
+        md_path = output_path or transcript_path.with_name(
+            transcript_path.stem.replace(".proofread", "") + ".article.md",
         )
-    return md_path
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(markdown, encoding="utf-8")
+
+        atomic_write_json(
+            md_path.with_suffix(".json"),
+            {
+                "title": article_title,
+                "source_transcript": str(transcript_path.resolve()),
+                "model": model,
+                "prompt_lang": prompt_lang,
+                "chunks_total": len(chunk_texts),
+                "chunks_failed": failed_chunks,
+                "chunks_flagged": flagged_chunks,
+                "speakers": speaker_names or {
+                    sid: sid for sid in distinct_speakers(turns)
+                },
+                "sections": [section.to_dict() for section in sections],
+                "faithfulness": reports,
+            },
+        )
+
+        if not quiet:
+            LOGGER.info(
+                "[article] done: sections=%d flagged=%d failed=%d saved=%s",
+                len(sections),
+                flagged_chunks,
+                failed_chunks,
+                md_path,
+            )
+        return md_path
+    finally:
+        if owns_provider:
+            await close_provider(provider)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

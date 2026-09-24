@@ -19,12 +19,12 @@ from pathlib import Path
 from podcast_reels_forge.utils.burned_subtitles import (
     DEFAULT_SUBTITLE_FONT,
     SubtitleRenderSettings,
+    SubtitleSegment,
     load_transcript_segments,
     slice_segments_for_clip,
     write_srt_file,
     _prepare_subtitle_segments,
     _write_ass_file,
-    _coerce_float,
 )
 from podcast_reels_forge.utils.face_crop import (
     FaceCropSettings,
@@ -388,6 +388,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=True,
         help="Allow subtitles to wrap onto multiple lines at spaces (default: enabled)",
     )
+    ap.add_argument(
+        "--keep-nosubs",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="With --burn-subtitles, also render a clean reel_XX.nosubs.mp4 (an extra encode)",
+    )
     
     # Quality Filters
     ap.add_argument("--filter-min-score", type=float, default=0.0, help="Reject if LLM score is below this")
@@ -458,6 +464,42 @@ def main(argv: list[str] | None = None) -> None:
     if opts.smart_crop_face and opts.vertical_crop and not face_detection_available():
         LOG.warning("--smart-crop-face enabled but opencv is not available; falling back to center crop")
 
+    transcript_segments: list[SubtitleSegment] = []
+    if subtitle_settings is not None:
+        try:
+            transcript_segments = load_transcript_segments(args.transcript_json)
+        except Exception as exc:
+            LOG.error("Failed to load the transcript for subtitles: %s", exc)
+            sys.exit(1)
+
+    subtitle_errors: list[str] = []
+
+    def prepare_clip_subtitles(out_file: Path, start: float, end: float) -> Path | None:
+        """Write the clip's .srt/.ass for the exact interval ffmpeg will cut.
+
+        Built before the one and only encode, from the same padded interval,
+        so subtitles and footage cannot drift apart.
+        """
+
+        assert subtitle_settings is not None
+        try:
+            clip_segments = slice_segments_for_clip(
+                transcript_segments,
+                clip_start=max(0.0, start - opts.padding),
+                clip_end=end + opts.padding,
+            )
+            clip_segments = _prepare_subtitle_segments(clip_segments, settings=subtitle_settings)
+            if not clip_segments:
+                return None
+            write_srt_file(out_file.with_suffix(".srt"), clip_segments)
+            ass_path = out_file.with_suffix(".ass")
+            _write_ass_file(ass_path, clip_segments, subtitle_settings)
+            return ass_path
+        except Exception as exc:
+            LOG.error("Failed to prepare subtitles for %s: %s", out_file.name, exc)
+            subtitle_errors.append(out_file.name)
+            return None
+
     def process_moment(
         i_m: tuple[int, dict[str, object]],
     ) -> tuple[Path | None, list[str]]:
@@ -496,6 +538,12 @@ def main(argv: list[str] | None = None) -> None:
         if is_rejected:
             rejected_dir.mkdir(exist_ok=True)
 
+        # Rejected clips are kept for review only, so they skip subtitles.
+        ass_path = (
+            prepare_clip_subtitles(out_file, start_f, end_f)
+            if subtitle_settings is not None and not is_rejected
+            else None
+        )
         success, final_path, face_reason = ffmpeg_cut(
             args.input,
             start_f,
@@ -504,7 +552,31 @@ def main(argv: list[str] | None = None) -> None:
             opts,
             is_rejected=is_rejected,
             rejected_dir=rejected_dir,
+            ass_path=ass_path,
         )
+        if not success and ass_path is not None:
+            LOG.error(
+                "Subtitle burn failed for %s; cutting it without subtitles",
+                out_file.name,
+            )
+            success, final_path, face_reason = ffmpeg_cut(
+                args.input,
+                start_f,
+                end_f,
+                out_file,
+                opts,
+                is_rejected=is_rejected,
+                rejected_dir=rejected_dir,
+            )
+        elif success and ass_path is not None and args.keep_nosubs:
+            # Optional clean copy for platforms/edits that want no captions.
+            ffmpeg_cut(
+                args.input,
+                start_f,
+                end_f,
+                final_path.with_name(f"{final_path.stem}.nosubs.mp4"),
+                opts,
+            )
         if face_reason:
             rejection_reasons.append(face_reason)
         return (final_path if success else None), rejection_reasons
@@ -521,62 +593,11 @@ def main(argv: list[str] | None = None) -> None:
     # results[i] = (final_path | None, rejection_reasons); indices line up with moments.
     all_cut_paths = [path for path, _ in results]
     final_reels = [p for p in all_cut_paths if p is not None and "rejected" not in p.parts]
-    # Map each reel back to its original moment index (final_reels drops rejected
-    # entries, so its own position can't be used as an index into `moments`).
-    path_to_moment_idx = {p: i for i, p in enumerate(all_cut_paths) if p is not None}
+    if subtitle_errors:
+        LOG.error("Failed to burn subtitles for: %s", ", ".join(sorted(subtitle_errors)))
+        sys.exit(1)
 
     if any(p is not None for p in all_cut_paths):
-        if subtitle_settings is not None:
-            try:
-                transcript_segments = load_transcript_segments(args.transcript_json)
-                for reel_path in final_reels:
-                    stem = reel_path.stem
-                    moment_idx = path_to_moment_idx.get(reel_path)
-                    if moment_idx is None or moment_idx >= len(moments):
-                        continue
-                    moment_match = moments[moment_idx]
-
-                    clip_segments = slice_segments_for_clip(
-                        transcript_segments,
-                        clip_start=max(0.0, _coerce_float(moment_match.get("start"), default=0.0) - opts.padding),
-                        clip_end=_coerce_float(moment_match.get("end"), default=0.0) + opts.padding,
-                    )
-                    clip_segments = _prepare_subtitle_segments(clip_segments, settings=subtitle_settings)
-                    if not clip_segments:
-                        continue
-
-                    srt_path = reel_path.with_suffix(".srt")
-                    write_srt_file(srt_path, clip_segments)
-
-                    ass_path = reel_path.with_suffix(".ass")
-                    _write_ass_file(ass_path, clip_segments, subtitle_settings)
-
-                    subtitled_path = reel_path.with_name(f"{stem}.subtitled.mp4")
-                    success, _, _ = ffmpeg_cut(
-                        args.input,
-                        _coerce_float(moment_match.get("start"), default=0.0),
-                        _coerce_float(moment_match.get("end"), default=0.0),
-                        subtitled_path,
-                        opts,
-                        ass_path=ass_path,
-                    )
-                    if success and subtitled_path.exists():
-                        # Export both versions: reel_XX.mp4 keeps the burned-in
-                        # subtitles (the primary deliverable); the original
-                        # no-subtitles cut is preserved alongside it rather than
-                        # discarded, for platforms/edits that want clean footage.
-                        nosubs_path = reel_path.with_name(f"{stem}.nosubs.mp4")
-                        reel_path.replace(nosubs_path)
-                        subtitled_path.rename(reel_path)
-                    else:
-                        LOG.error(
-                            "Subtitle burn failed for %s; keeping the no-subtitles cut as-is",
-                            reel_path.name,
-                        )
-            except Exception as exc:
-                LOG.error("Failed to burn subtitles: %s", exc)
-                sys.exit(1)
-
         if final_reels:
             sample_path = args.outdir / "reels_preview.mp4"
             if create_concat_sample(final_reels, sample_path) and not args.quiet:
