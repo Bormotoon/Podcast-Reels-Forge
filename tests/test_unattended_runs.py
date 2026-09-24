@@ -314,3 +314,15 @@ def test_preflight_refuses_a_full_disk(monkeypatch: pytest.MonkeyPatch, tmp_path
     result = run_preflight(conf, stages={"cut"}, repo_dir=tmp_path)
 
     assert any("min_free_disk_gb" in error for error in result.errors)
+
+
+def test_finished_empty_analysis_is_not_redone(tmp_path: Path) -> None:
+    folder = tmp_path / "gemma4"
+    folder.mkdir()
+    moments, reels = folder / "moments.json", folder / "reels.md"
+    moments.write_text("[]")
+    reels.write_text("# r\n")
+    # A crash placeholder: empty and unvouched — redo it.
+    assert not pipeline._analysis_outputs_ready(moments, reels, validate_json=True)
+    (folder / "analysis_complete.json").write_text(json.dumps({"status": "ok", "moments": 0}))
+    assert pipeline._analysis_outputs_ready(moments, reels, validate_json=True)

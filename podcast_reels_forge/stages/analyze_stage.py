@@ -66,6 +66,7 @@ from podcast_reels_forge.analysis.ranking import (
     ranking_value,
     topic_similarity,
 )
+from podcast_reels_forge.analysis.scoring import clip_type_target_bounds
 from podcast_reels_forge.analysis.serializers import atomic_write_json
 from podcast_reels_forge.analysis.transcript_index import TranscriptIndex
 from podcast_reels_forge.analysis.validation import (
@@ -1635,6 +1636,72 @@ def _warn_on_context_budget(
         )
 
 
+ANALYSIS_COMPLETE_FILE = "analysis_complete.json"
+
+
+def quality_filter_settings(processing_conf: Mapping[str, Any]) -> dict[str, float]:
+    """RU: Фильтры качества нарезки (processing.quality_filters) для отбора.
+
+    EN: The cut stage's quality filters (processing.quality_filters), read so
+    selection can enforce them. Applied only after selection they silently
+    shrank the output below its target and cost an encode per rejected clip.
+    """
+
+    section = processing_conf.get("quality_filters")
+    if not isinstance(section, Mapping):
+        return {}
+    out: dict[str, float] = {}
+    for key in ("min_score", "min_duration", "max_duration"):
+        try:
+            if key in section:
+                out[key] = float(section[key])
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def split_by_quality_filters(
+    records: Sequence[MomentRecord],
+    filters: Mapping[str, float],
+) -> tuple[list[MomentRecord], list[tuple[MomentRecord, str]]]:
+    """Split records into (eligible, [(rejected, reason)])."""
+
+    kept: list[MomentRecord] = []
+    rejected: list[tuple[MomentRecord, str]] = []
+    min_score = filters.get("min_score", 0.0)
+    min_duration = filters.get("min_duration", 0.0)
+    max_duration = filters.get("max_duration", 0.0)
+    for record in records:
+        duration = record.end - record.start
+        if min_score > 0 and record.score < min_score:
+            rejected.append((record, "below_min_score"))
+        elif min_duration > 0 and duration < min_duration:
+            rejected.append((record, "shorter_than_min_duration"))
+        elif 0 < max_duration < duration:
+            rejected.append((record, "longer_than_max_duration"))
+        else:
+            kept.append(record)
+    return kept, rejected
+
+
+def _warn_on_unreachable_buckets(quotas: Mapping[str, int], filters: Mapping[str, float]) -> None:
+    """Say so when a quota bucket can never pass the duration filters."""
+
+    min_duration = filters.get("min_duration", 0.0)
+    max_duration = filters.get("max_duration", 0.0)
+    for bucket, count in quotas.items():
+        if int(count) <= 0:
+            continue
+        low, high = clip_type_target_bounds(bucket)
+        if (min_duration > 0 and high < min_duration) or (0 < max_duration < low):
+            LOGGER.warning(
+                "clip type %r (%g-%gs) conflicts with quality_filters "
+                "(min_duration=%g, max_duration=%g): its %d slot(s) can only be "
+                "filled by other types",
+                bucket, low, high, min_duration, max_duration, int(count),
+            )
+
+
 async def run_staged_analysis(
     *,
     transcript_path: Path,
@@ -1845,6 +1912,10 @@ async def run_staged_analysis(
         "quote_verification": quote_conf,
     }
     atomic_write_json(outdir / "analysis_manifest.json", manifest)
+    # A marker left by an earlier run must not vouch for this one if it dies.
+    (outdir / ANALYSIS_COMPLETE_FILE).unlink(missing_ok=True)
+    filters = quality_filter_settings(processing_conf)
+    _warn_on_unreachable_buckets(quotas, filters)
 
     _status(
         f"[analyze] scout={roles.scout} cleanup_refine={roles.cleanup_refine} "
@@ -2099,6 +2170,12 @@ async def run_staged_analysis(
         rejected += _rejection_rows(lost, stage="final", reason="quote_outside_clip")
         annotated = annotate_speech_rate(contained, index)
         typed = assign_clip_types(annotated, quotas)
+        # The cut stage's own filters, enforced here so every selected slot
+        # goes to a clip that will actually be cut.
+        typed, filtered_out = split_by_quality_filters(typed, filters)
+        for record, reason in filtered_out:
+            rejected += _rejection_rows([record], stage="selection", reason=reason)
+        counts["after_quality_filters"] = len(typed)
 
         # -- F: deterministic selection, exactly once ------------------------
         # Ranking twice used to feed the combined priority back in as the next
@@ -2172,6 +2249,13 @@ async def run_staged_analysis(
         "rejections": rejection_reasons,
     }
     atomic_write_json(outdir / "analysis_metrics.json", metrics)
+    # Written last: its presence means the analysis ran to the end, so an
+    # empty moments.json is a real result ("nothing worth cutting") rather
+    # than the placeholder a crash leaves behind.
+    atomic_write_json(
+        outdir / ANALYSIS_COMPLETE_FILE,
+        {"status": "ok", "moments": len(final_moments), "finished_at": time.time()},
+    )
 
     if not quiet:
         LOGGER.info("[analyze] moments=%d", len(final_moments))

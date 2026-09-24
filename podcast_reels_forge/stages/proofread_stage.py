@@ -38,6 +38,7 @@ from podcast_reels_forge.llm.providers import (
     LLMProvider,
 )
 from podcast_reels_forge.utils.json_utils import extract_first_json_value
+from podcast_reels_forge.utils.word_alignment import realign_transcript_words
 from podcast_reels_forge.utils.llama_cpp_service import (
     ENV_MANAGED_BY_PIPELINE,
     llama_cpp_start,
@@ -439,6 +440,11 @@ async def run_proofread(
                 # An outside source is never allowed to fail the transcript.
                 LOGGER.warning("[proofread] term check skipped (%s)", exc)
 
+        # RU: Исправленный текст получает свои тайминги: иначе караоке и
+        #     проверка цитат работали бы по сырым словам Whisper.
+        # EN: The corrected text gets its own timings; otherwise karaoke and
+        #     quote checks would keep running on Whisper's raw words.
+        realigned = realign_transcript_words(segment_dicts)
         data["sentences"] = _build_sentence_groups(segment_dicts)
         data["proofread"] = {
             "term_fixes": term_fixes,
@@ -448,6 +454,7 @@ async def run_proofread(
             "applied": applied_total,
             "rejected": rejected_total,
             "failed_batches": failed_batches,
+            "words_realigned": realigned,
         }
 
         out_path = output_path or _proofread_output_path(transcript_path)

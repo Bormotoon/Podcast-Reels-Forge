@@ -341,7 +341,15 @@ def _analysis_outputs_ready(
     if not _outputs_ready([moments_path, reels_md_path], validate_json=validate_json):
         return False
     moments = _read_json_if_valid(moments_path)
-    return isinstance(moments, list) and bool(moments)
+    if isinstance(moments, list) and moments:
+        return True
+    # RU: Пустой список — результат, только если анализ дошёл до конца: иначе
+    #     эпизод без подходящих клипов пересчитывался бы каждую ночь.
+    # EN: An empty list is a result only when the analysis ran to the end;
+    #     otherwise an episode with nothing worth cutting would be redone
+    #     every night.
+    marker = _read_json_if_valid(moments_path.with_name("analysis_complete.json"))
+    return isinstance(moments, list) and isinstance(marker, dict) and marker.get("status") == "ok"
 
 
 def _outputs_ready(outputs: list[Path], *, validate_json: bool) -> bool:

@@ -823,3 +823,57 @@ def test_stale_episode_context_cache_is_not_reused(
     chunk_prompts = [p for p in providers["scout"].prompts if "# Кусок транскрипта" in p]
     assert all("космос" not in prompt for prompt in chunk_prompts)
     assert any("Эпизод про школу." in prompt for prompt in chunk_prompts)
+
+
+def test_quality_filters_are_enforced_at_selection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Clips the cut stage would reject never take a selected slot."""
+
+    def scout(prompt: str, _call_index: int) -> str:
+        return _candidates_json(
+            _moment_in_chunk(prompt, offset=5.0, length=45.0),
+            # Too short even after boundary snapping (at most +3s per edge).
+            _moment_in_chunk(prompt, offset=200.0, length=20.0),
+        )
+
+    def judge(prompt: str, _call_index: int) -> str:
+        # Short clips get a good score, so only their length can reject them;
+        # the earliest long one gets a failing score.
+        candidates = prompt_candidates(prompt)
+        long_ones = sorted((c for c in candidates if c["duration"] >= 30), key=lambda c: c["start"])
+        weak = long_ones[0]["candidate_id"] if long_ones else None
+        reviews = [
+            {"candidate_id": c["candidate_id"], "keep": True, "score": 6 if c["candidate_id"] == weak else 9}
+            for c in candidates
+        ]
+        return json.dumps({"reviews": reviews})
+
+    moments, _providers, outdir = _run_analysis(
+        monkeypatch,
+        tmp_path,
+        scout=scout,
+        judge=judge,
+        processing_conf={"quality_filters": {"min_score": 7, "min_duration": 30}},
+    )
+
+    assert moments
+    assert all(m.score >= 7 and m.end - m.start >= 30 for m in moments)
+    rejected = json.loads((outdir / "rejected_candidates.json").read_text(encoding="utf-8"))
+    reasons = {row["rejection_reason"] for row in rejected if row["rejected_at"] == "selection"}
+    assert reasons == {"shorter_than_min_duration", "below_min_score"}
+
+
+def test_an_empty_but_finished_analysis_is_marked_complete(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    moments, _providers, outdir = _run_analysis(
+        monkeypatch,
+        tmp_path,
+        scout=lambda p, _i: _candidates_json(_moment_in_chunk(p)),
+        processing_conf={"quality_filters": {"min_score": 10}},
+    )
+
+    assert moments == []
+    marker = json.loads((outdir / "analysis_complete.json").read_text(encoding="utf-8"))
+    assert marker == {**marker, "status": "ok", "moments": 0}

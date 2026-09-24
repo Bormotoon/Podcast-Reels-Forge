@@ -188,6 +188,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   preferred, inward moves allowed) and never trims into the quote.
 
 ### Fixed
+- **Proofreading no longer desynchronises word timings.** Only
+  `segments[].text` was corrected while `words` kept Whisper's raw tokens, so
+  karaoke subtitles of every corrected sentence fell back to proportional
+  timing, and quotes were verified against text the model never saw. Corrected
+  text now gets its own word list (aligned token by token, timings carried
+  over; the originals stay in `raw_words`).
+- **`processing.quality_filters` are enforced at selection**, not only at the
+  cut: every selected slot now goes to a clip that will actually be cut,
+  instead of the output silently shrinking below its target. Filtered
+  candidates are listed in `rejected_candidates.json`, and a clip type that can
+  never pass the duration filters is reported in the log.
+- A finished analysis that found nothing worth cutting is marked complete
+  (`analysis_complete.json`) instead of being redone on every run.
 - An interrupted yt-dlp merge left `… [id].f137.mp4` (video, no audio) and
   `… [id].f140.m4a` behind; both were taken for finished downloads and for
   separate episodes, and the silent one aborted every following run. Such
