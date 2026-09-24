@@ -11,8 +11,12 @@ ones that only look striking out of context.
 - Be brief: summary is at most 3 sentences.
 - topics: 3-7 main topics of the episode.
 - tone: one or two words (for example "friendly chat", "argument").
-- speakers: roles or names of the participants, when the text makes them clear.
-- Do not invent facts that are not in the digest.
+- speakers: only names or roles the digest supports.
+- context_limits: what a short clip must explain to be understood without the
+  whole episode (e.g. "who Ivan is", "which project they mean").
+- Use only the digest. Do not invent facts that are not in it.
+- The digest is a sample of excerpts, not the whole episode: draw no
+  conclusions about what it does not show.
 - Return only JSON.
 
 # Output schema
@@ -20,7 +24,8 @@ ones that only look striking out of context.
   "summary": "What this episode is about, in two or three sentences.",
   "topics": ["topic 1", "topic 2", "topic 3"],
   "tone": "friendly chat",
-  "speakers": ["host", "guest"]
+  "speakers": ["host", "guest"],
+  "context_limits": ["which project they are talking about"]
 }
 
 # Transcript digest

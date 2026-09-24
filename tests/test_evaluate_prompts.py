@@ -160,3 +160,15 @@ def test_default_golden_path_ignores_the_proofread_suffix() -> None:
     assert raw == proofread
     assert raw.name == "ep.json"
     assert raw.parent.name == "golden"
+
+
+def test_variant_report_carries_the_analysis_metrics(tmp_path: Path) -> None:
+    from podcast_reels_forge.scripts.evaluate_prompts import load_analysis_metrics
+
+    (tmp_path / "analysis_metrics.json").write_text(
+        json.dumps({"quote_exact_match_rate": 0.9, "duplicate_rate": 0.1, "stages": {"scout": {}}}),
+        encoding="utf-8",
+    )
+    metrics = load_analysis_metrics(tmp_path)
+    assert metrics == {"quote_exact_match_rate": 0.9, "duplicate_rate": 0.1}
+    assert load_analysis_metrics(tmp_path / "missing") is None

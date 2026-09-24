@@ -88,8 +88,8 @@ python3 start_forge.py --youtube "@pedobraz" --yt-limit 5 --yt-list
 - `output/<file_stem>/gemma4/analysis_manifest.json`
 - `output/<file_stem>/gemma4/scout_candidates.json`
 - `output/<file_stem>/gemma4/cleaned_candidates.json`
-- `output/<file_stem>/gemma4/refined_candidates.json`
-- `output/<file_stem>/gemma4/judge_report.json`
+- `output/<file_stem>/gemma4/rejected_candidates.json` - отброшенные кандидаты с причиной
+- `output/<file_stem>/gemma4/analysis_metrics.json` - метрики прогона анализа
 - `output/<file_stem>/gemma4/moments.json`
 - `output/<file_stem>/gemma4/reels.md`
 - `output/<file_stem>/gemma4/reels/` - клипы, `reel_XX.md`, `reel_XX.srt`
@@ -177,8 +177,8 @@ Key points:
 - `output/<file_stem>/gemma4/analysis_manifest.json`
 - `output/<file_stem>/gemma4/scout_candidates.json`
 - `output/<file_stem>/gemma4/cleaned_candidates.json`
-- `output/<file_stem>/gemma4/refined_candidates.json`
-- `output/<file_stem>/gemma4/judge_report.json`
+- `output/<file_stem>/gemma4/rejected_candidates.json` - отброшенные кандидаты с причиной
+- `output/<file_stem>/gemma4/analysis_metrics.json` - метрики прогона анализа
 - `output/<file_stem>/gemma4/moments.json`
 - `output/<file_stem>/gemma4/reels.md`
 - `output/<file_stem>/gemma4/reels/`

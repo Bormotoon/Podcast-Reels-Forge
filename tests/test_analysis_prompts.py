@@ -24,7 +24,7 @@ PROMPTS = Path(__file__).resolve().parent.parent / "prompts"
 
 # Placeholders each stage's prompt is rendered with.
 STAGE_PLACEHOLDERS = {
-    "chunk": {"requirements", "chunk_json", "transcript", "episode_context"},
+    "chunk": {"requirements", "chunk_json", "transcript", "episode_context", "target_candidates"},
     "cleanup": {"requirements", "candidates_json"},
     "judge": {"requirements", "candidates_json", "episode_context"},
     "context": {"transcript_digest"},
@@ -145,3 +145,26 @@ def test_episode_context_renders_only_what_it_has() -> None:
     assert "Разговор о школе." in rendered
     assert "школа" in rendered
     assert format_episode_context({}) == ""
+
+
+@pytest.mark.parametrize("lang", ["ru", "en"])
+@pytest.mark.parametrize("variant", ["default", "a", "b"])
+def test_scout_prompts_ask_for_evidence_not_copy(lang: str, variant: str) -> None:
+    """The scout returns evidence only; captions and hashtags come later."""
+    text = _load_prompt(lang=lang, variant=variant, name="chunk")
+    assert '"candidates"' in text
+    assert '"quote"' in text and '"evidence"' in text
+    assert "hashtags" not in text and "caption" not in text
+    assert "{target_candidates}" in text
+
+
+@pytest.mark.parametrize("lang", ["ru", "en"])
+@pytest.mark.parametrize("stage", ["cleanup", "judge"])
+def test_filter_prompts_answer_by_candidate_id(stage: str, lang: str) -> None:
+    """Cleanup and judge decide by id; they are told the quote is off-limits."""
+    text = _load_prompt(lang=lang, variant="default", name=stage)
+    marker = "# Схема ответа" if lang == "ru" else "# Output schema"
+    schema = text.split(marker, 1)[1].split("{candidates_json}", 1)[0]
+    assert '"candidate_id"' in schema
+    for evidence_field in ('"quote"', '"start"', '"end"'):
+        assert evidence_field not in schema, f"{lang}/{stage} invites the model to return {evidence_field}"

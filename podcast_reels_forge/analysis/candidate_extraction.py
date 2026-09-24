@@ -17,7 +17,7 @@ def extract_candidate_payload(value: Any) -> list[Mapping[str, Any]]:
         single = value.get("moment")
         if isinstance(single, Mapping):
             return [single]
-        for key in ("moments", "candidates", "results", "items", "clips"):
+        for key in ("moments", "candidates", "decisions", "reviews", "results", "items", "clips"):
             raw = value.get(key)
             if isinstance(raw, list):
                 return [item for item in raw if isinstance(item, Mapping)]

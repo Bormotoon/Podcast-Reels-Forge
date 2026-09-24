@@ -47,6 +47,7 @@ Main workflow steps:
 6. **Video Editing (FFmpeg + NVENC)**: Cuts the video, applies vertical cropping (9:16), stabilized face framing, and burns karaoke subtitles timed from real word timestamps. GPU encoding via NVENC (~5× faster than software).
 
 Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
+Unattended scheduled runs (nightly channel runs, reports, notifications): [docs/AUTONOMOUS.md](docs/AUTONOMOUS.md)
 
 ---
 
@@ -274,7 +275,7 @@ The orchestrator [start_forge.py](start_forge.py) runs [podcast_reels_forge/pipe
 2. **Diarization**: (If enabled) Creates `diarization.json` with speaker turns.
 3. **Proofread**: gemma4 proofreads the transcript (spelling/punctuation) with a guardrail check on every correction. Output: `<file_stem>.proofread.json` + `.srt`; the raw transcript is untouched.
 4. **Article**: gemma4 rebuilds the proofread transcript into an article: meaning-based sections, headings, paragraphs. Length and vocabulary checks catch padding; fragments that fail are flagged in `.article.json`. Output: `<file_stem>.article.md` + `.json`.
-5. **Analyze (Staged)**: Episode overview → scout over overlapping chunks → cleanup (dedupe/merge) → judge that sees each clip's real opening and closing seconds. Deterministic validation runs between stages: timecode clamping, quote verification against the transcript, boundary snapping to phrases, audio probing. Final selection honours type quotas, overlaps and topic diversity. Artifacts go to `output/<file_stem>/<model>/` (e.g. `gemma4_26b/`).
+5. **Analyze (Staged)**: *LLM discovers → Python proves → a deterministic selector chooses → LLM writes metadata.* Episode overview → scout over overlapping chunks (interval + verbatim quote only) → the quote is looked up in the transcript and unproven candidates are rejected → cleanup and judge answer with keep/drop/merge decisions by `candidate_id`, so they cannot move a clip or rewrite its quote; the judge sees each clip's real opening and closing seconds. Then boundary snapping that keeps the quote inside the clip, audio probing, and MMR selection under type quotas, an overlap policy and topic diversity. Artifacts go to `output/<file_stem>/<model>/` (e.g. `gemma4_26b/`).
 6. **Video Processing**: Cuts clips from the final `moments.json`. Forge burns ASS subtitles into each reel with ffmpeg, adds a ready-to-post `reel_XX.md`, keeps a local `reel_XX.srt`, and builds `reels_preview.mp4`.
 
 
@@ -294,18 +295,26 @@ output/
     my_podcast.article.md        # Episode retelling, ready to read
     my_podcast.article.json      # Sections, timings and guardrail metadata
     diarization.json           # (Optional) Speaker info
+    .forge_state.json          # Stage input fingerprints: what to redo on change
     gemma4_26b/                # Analysis model folder
       analysis_manifest.json   # Run parameters: quotas, chunks, language
       episode_context.json     # Episode overview (cached)
       scout_candidates.json    # Everything the scout found
-      cleaned_candidates.json  # After dedupe, cleanup and audio probing
+      cleaned_candidates.json  # After quote checks, dedupe, cleanup and audio probing
+      rejected_candidates.json # Everything a gate threw out, with the reason
+      analysis_metrics.json    # Run metrics: survival, quotes, duplicates, stage timings
+      analysis_complete.json   # The analysis ran to the end (an empty result is a result)
+      llm_cache/               # Cached LLM answers for resuming after a crash
       moments.json             # Final list: score (1-10), priority, quote_match_ratio…
       reels.md                 # Clip summary
       reels/                   # Cut video clips .mp4
         reel_01.srt            # Local subtitle timeline (reference)
         reel_01.md             # Description + 5 hashtags for reel_01.mp4
-        rejected/              # Clips that failed quality_filters
+        rejected.json          # Rejected moments with reasons
+        rejected/              # Clips that failed filters or QA (when encoded)
       reels_preview.mp4        # Concatenated preview of all clips
+  _runs/
+    latest.json                # Report of the latest run (see docs/AUTONOMOUS.md)
 ```
 
 ---

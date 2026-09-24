@@ -60,6 +60,34 @@ class VariantMetrics:
     recall_must: float | None = None
     recall_all: float | None = None
     precision: float | None = None
+    #: Selected figures from the variant's analysis_metrics.json.
+    analysis: dict[str, Any] | None = None
+
+
+#: analysis_metrics.json keys worth comparing between variants.
+ANALYSIS_METRIC_KEYS = (
+    "quote_exact_match_rate",
+    "quote_low_confidence_rate",
+    "candidate_survival_rate",
+    "duplicate_rate",
+    "topic_diversity",
+    "quota_fill_rate",
+    "boundary_shift_seconds",
+    "scout_candidates_per_hour",
+    "elapsed_s",
+)
+
+
+def load_analysis_metrics(folder: Path) -> dict[str, Any] | None:
+    """The comparable part of a run's analysis_metrics.json, if it exists."""
+
+    try:
+        data = json.loads((folder / "analysis_metrics.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return {key: data.get(key) for key in ANALYSIS_METRIC_KEYS if key in data}
 
 
 def _load_moments(path: Path) -> list[dict[str, Any]]:
@@ -338,6 +366,7 @@ def main(argv: list[str] | None = None) -> None:
                 recall_must=against_golden.get("recall_must"),
                 recall_all=against_golden.get("recall_all"),
                 precision=against_golden.get("precision"),
+                analysis=load_analysis_metrics(moments_path.parent),
             ),
         )
         buckets[v] = {_interval_key(m) for m in moments}

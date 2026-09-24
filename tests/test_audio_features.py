@@ -211,3 +211,46 @@ def test_audio_signal_moves_the_combined_priority() -> None:
     assert combined_priority_score(lively, target_min=30, target_max=60) > (
         combined_priority_score(limp, target_min=30, target_max=60)
     )
+
+
+def test_annotation_is_cached_across_runs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A re-run over the same episode must not decode the audio again."""
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr=FFMPEG_STDERR)
+
+    monkeypatch.setattr(audio_features.subprocess, "run", fake_run)
+    source = tmp_path / "a.mp3"
+    source.write_bytes(b"")
+    cache = tmp_path / "audio_features_cache.json"
+    records = [_record(0, 45), _record(100, 145)]
+
+    first = annotate_records_with_audio(records, source, cache_path=cache, max_workers=2)
+    second = annotate_records_with_audio(records, source, cache_path=cache, max_workers=2)
+
+    assert len(calls) == 2, "each span probed once, then served from the cache"
+    assert [r.audio_energy_db for r in first] == [r.audio_energy_db for r in second]
+
+
+def test_annotation_measures_only_the_top_candidates(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        audio_features.subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(
+            command, 0, stdout="", stderr=FFMPEG_STDERR,
+        ),
+    )
+    source = tmp_path / "a.mp3"
+    source.write_bytes(b"")
+    records = [_record(0, 45, score=5.0), _record(100, 145, score=9.0)]
+
+    annotated = annotate_records_with_audio(records, source, max_candidates=1)
+
+    assert annotated[0].audio_energy_db is None
+    assert annotated[1].audio_energy_db is not None

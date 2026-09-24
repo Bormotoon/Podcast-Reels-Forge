@@ -23,6 +23,8 @@ import asyncio
 import json
 import logging
 import os
+import re
+import shutil
 import subprocess
 import sys
 import time
@@ -45,9 +47,15 @@ from podcast_reels_forge.utils.llama_cpp_service import (
     parse_local_llama_cpp_host_port,
     wait_for_server_ready,
 )
+from podcast_reels_forge import __version__
 from podcast_reels_forge.config import (
     normalize_model_folder_name,
     resolve_llama_cpp_role_mapping,
+)
+from podcast_reels_forge.sources.episode_metadata import (
+    EpisodeMetadata,
+    info_json_path,
+    load_episode_metadata,
 )
 from podcast_reels_forge.sources.youtube import (
     VideoFilters,
@@ -55,6 +63,7 @@ from podcast_reels_forge.sources.youtube import (
     api_key_from_env,
     resolve_sources,
 )
+from podcast_reels_forge.run_report import CACHED, DONE, FAILED, SKIPPED, RunReport
 from podcast_reels_forge.stages.analyze_stage import run_staged_analysis
 from podcast_reels_forge.stages.article_stage import run_article
 from podcast_reels_forge.stages.fetch_stage import (
@@ -62,7 +71,9 @@ from podcast_reels_forge.stages.fetch_stage import (
     FetchConfig,
     describe_videos,
     fetch_videos,
+    is_download_fragment,
     locate_existing,
+    maybe_update_yt_dlp,
     resolve_download_dir,
     want_video_for_stages,
 )
@@ -70,12 +81,21 @@ from podcast_reels_forge.stages.proofread_stage import run_proofread
 from podcast_reels_forge.stages.transcribe_stage import (
     TranscribeConfig,
     transcribe_file,
+    whisper_model_session,
 )
 from podcast_reels_forge.utils.burned_subtitles import (
     subtitle_settings_from_conf,
     sync_reel_burned_subtitles,
 )
 from podcast_reels_forge.utils.ffmpeg import ffmpeg_bin
+from podcast_reels_forge.utils.fingerprint import (
+    StageState,
+    file_digest,
+    file_identity,
+    files_digest,
+    fingerprint,
+    subset,
+)
 from podcast_reels_forge.utils.reel_markdown import sync_reel_markdowns
 
 log = logging.getLogger("Forge")
@@ -146,14 +166,15 @@ MP3_BITRATE = "320k"
 WAV_SAMPLE_RATE = 16000
 
 
-def _ensure_audio_companions(source_path: Path) -> tuple[Path, Path]:
+def _ensure_audio_companions(source_path: Path, *, want_mp3: bool = True) -> tuple[Path, Path]:
     """RU: Готовит рядом с исходником MP3 и WAV — одним проходом ffmpeg.
 
     EN: Produce the MP3 and WAV companions next to a source in one ffmpeg pass.
 
     Both are encoded from the source's own audio stream, decoded once. Deriving
     the WAV from the MP3 instead would bake the lossy artefacts into what the
-    models hear.
+    models hear. ``want_mp3=False`` skips the listening copy: the models only
+    ever read the WAV (``audio.listening_copy`` in the config).
 
     The source is usually a video, but an audio-only YouTube fetch lands an m4a
     here instead — ffmpeg does not care, and re-encoding that m4a to MP3 would be
@@ -162,7 +183,7 @@ def _ensure_audio_companions(source_path: Path) -> tuple[Path, Path]:
     mp3_path = source_path.with_suffix(".mp3")
     wav_path = source_path.with_suffix(".wav")
 
-    need_mp3 = not _file_has_content(mp3_path)
+    need_mp3 = want_mp3 and not _file_has_content(mp3_path)
     need_wav = not _file_has_content(wav_path)
     if not need_mp3 and not need_wav:
         return mp3_path, wav_path
@@ -220,6 +241,7 @@ def find_input_queue(
     input_dir: Path,
     *,
     only_stems: Collection[str] | None = None,
+    ensure_companions: bool = True,
 ) -> list[dict[str, Any]]:
     """RU: Находит эпизоды и гарантирует MP3/WAV-спутники для каждого.
 
@@ -236,6 +258,14 @@ def find_input_queue(
 
     An entry whose stem has audio but no video gets ``video=None``; every stage
     except cutting works from the audio anyway.
+
+    yt-dlp's per-format pieces (``… [id].f137.mp4``) are never episodes: they
+    are what an interrupted download leaves before merging, and a video-only
+    piece used to abort every following run at the companion step.
+
+    ``ensure_companions=False`` only computes the companion paths; the
+    pipeline builds them per episode, inside that episode's failure guard, so
+    one broken file costs one episode instead of the whole queue.
     """
     if not input_dir.exists():
         return []
@@ -250,6 +280,8 @@ def find_input_queue(
             continue
         stem = p.stem
         if wanted is not None and stem not in wanted:
+            continue
+        if is_download_fragment(p):
             continue
         suffix = p.suffix.lower()
         if suffix in VIDEO_EXTS:
@@ -266,9 +298,13 @@ def find_input_queue(
     for stem in sorted(set(videos) | set(audio_only)):
         video_path = videos.get(stem)
         source_path = video_path if video_path is not None else audio_only[stem]
-        mp3_path, wav_path = _ensure_audio_companions(source_path)
+        if ensure_companions:
+            mp3_path, wav_path = _ensure_audio_companions(source_path)
+        else:
+            mp3_path, wav_path = source_path.with_suffix(".mp3"), source_path.with_suffix(".wav")
         queue.append({
             "stem": stem,
+            "source": source_path,
             "video": video_path,
             # MP3 is the listening copy; the models get the PCM one.
             "audio": mp3_path,
@@ -323,7 +359,15 @@ def _analysis_outputs_ready(
     if not _outputs_ready([moments_path, reels_md_path], validate_json=validate_json):
         return False
     moments = _read_json_if_valid(moments_path)
-    return isinstance(moments, list) and bool(moments)
+    if isinstance(moments, list) and moments:
+        return True
+    # RU: Пустой список — результат, только если анализ дошёл до конца: иначе
+    #     эпизод без подходящих клипов пересчитывался бы каждую ночь.
+    # EN: An empty list is a result only when the analysis ran to the end;
+    #     otherwise an episode with nothing worth cutting would be redone
+    #     every night.
+    marker = _read_json_if_valid(moments_path.with_name("analysis_complete.json"))
+    return isinstance(moments, list) and isinstance(marker, dict) and marker.get("status") == "ok"
 
 
 def _outputs_ready(outputs: list[Path], *, validate_json: bool) -> bool:
@@ -596,6 +640,7 @@ def _run_youtube_fetch(
     quiet: bool,
     verbose: bool,
     progress: bool,
+    report: RunReport | None = None,
 ) -> set[str] | None:
     """RU: Разворачивает источники YouTube и скачивает недостающее.
 
@@ -660,12 +705,33 @@ def _run_youtube_fetch(
             quiet=quiet,
         )
 
+    if "fetch" in active and not list_only:
+        maybe_update_yt_dlp(yt_conf, download_dir / ".yt-dlp-updated")
+
     try:
         videos = resolve_sources(
             all_sources, api_key=api_key, filters=filters, exclude=exclude,
         )
     except YouTubeError as exc:
-        raise SystemExit(f"YouTube: {exc}") from exc
+        if list_only:
+            raise SystemExit(f"YouTube: {exc}") from exc
+        # RU: Нет сети или YouTube отвечает ошибкой — это не повод бросать уже
+        #     скачанное: обрабатываем то, что лежит в папке загрузок.
+        # EN: No network, or YouTube errors out — no reason to abandon what is
+        #     already downloaded: process whatever sits in the download folder.
+        message = f"YouTube недоступен ({exc}); работаю с уже скачанным"
+        log.error(message)
+        status(f"[fetch] {message}", quiet=quiet)
+        if report is not None:
+            report.event("error", message)
+        if not scope:
+            return None
+        return {
+            p.stem
+            for p in (download_dir.iterdir() if download_dir.exists() else [])
+            if p.is_file() and not is_download_fragment(p)
+            and p.suffix.lower() in VIDEO_EXTS + AUDIO_ONLY_EXTS
+        }
 
     if list_only:
         print(describe_videos(videos, download_dir))
@@ -736,6 +802,918 @@ def _run_youtube_fetch(
     return {f.stem for f in fetched}
 
 
+@dataclass
+class EpisodeState:
+    """RU: Пути и промежуточное состояние одного эпизода.
+
+    EN: Paths and in-flight state of one episode.
+    """
+
+    stem: str
+    source: Path
+    video: Path | None
+    audio: Path
+    wav: Path
+    output_dir: Path
+    analysis_folder: Path
+    transcript_path: Path
+    transcript_srt_path: Path
+    diar_path: Path
+    #: Set when a stage the rest depends on failed; later phases skip it.
+    broken: bool = False
+    #: The transcript subtitles and captions are built from. None: the same
+    #: one the analysis used (``transcript_path``).
+    subtitle_transcript: Path | None = None
+    #: Title, description, chapters and tags from yt-dlp's .info.json.
+    metadata: EpisodeMetadata | None = None
+
+    @property
+    def raw_transcript_path(self) -> Path:
+        name = self.transcript_path.name.replace(".proofread.json", ".json")
+        return self.transcript_path.with_name(name)
+
+    @property
+    def proofread_path(self) -> Path:
+        raw = self.raw_transcript_path
+        return raw.with_name(raw.stem + ".proofread.json")
+
+    @property
+    def state(self) -> StageState:
+        return StageState(self.output_dir)
+
+    @property
+    def model_audio(self) -> Path:
+        # RU: Моделям отдаём PCM: у Whisper нет артефактов mp3, а pyannote на
+        #     mp3 просто падает (обрезка даёт на несколько сэмплов меньше).
+        # EN: The models get the PCM copy: Whisper avoids the mp3 artefacts and
+        #     pyannote outright fails on mp3 (a crop comes back a few samples
+        #     short of what it asked for).
+        if _file_has_content(self.wav):
+            return self.wav
+        return self.audio if _file_has_content(self.audio) else self.source
+
+    @property
+    def moments_path(self) -> Path:
+        return self.analysis_folder / "moments.json"
+
+    @property
+    def reels_md_path(self) -> Path:
+        return self.analysis_folder / "reels.md"
+
+
+class _LlamaSession:
+    """RU: Один запуск llama-server на группу LLM-стадий.
+
+    EN: One llama-server session for a group of LLM stages.
+
+    Starting a server that is already running is a no-op, and a server that
+    could not be started at all is not waited on: the old flow spent up to
+    300 s per episode polling a port nobody was going to open.
+    """
+
+    def __init__(self, a_conf: dict[str, Any]) -> None:
+        self.url = str(a_conf.get("url", "http://127.0.0.1:8080/v1/chat/completions")).strip()
+        self.local = parse_local_llama_cpp_host_port(self.url)
+        service = a_conf.get("service", {}) if isinstance(a_conf, dict) else {}
+        self.service_conf: dict[str, Any] = service if isinstance(service, dict) else {}
+        self._proc: subprocess.Popen | None = None
+        self.opened = False
+        #: False once it is known that no server will answer this session.
+        self.available = True
+
+    def open(self) -> None:
+        if self.opened:
+            return
+        self.opened = True
+        if not self.local:
+            return
+        host, port = self.local
+        if bool(self.service_conf.get("auto_start", True)):
+            self._proc = llama_cpp_start(host=host, port=port, service_conf=self.service_conf)
+        if self._proc is None and not is_tcp_open(host, port):
+            # Nothing was started and nothing listens: give an external
+            # server a short grace period, not the full 300 s load wait.
+            if wait_for_server_ready(host, port, timeout_s=10) is False:
+                log.error(
+                    "llama-server на %s:%s не запущен и не отвечает; LLM-стадии пропускаются",
+                    host, port,
+                )
+                self.available = False
+            return
+        # Wait for the model to load: both our own instance and an external
+        # server answer 503 "Loading model" until they are ready.
+        startup_timeout = int(self.service_conf.get("startup_timeout", 120))
+        wait_for_server_ready(host, port, timeout_s=max(startup_timeout, 300))
+
+    def close(self) -> None:
+        if not self.opened:
+            return
+        self.opened = False
+        self.available = True
+        if self._proc is not None:
+            llama_cpp_stop(self._proc)
+            self._proc = None
+        # Free VRAM from any llama-server (ours or external) before the cut
+        # stage so NVENC — or the next Whisper load — gets the GPU.
+        if self.local:
+            host, port = self.local
+            if is_tcp_open(host, port):
+                _kill_llama_server(port)
+
+
+def _describe_failure(exc: BaseException) -> str:
+    if isinstance(exc, SystemExit):
+        code = exc.code
+        return f"exit {code}" if isinstance(code, int) else str(code)
+    return f"{type(exc).__name__}: {exc}"
+
+
+class _PipelineRun:
+    """RU: Один прогон по очереди эпизодов, со стадиями и отчётом.
+
+    EN: One run over the episode queue, with its stages and report.
+
+    Every stage of every episode runs inside a guard: whatever it raises —
+    including the ``SystemExit`` of a stage subprocess — is recorded in the
+    report and costs that episode (or just that stage, for optional ones),
+    never the rest of the queue.
+    """
+
+    def __init__(
+        self,
+        *,
+        conf: dict[str, Any],
+        repo_dir: Path,
+        quiet: bool,
+        verbose: bool,
+        skip_existing: bool,
+        autotune: bool,
+        progress: bool,
+        active: set[str],
+        report: RunReport,
+    ) -> None:
+        self.conf = conf
+        self.repo_dir = repo_dir
+        self.quiet = quiet
+        self.verbose = verbose
+        self.skip_existing = skip_existing
+        self.autotune = autotune
+        self.progress = progress
+        self.report = report
+
+        cache_conf = conf.get("cache", {}) if isinstance(conf, dict) else {}
+        self.validate_json = bool(cache_conf.get("validate_json", True))
+
+        self.diar_conf = conf.get("diarization", {}) or {}
+        proofread_conf = conf.get("proofread", {})
+        self.proofread_conf = proofread_conf if isinstance(proofread_conf, dict) else {}
+        article_conf = conf.get("article", {})
+        self.article_conf = article_conf if isinstance(article_conf, dict) else {}
+
+        self.transcribe_enabled = "transcribe" in active
+        self.diar_enabled = bool(self.diar_conf.get("enabled", False)) and "diarize" in active
+        self.proofread_enabled = bool(self.proofread_conf.get("enabled", False)) and "proofread" in active
+        self.article_enabled = bool(self.article_conf.get("enabled", False)) and "article" in active
+        self.analyze_enabled = "analyze" in active
+        self.cut_enabled = "cut" in active
+
+        self.subtitle_settings = subtitle_settings_from_conf(conf, repo_dir=repo_dir)
+        a_conf = conf.get("llama_cpp", {})
+        self.a_conf: dict[str, Any] = a_conf if isinstance(a_conf, dict) else {}
+        self.prompts_conf = conf.get("prompts", {})
+        self.p_conf = conf.get("processing", {})
+        v_conf = conf.get("video", {})
+        self.v_conf: dict[str, Any] = v_conf if isinstance(v_conf, dict) else {}
+        self.exports_conf = conf.get("exports", {})
+
+        if autotune:
+            self.a_conf = _autotune_llama_cpp_conf(self.a_conf)
+            self.v_conf = {**self.v_conf, "threads": _autotune_video_threads(self.v_conf)}
+            service = self.a_conf.get("service", {})
+            status(
+                "[autotune] "
+                f"llama threads={service.get('threads')} parallel={service.get('parallel')} "
+                f"ctx={service.get('ctx_size')} video_jobs={self.v_conf.get('threads')}",
+                quiet=quiet,
+            )
+
+        self.roles = resolve_llama_cpp_role_mapping(conf)
+        self.final_model_folder = _model_folder_name(self.roles.judge_metadata)
+        self.llama = _LlamaSession(self.a_conf)
+        self.stage_bar: Any = None
+
+        autonomy = conf.get("autonomy") if isinstance(conf.get("autonomy"), dict) else {}
+        self.scheduling = str((autonomy or {}).get("scheduling", "stage")).strip().lower()
+        audio_conf = conf.get("audio") if isinstance(conf.get("audio"), dict) else {}
+        self.listening_copy = bool((audio_conf or {}).get("listening_copy", True))
+        self.delete_wav = bool((audio_conf or {}).get("delete_wav_after_analysis", False))
+        # RU: scope=clips — вычитывать только отрезки выбранных клипов (для
+        #     субтитров и подписей). Статье нужен весь текст, поэтому при
+        #     включённой статье вычитка всегда полная.
+        # EN: scope=clips proofreads only the selected clips' spans (what
+        #     subtitles and captions show). The article needs the whole text,
+        #     so with the article enabled the scope is always full.
+        scope = str(self.proofread_conf.get("scope", "full")).strip().lower()
+        self.proofread_clips_only = self.proofread_enabled and scope == "clips"
+        if self.proofread_clips_only and self.article_enabled:
+            log.warning("proofread.scope=clips ignored: the article needs the whole transcript")
+            self.proofread_clips_only = False
+        self.llm_needed = self.proofread_enabled or self.article_enabled or self.analyze_enabled
+
+    # -- plumbing -------------------------------------------------------------
+
+    def _tick(self) -> None:
+        if self.stage_bar is not None:
+            self.stage_bar.update(1)
+
+    def guard(self, ep: EpisodeState, stage: str, fn: Any) -> bool:
+        """Run one stage; record its outcome. False when it failed."""
+
+        started = time.monotonic()
+        try:
+            outcome = fn(ep)
+        except KeyboardInterrupt:
+            raise
+        except (Exception, SystemExit) as exc:
+            detail = _describe_failure(exc)
+            if isinstance(exc, SystemExit):
+                log.error("[%s] %s: %s", stage, ep.stem, detail)
+            else:
+                log.exception("[%s] %s failed", stage, ep.stem)
+            status(f"[{stage}] FAILED ({ep.stem}): {detail}", quiet=self.quiet)
+            self.report.record(
+                ep.stem, stage, FAILED, seconds=time.monotonic() - started, detail=detail,
+            )
+            return False
+        self.report.record(
+            ep.stem, stage, str(outcome or DONE), seconds=time.monotonic() - started,
+        )
+        return True
+
+    def episode_state(self, item: dict[str, Any], base_output_dir: Path) -> EpisodeState:
+        stem = str(item["stem"])
+        output_dir = base_output_dir / stem
+        audio = Path(item["audio"])
+        transcript_path = output_dir / audio.with_suffix(".json").name
+        transcript_srt_path = output_dir / audio.with_suffix(".srt").name
+        legacy_audio_json = output_dir / "audio.json"
+        if not transcript_path.exists() and legacy_audio_json.exists():
+            transcript_path = legacy_audio_json
+            transcript_srt_path = legacy_audio_json.with_suffix(".srt")
+        return EpisodeState(
+            stem=stem,
+            source=Path(item.get("source") or item.get("video") or audio),
+            video=item.get("video"),
+            audio=audio,
+            wav=Path(item.get("wav") or audio),
+            output_dir=output_dir,
+            analysis_folder=output_dir / self.final_model_folder,
+            transcript_path=transcript_path,
+            transcript_srt_path=transcript_srt_path,
+            diar_path=output_dir / "diarization.json",
+            metadata=load_episode_metadata(
+                Path(item.get("source") or item.get("video") or audio),
+            ),
+        )
+
+    # -- phases ---------------------------------------------------------------
+
+    def run_episode(self, ep: EpisodeState) -> None:
+        status(f"\n[forge] processing: {ep.stem}", quiet=self.quiet)
+        status(
+            f"[forge] video: {ep.video.name}" if ep.video is not None
+            else "[forge] video: нет (источник только аудио)",
+            quiet=self.quiet,
+        )
+        self.begin_episode(ep)
+
+        self.phase_prepare(ep)
+        if not ep.broken:
+            if self.llm_needed:
+                self.llama.open()
+            try:
+                self.phase_llm(ep)
+            finally:
+                self.llama.close()
+        self.finish_episode(ep)
+
+    def begin_episode(self, ep: EpisodeState) -> None:
+        os.makedirs(ep.output_dir, exist_ok=True)
+        self.report.episode(ep.stem)
+
+    def finish_episode(self, ep: EpisodeState) -> None:
+        if not ep.broken:
+            self.phase_cut(ep)
+        self.report.episode(ep.stem).clips = self._count_reels(ep)
+
+    def run_stage_major(self, episodes: list[EpisodeState]) -> None:
+        """RU: Очередь по стадиям: все транскрипции, одна сессия LLM, вся нарезка.
+
+        EN: The queue stage by stage: every transcription, one LLM session,
+        every cut. Whisper loads once and llama-server (~14 GB of weights)
+        starts once for the whole queue instead of once per episode, and the
+        two never fight over VRAM.
+        """
+
+        status(f"\n[forge] {len(episodes)} episode(s), stage by stage", quiet=self.quiet)
+        with whisper_model_session():
+            for ep in episodes:
+                status(f"\n[forge] prepare: {ep.stem}", quiet=self.quiet)
+                self.begin_episode(ep)
+                self.phase_prepare(ep)
+        ready = [ep for ep in episodes if not ep.broken]
+        if ready and self.llm_needed:
+            self.llama.open()
+            try:
+                for ep in ready:
+                    status(f"\n[forge] llm: {ep.stem}", quiet=self.quiet)
+                    self.phase_llm(ep)
+            finally:
+                self.llama.close()
+        elif ready:
+            for ep in ready:
+                self.phase_llm(ep)
+        for ep in episodes:
+            if not ep.broken:
+                status(f"\n[forge] cut: {ep.stem}", quiet=self.quiet)
+            self.finish_episode(ep)
+
+    def phase_prepare(self, ep: EpisodeState) -> None:
+        if not self.guard(ep, "audio", self.stage_audio):
+            ep.broken = True
+            return
+        status(f"[forge] transcribe input: {ep.model_audio.name}", quiet=self.quiet)
+        if not self.guard(ep, "transcribe", self.stage_transcribe):
+            ep.broken = True
+            if self.transcribe_enabled:
+                self._tick()
+            return
+        if self.transcribe_enabled:
+            self._tick()
+        if self.diar_enabled:
+            # Speakers are an enrichment: without them the analysis still works.
+            self.guard(ep, "diarize", self.stage_diarize)
+            self._tick()
+
+    def phase_llm(self, ep: EpisodeState) -> None:
+        if not self.llama.available:
+            # Minutes of connection retries per stage buy nothing here.
+            for stage, enabled in (
+                ("proofread", self.proofread_enabled),
+                ("article", self.article_enabled),
+                ("analyze", self.analyze_enabled),
+            ):
+                if enabled:
+                    self.report.record(ep.stem, stage, FAILED, detail="llama-server unavailable")
+                    self._tick()
+            return
+        if self.proofread_enabled and not self.proofread_clips_only:
+            self.guard(ep, "proofread", self.stage_proofread)
+            self._tick()
+        if not self.proofread_clips_only:
+            self._adopt_existing_proofread(ep)
+        if self.article_enabled:
+            self.guard(ep, "article", self.stage_article)
+            self._tick()
+        if self.analyze_enabled:
+            self.guard(ep, "analyze", self.stage_analyze)
+            self._tick()
+        else:
+            status("[analyze] skip (not selected)", quiet=self.quiet)
+        if self.proofread_clips_only:
+            # After the analysis: only now is it known which spans matter.
+            self.guard(ep, "proofread", self.stage_proofread_clips)
+            self._tick()
+        if self.delete_wav and ep.wav.exists() and ep.wav != ep.source:
+            # Transcription, diarization and audio probing are done with it.
+            ep.wav.unlink(missing_ok=True)
+
+    def phase_cut(self, ep: EpisodeState) -> None:
+        moments_data = _read_json_if_valid(ep.moments_path)
+        if moments_data is None or (isinstance(moments_data, list) and not moments_data):
+            # RU: Пустой moments.json резать нечем, и молчать об этом нельзя:
+            #     именно так выглядит эпизод, у которого анализ не дал моментов.
+            # EN: An empty moments.json leaves nothing to cut, and that must be
+            #     said out loud: it is how an episode with no analysed moments looks.
+            status(
+                f"[cut] skip ({self.final_model_folder}): no moments — "
+                "анализ не дал ни одного момента, перезапустите стадию analyze",
+                quiet=self.quiet,
+            )
+            if self.cut_enabled:
+                self.report.record(ep.stem, "cut", SKIPPED, detail="no moments")
+                self._tick()
+            return
+
+        skip_cut = self._cut_should_skip(ep)
+        if self.cut_enabled and not skip_cut:
+            self.guard(ep, "cut", self.stage_cut)
+        elif self.cut_enabled:
+            self.report.record(ep.stem, "cut", SKIPPED if ep.video is None else CACHED)
+
+        if isinstance(moments_data, list):
+            moments = [m for m in moments_data if isinstance(m, dict)]
+            self.guard(ep, "captions", lambda e: self.stage_captions(e, moments, skip_cut))
+        if self.cut_enabled:
+            self._tick()
+
+    # -- stages ---------------------------------------------------------------
+
+    def stage_audio(self, ep: EpisodeState) -> str:
+        transcript_ready = self.skip_existing and _outputs_ready(
+            [ep.transcript_path, ep.transcript_srt_path], validate_json=self.validate_json,
+        )
+        needs_wav = not transcript_ready or self.diar_enabled
+        need_mp3 = self.listening_copy and not _file_has_content(ep.audio)
+        need_wav = needs_wav and not _file_has_content(ep.wav)
+        if not need_mp3 and not need_wav:
+            return CACHED
+        mp3_path, wav_path = _ensure_audio_companions(ep.source, want_mp3=self.listening_copy)
+        ep.audio, ep.wav = mp3_path, wav_path
+        return DONE
+
+    def stage_transcribe(self, ep: EpisodeState) -> str:
+        if not self.transcribe_enabled:
+            status("[transcribe] skip (not selected)", quiet=self.quiet)
+            return SKIPPED
+        if self.skip_existing and _outputs_ready(
+            [ep.transcript_path, ep.transcript_srt_path], validate_json=self.validate_json,
+        ):
+            status("[transcribe] skip (exists)", quiet=self.quiet)
+            return CACHED
+
+        configured_url = str(self.a_conf.get("url", "")).strip()
+        local = parse_local_llama_cpp_host_port(configured_url) if configured_url else None
+        if local:
+            # Whisper large-v3 needs ~10GB VRAM. Kill any llama-server that
+            # holds the GPU before we start transcription.
+            _kill_llama_server(local[1])
+
+        status("[transcribe] start", quiet=self.quiet)
+        t_conf = self.conf.get("transcription", {})
+        device_raw = str(t_conf.get("device", "cuda")).strip().lower()
+        if device_raw == "auto":
+            device_raw = "cuda" if _has_cuda() else "cpu"
+
+        compute_type_raw = t_conf.get("compute_type")
+        compute_type = None
+        if isinstance(compute_type_raw, str) and compute_type_raw.strip():
+            compute_type = compute_type_raw.strip()
+            if self.autotune and compute_type.lower() == "auto":
+                compute_type = None
+
+        transcribe_config = TranscribeConfig(
+            input_path=ep.model_audio,
+            outdir=ep.output_dir,
+            model_name=str(t_conf.get("model", "large-v3")),
+            device=device_raw,
+            language=str(t_conf.get("language", "ru")),
+            beam_size=int(t_conf.get("beam_size", 5)),
+            compute_type=compute_type,
+            best_of=int(t_conf.get("best_of", 1)),
+            patience=float(t_conf.get("patience", 1.0)),
+            batch_size=int(t_conf.get("batch_size", 16)),
+            repetition_penalty=float(t_conf.get("repetition_penalty", 1.1)),
+            no_repeat_ngram_size=int(t_conf.get("no_repeat_ngram_size", 3)),
+            condition_on_previous_text=bool(t_conf.get("condition_on_previous_text", False)),
+            mode=str(t_conf.get("mode", "fast")),
+            initial_prompt=t_conf.get("initial_prompt") or None,
+            quality_beam_size=int(t_conf.get("quality_beam_size", 10)),
+            quiet=self.quiet,
+            verbose=self.verbose,
+        )
+        ep.transcript_path = transcribe_file(transcribe_config)
+        ep.transcript_srt_path = ep.transcript_path.with_suffix(".srt")
+        status("[transcribe] done", quiet=self.quiet)
+        return DONE
+
+    def stage_diarize(self, ep: EpisodeState) -> str:
+        if self.skip_existing and _outputs_ready([ep.diar_path], validate_json=self.validate_json):
+            status("[diarize] skip (exists)", quiet=self.quiet)
+            return CACHED
+        status("[diarize] start", quiet=self.quiet)
+        diarize_args = [
+            "--input", str(ep.model_audio),
+            "--outdir", str(ep.output_dir),
+            "--model", str(self.diar_conf.get("model", "pyannote/speaker-diarization")),
+        ]
+        num_speakers = self.diar_conf.get("num_speakers")
+        if num_speakers:
+            diarize_args += ["--num-speakers", str(int(num_speakers))]
+        if self.quiet:
+            diarize_args.append("--quiet")
+        if self.verbose:
+            diarize_args.append("--verbose")
+        run_module(
+            "podcast_reels_forge.scripts.diarize",
+            diarize_args,
+            quiet=self.quiet,
+            verbose=self.verbose,
+        )
+        status("[diarize] done", quiet=self.quiet)
+        return DONE
+
+    def stage_proofread(self, ep: EpisodeState) -> str:
+        """Proofread the transcript; on failure the raw one is used."""
+
+        proofread_path = ep.transcript_path.with_name(ep.transcript_path.stem + ".proofread.json")
+        proofread_srt_path = proofread_path.with_suffix(".srt")
+        if self.skip_existing and _outputs_ready(
+            [proofread_path, proofread_srt_path], validate_json=self.validate_json,
+        ):
+            status("[proofread] skip (exists)", quiet=self.quiet)
+            ep.transcript_path = proofread_path
+            return CACHED
+        status(f"[proofread] start ({self.roles.proofread})", quiet=self.quiet)
+        asyncio.run(run_proofread(
+            transcript_path=ep.transcript_path,
+            output_path=proofread_path,
+            url=self.llama.url,
+            model=self.roles.proofread,
+            proofread_conf=self.proofread_conf,
+            prompts_conf=self.prompts_conf,
+            quiet=self.quiet,
+            verbose=self.verbose,
+            **self._glossary_kwargs(ep),
+        ))
+        ep.transcript_path = proofread_path
+        status("[proofread] done", quiet=self.quiet)
+        return DONE
+
+    def _clip_ranges(self, ep: EpisodeState) -> list[tuple[float, float]]:
+        moments = _read_json_if_valid(ep.moments_path)
+        if not isinstance(moments, list):
+            return []
+        margin = float(self.p_conf.get("reel_padding", 5)) + 2.0
+        ranges: list[tuple[float, float]] = []
+        for moment in moments:
+            if not isinstance(moment, dict):
+                continue
+            try:
+                start, end = float(moment["start"]), float(moment["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            ranges.append((round(max(0.0, start - margin), 3), round(end + margin, 3)))
+        ranges.sort()
+        merged: list[tuple[float, float]] = []
+        for low, high in ranges:
+            if merged and low <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], high))
+            else:
+                merged.append((low, high))
+        return merged
+
+    def stage_proofread_clips(self, ep: EpisodeState) -> str:
+        """Proofread only what the selected clips show (subtitles, captions)."""
+
+        ranges = self._clip_ranges(ep)
+        if not ranges:
+            return SKIPPED
+        raw = ep.raw_transcript_path
+        current = fingerprint(
+            "proofread-clips", file_digest(raw), ranges, self.proofread_conf, self.roles.proofread,
+        )
+        target = ep.proofread_path
+        if (
+            self.skip_existing
+            and _outputs_ready([target, target.with_suffix(".srt")], validate_json=self.validate_json)
+            and ep.state.get("proofread") == current
+        ):
+            ep.subtitle_transcript = target
+            status("[proofread] skip (clips unchanged)", quiet=self.quiet)
+            return CACHED
+        status(f"[proofread] start: {len(ranges)} clip span(s) ({self.roles.proofread})", quiet=self.quiet)
+        asyncio.run(run_proofread(
+            transcript_path=raw,
+            output_path=target,
+            url=self.llama.url,
+            model=self.roles.proofread,
+            proofread_conf=self.proofread_conf,
+            prompts_conf=self.prompts_conf,
+            quiet=self.quiet,
+            verbose=self.verbose,
+            time_ranges=ranges,
+            **self._glossary_kwargs(ep),
+        ))
+        ep.state.set("proofread", current)
+        ep.subtitle_transcript = target
+        status("[proofread] done", quiet=self.quiet)
+        return DONE
+
+    @staticmethod
+    def _glossary_kwargs(ep: EpisodeState) -> dict[str, Any]:
+        # Only passed when there is one: the run_proofread signature is the
+        # contract, and episodes without an .info.json keep the plain call.
+        terms = ep.metadata.glossary() if ep.metadata is not None else []
+        return {"glossary": terms} if terms else {}
+
+    def _adopt_existing_proofread(self, ep: EpisodeState) -> None:
+        # RU: Вычитанный транскрипт мог быть сделан прошлым запуском. Даже
+        #     если стадия сейчас не запускалась (--only analyze), дальше
+        #     должен идти исправленный текст, а не сырой.
+        # EN: The proofread transcript may come from an earlier run. Even
+        #     when the stage did not execute this time (--only analyze), the
+        #     corrected text is what the rest of the pipeline must use.
+        existing = ep.transcript_path.with_name(ep.transcript_path.stem + ".proofread.json")
+        if existing.exists() and _outputs_ready([existing], validate_json=self.validate_json):
+            ep.transcript_path = existing
+
+    def stage_article(self, ep: EpisodeState) -> str:
+        """Retell the (proofread) transcript as prose. A side artefact."""
+
+        article_stem = ep.transcript_path.stem.replace(".proofread", "")
+        article_md_path = ep.transcript_path.with_name(article_stem + ".article.md")
+        article_json_path = article_md_path.with_suffix(".json")
+        if self.skip_existing and _outputs_ready(
+            [article_md_path, article_json_path], validate_json=self.validate_json,
+        ):
+            status("[article] skip (exists)", quiet=self.quiet)
+            return CACHED
+        status(f"[article] start ({self.roles.article})", quiet=self.quiet)
+        asyncio.run(run_article(
+            transcript_path=ep.transcript_path,
+            output_path=article_md_path,
+            url=self.llama.url,
+            model=self.roles.article,
+            article_conf=self.article_conf,
+            prompts_conf=self.prompts_conf,
+            diarization_path=ep.diar_path if ep.diar_path.exists() else None,
+            title=(ep.metadata.title if ep.metadata is not None and ep.metadata.title else ep.stem),
+            quiet=self.quiet,
+            verbose=self.verbose,
+        ))
+        status("[article] done", quiet=self.quiet)
+        return DONE
+
+    def _analysis_fingerprint(self, ep: EpisodeState) -> str:
+        """Everything the analysis result depends on."""
+
+        prompts_dir = Path(__file__).resolve().parent.parent / "prompts"
+        prompt_files = [
+            path
+            for pattern in ("chunk_*.txt", "cleanup_*.txt", "judge_*.txt", "context_*.txt")
+            for path in prompts_dir.glob(f"*/{pattern}")
+        ]
+        diar = ep.diar_path if self.diar_enabled and ep.diar_path.exists() else None
+        return fingerprint(
+            "analyze",
+            __version__,
+            file_digest(ep.transcript_path),
+            file_digest(diar),
+            file_digest(info_json_path(ep.source)),
+            self._analysis_processing_conf(),
+            self.prompts_conf,
+            self.roles.as_dict(),
+            subset(
+                self.a_conf,
+                ("role_overrides", "model_overrides", "n_predict", "temperature",
+                 "chunk_seconds", "max_chars_chunk", "scout_parallelism"),
+            ),
+            files_digest(prompt_files),
+        )
+
+    def _analysis_processing_conf(self) -> dict[str, Any]:
+        """``processing`` minus what only the cut uses (padding, face ratio)."""
+
+        conf = dict(self.p_conf) if isinstance(self.p_conf, dict) else {}
+        conf.pop("reel_padding", None)
+        filters = conf.get("quality_filters")
+        if isinstance(filters, dict):
+            kept = {
+                key: value
+                for key, value in filters.items()
+                if key not in {"face_min_ratio", "render_rejected"}
+            }
+            if kept:
+                conf["quality_filters"] = kept
+            else:
+                conf.pop("quality_filters", None)
+        return conf
+
+    def stage_analyze(self, ep: EpisodeState) -> str:
+        ep.analysis_folder.mkdir(parents=True, exist_ok=True)
+        current = self._analysis_fingerprint(ep)
+        if self.skip_existing and _analysis_outputs_ready(
+            ep.moments_path, ep.reels_md_path, validate_json=self.validate_json,
+        ):
+            decision = ep.state.decide("analyze", current)
+            if decision != "changed":
+                status(f"[analyze] skip ({self.final_model_folder})", quiet=self.quiet)
+                return CACHED
+            status(
+                "[analyze] inputs changed (transcript, config or prompts); re-running",
+                quiet=self.quiet,
+            )
+        status(f"[analyze] start ({self.final_model_folder})", quiet=self.quiet)
+        try:
+            final_moments = asyncio.run(run_staged_analysis(
+                transcript_path=ep.transcript_path,
+                outdir=ep.analysis_folder,
+                provider_name="llama_cpp",
+                url=self.llama.url,
+                api_key=None,
+                roles=self.roles,
+                llama_cpp_conf=self.a_conf,
+                prompts_conf=self.prompts_conf,
+                processing_conf=self.p_conf,
+                diarization_path=(
+                    ep.diar_path if self.diar_enabled and ep.diar_path.exists() else None
+                ),
+                quiet=self.quiet,
+                verbose=self.verbose,
+                progress=self.progress,
+                **(
+                    {"episode_metadata": ep.metadata.to_analysis_dict()}
+                    if ep.metadata is not None
+                    else {}
+                ),
+            ))
+        finally:
+            # A failed analysis still leaves valid (empty) outputs behind, so
+            # downstream readers never trip over a missing file; an empty
+            # moments list is what makes the next run retry it.
+            _ensure_placeholder_analyze_outputs(ep.moments_path, ep.reels_md_path)
+        ep.state.set("analyze", current)
+        status(
+            f"[analyze] done ({self.final_model_folder}, moments={len(final_moments)})",
+            quiet=self.quiet,
+        )
+        return DONE
+
+    def _existing_reels(self, ep: EpisodeState) -> list[Path]:
+        reels_dir = ep.analysis_folder / "reels"
+        if not reels_dir.exists():
+            return []
+        return [p for p in reels_dir.glob("reel_*.mp4") if re.match(r"^reel_\d+\.mp4$", p.name)]
+
+    def _count_reels(self, ep: EpisodeState) -> int | None:
+        reels = self._existing_reels(ep)
+        return len(reels) if reels else None
+
+    def _cut_should_skip(self, ep: EpisodeState) -> bool:
+        if not self.cut_enabled:
+            status("[cut] skip (not selected)", quiet=self.quiet)
+            return True
+        if ep.video is None:
+            # RU: Резать нечего, если видео нет: так выглядит эпизод, скачанный
+            #     только аудиодорожкой. Это не ошибка, но сказать надо прямо.
+            # EN: Nothing to cut without a video: that is an audio-only fetch.
+            #     Not an error, but it must be said out loud.
+            status(
+                f"[cut] skip ({ep.stem}): источник только аудио — "
+                "перекачайте ролик со стадией cut в наборе",
+                quiet=self.quiet,
+            )
+            return True
+        if self.skip_existing and self._existing_reels(ep):
+            decision = ep.state.decide("cut", self._cut_fingerprint(ep))
+            if decision != "changed":
+                status(f"[cut] skip ({self.final_model_folder}): exists", quiet=self.quiet)
+                return True
+            # Moments, subtitles or video settings changed: the old reels no
+            # longer match what their captions will describe.
+            status(
+                f"[cut] inputs changed; re-cutting ({self.final_model_folder})",
+                quiet=self.quiet,
+            )
+            self._discard_reels(ep)
+        return False
+
+    def _subtitle_transcript(self, ep: EpisodeState) -> Path:
+        if ep.subtitle_transcript is not None:
+            return ep.subtitle_transcript
+        if self.proofread_clips_only and ep.proofread_path.exists():
+            return ep.proofread_path
+        return ep.transcript_path
+
+    def _cut_fingerprint(self, ep: EpisodeState) -> str:
+        subtitles = self.conf.get("subtitles")
+        return fingerprint(
+            "cut",
+            __version__,
+            file_digest(ep.moments_path),
+            file_digest(self._subtitle_transcript(ep)) if self.subtitle_settings.enabled else "",
+            file_identity(ep.video),
+            self.v_conf,
+            subtitles if isinstance(subtitles, dict) else {},
+            self.exports_conf,
+            subset(self.p_conf, ("quality_filters", "reel_padding")) if isinstance(self.p_conf, dict) else {},
+        )
+
+    def _discard_reels(self, ep: EpisodeState) -> None:
+        reels_dir = ep.analysis_folder / "reels"
+        if reels_dir.is_dir():
+            shutil.rmtree(reels_dir)
+        (ep.analysis_folder / "reels_preview.mp4").unlink(missing_ok=True)
+
+    def stage_cut(self, ep: EpisodeState) -> str:
+        status(f"[cut] start ({self.final_model_folder})", quiet=self.quiet)
+        assert ep.video is not None
+        padding = int(self.p_conf.get("reel_padding", 5))
+        v_conf = self.v_conf
+        video_args = [
+            "--input", str(ep.video),
+            "--moments", str(ep.moments_path),
+            "--outdir", str(ep.analysis_folder),
+            "--threads", str(v_conf.get("threads", 4)),
+            "--v-bitrate", str(v_conf.get("video_bitrate", "5M")),
+            "--a-bitrate", str(v_conf.get("audio_bitrate", "192k")),
+            "--preset", str(v_conf.get("preset", "fast")),
+            "--padding", str(padding),
+        ]
+        if "use_nvenc" in v_conf and not bool(v_conf.get("use_nvenc")):
+            video_args.append("--no-nvenc")
+        video_args += ["--nvenc-cq", str(v_conf.get("nvenc_cq", 21))]
+        video_args += ["--nvenc-preset", str(v_conf.get("nvenc_preset", "p5"))]
+        if v_conf.get("vertical_crop", True):
+            video_args.append("--vertical")
+        if v_conf.get("smart_crop_face", True):
+            video_args.append("--smart-crop-face")
+            video_args += ["--face-samples", str(v_conf.get("face_samples", 7))]
+            video_args += ["--face-min-size", str(v_conf.get("face_min_size", 60))]
+            video_args += ["--two-speaker-layout", str(v_conf.get("two_speaker_layout", "split"))]
+
+        q_conf = self.p_conf.get("quality_filters", {}) if isinstance(self.p_conf, dict) else {}
+        if "min_score" in q_conf:
+            video_args += ["--filter-min-score", str(q_conf["min_score"])]
+        if "min_duration" in q_conf:
+            video_args += ["--filter-min-duration", str(q_conf["min_duration"])]
+        if "max_duration" in q_conf:
+            video_args += ["--filter-max-duration", str(q_conf["max_duration"])]
+        if "face_min_ratio" in q_conf:
+            video_args += ["--filter-face-ratio", str(q_conf["face_min_ratio"])]
+
+        if v_conf.get("qa", True) is False:
+            video_args.append("--no-qa")
+        if v_conf.get("qa_blackdetect"):
+            video_args.append("--qa-blackdetect")
+        if self.exports_conf.get("webm", False):
+            video_args.append("--export-webm")
+        if self.exports_conf.get("gif", False):
+            video_args.append("--export-gif")
+        if self.exports_conf.get("audio_only", False):
+            video_args.append("--export-audio")
+        if self.subtitle_settings.enabled:
+            video_args.append("--burn-subtitles")
+            video_args += ["--transcript-json", str(self._subtitle_transcript(ep))]
+            video_args += ["--subtitle-font", str(self.subtitle_settings.font_path)]
+            if not self.subtitle_settings.wrap_words:
+                video_args.append("--no-subtitle-wrap-words")
+            subs_conf = self.conf.get("subtitles")
+            if isinstance(subs_conf, dict) and subs_conf.get("keep_nosubs"):
+                video_args.append("--keep-nosubs")
+        if self.quiet:
+            video_args.append("--quiet")
+        if self.verbose:
+            video_args.append("--verbose")
+
+        q_filters = self.p_conf.get("quality_filters", {}) if isinstance(self.p_conf, dict) else {}
+        if isinstance(q_filters, dict) and q_filters.get("render_rejected"):
+            video_args.append("--render-rejected")
+
+        run_module(
+            "podcast_reels_forge.scripts.video_processor",
+            video_args,
+            quiet=self.quiet,
+            verbose=self.verbose,
+        )
+        ep.state.set("cut", self._cut_fingerprint(ep))
+        status(f"[cut] done ({self.final_model_folder})", quiet=self.quiet)
+        return DONE
+
+    def stage_captions(
+        self, ep: EpisodeState, moments: list[dict[str, Any]], skip_cut: bool,
+    ) -> str:
+        """Per-reel markdown, and subtitle sidecars for reels cut earlier."""
+
+        reels_dir = ep.analysis_folder / "reels"
+        sync_reel_markdowns(moments, reels_dir)
+        if self.subtitle_settings.enabled and skip_cut:
+            sync_reel_burned_subtitles(
+                moments,
+                reels_dir,
+                transcript_json_path=self._subtitle_transcript(ep),
+                padding=int(self.p_conf.get("reel_padding", 5)),
+                settings=self.subtitle_settings,
+                verbose=self.verbose and not self.quiet,
+            )
+        return DONE
+
+    def stages_per_episode(self) -> int:
+        return sum(
+            1
+            for enabled in (
+                self.transcribe_enabled,
+                self.diar_enabled,
+                self.proofread_enabled,
+                self.article_enabled,
+                self.analyze_enabled,
+                self.cut_enabled,
+            )
+            if enabled
+        )
+
+
 def run_pipeline(
     *,
     conf: dict[str, Any],
@@ -751,7 +1729,8 @@ def run_pipeline(
     youtube_overrides: dict[str, Any] | None = None,
     scope_to_youtube: bool = True,
     youtube_list_only: bool = False,
-) -> None:
+    report: RunReport | None = None,
+) -> RunReport:
     """RU: Запускает полный пайплайн на основе config.yaml и файлов на диске.
 
     Аргументы:
@@ -764,40 +1743,24 @@ def run_pipeline(
         youtube_overrides: Переопределения блока youtube с CLI.
         scope_to_youtube: Сузить очередь до роликов из youtube_sources.
         youtube_list_only: Показать список роликов и выйти, ничего не скачивая.
+        report: Отчёт прогона; создаётся, если не передан.
+
+    Возвращает отчёт: статус каждой стадии каждого эпизода. Ошибка эпизода
+    записывается в отчёт и не останавливает очередь.
 
     EN: Run the full pipeline based on config and filesystem discovery.
 
-    Args:
-        conf: Configuration dictionary loaded from config.yaml.
-        repo_dir: Path to the repository root (for locating prompts, etc.).
-        quiet: Suppress status messages.
-        verbose: Enable detailed logging.
-        youtube_sources: CLI links/handles; they extend youtube.sources from config.
-        youtube_exclude: One-off exclusions; they add to youtube.exclude.
-        youtube_overrides: CLI overrides for the youtube config block.
-        scope_to_youtube: Narrow the queue to the videos named in youtube_sources.
-        youtube_list_only: Print the resolved video list and exit without downloading.
-
+    Returns the run report: the status of every stage of every episode. An
+    episode's failure is recorded there and never stops the queue.
     """
+    report = report if report is not None else RunReport()
     paths = conf.get("paths", {})
     input_dir_path = Path(str(paths.get("input_dir", "input")))
     base_output_dir = Path(str(paths.get("output_dir", "output")))
 
     cache_conf = conf.get("cache", {}) if isinstance(conf, dict) else {}
-    validate_json = bool(cache_conf.get("validate_json", True))
     if "enabled" in cache_conf:
         skip_existing = bool(cache_conf.get("enabled", True)) and skip_existing
-
-    diar_conf = conf.get("diarization", {})
-    diar_enabled = bool(diar_conf.get("enabled", False))
-    proofread_conf = conf.get("proofread", {})
-    if not isinstance(proofread_conf, dict):
-        proofread_conf = {}
-    proofread_enabled = bool(proofread_conf.get("enabled", False))
-    article_conf = conf.get("article", {})
-    if not isinstance(article_conf, dict):
-        article_conf = {}
-    article_enabled = bool(article_conf.get("enabled", False))
 
     # A stage runs when the config enables it AND the caller selected it.
     active = set(stages) if stages is not None else set(PIPELINE_STAGES)
@@ -818,11 +1781,12 @@ def run_pipeline(
         quiet=quiet,
         verbose=verbose,
         progress=progress,
+        report=report,
     )
     if youtube_list_only or active == {"fetch"}:
-        return
+        return report
 
-    queue = find_input_queue(input_dir_path, only_stems=only_stems)
+    queue = find_input_queue(input_dir_path, only_stems=only_stems, ensure_companions=False)
     if not queue:
         if only_stems is not None:
             hint = "" if "fetch" in active else " Запустите стадию fetch, чтобы их скачать."
@@ -831,506 +1795,41 @@ def run_pipeline(
         else:
             status(f"RU: В папке {input_dir_path} не найдено видео-файлов.", quiet=quiet)
             status(f"EN: No video files found in {input_dir_path}", quiet=quiet)
-        return
+        return report
 
-    diar_enabled = diar_enabled and "diarize" in active
-    proofread_enabled = proofread_enabled and "proofread" in active
-    article_enabled = article_enabled and "article" in active
-    transcribe_enabled = "transcribe" in active
-    analyze_enabled = "analyze" in active
-    cut_enabled = "cut" in active
+    run = _PipelineRun(
+        conf=conf,
+        repo_dir=repo_dir,
+        quiet=quiet,
+        verbose=verbose,
+        skip_existing=skip_existing,
+        autotune=autotune,
+        progress=progress,
+        active=active,
+        report=report,
+    )
     if not quiet and stages is not None:
         status(
             "[forge] stages: " + ", ".join(s for s in PIPELINE_STAGES if s in active),
             quiet=quiet,
         )
-    subtitle_settings = subtitle_settings_from_conf(conf, repo_dir=repo_dir)
-    a_conf = conf.get("llama_cpp", {})
-    prompts_conf = conf.get("prompts", {})
-    p_conf = conf.get("processing", {})
-    v_conf = conf.get("video", {})
-    exports_conf = conf.get("exports", {})
 
-    if not isinstance(a_conf, dict):
-        a_conf = {}
-    if not isinstance(v_conf, dict):
-        v_conf = {}
-
-    if autotune:
-        a_conf = _autotune_llama_cpp_conf(a_conf)
-        tuned_threads = _autotune_video_threads(v_conf)
-        v_conf = {**v_conf, "threads": tuned_threads}
-        if not quiet:
-            service = a_conf.get("service", {}) if isinstance(a_conf, dict) else {}
-            status(
-                "[autotune] "
-                f"llama threads={service.get('threads')} parallel={service.get('parallel')} "
-                f"ctx={service.get('ctx_size')} video_jobs={v_conf.get('threads')}",
-                quiet=quiet,
-            )
-
-    roles = resolve_llama_cpp_role_mapping(conf)
-    final_model_folder = _model_folder_name(roles.judge_metadata)
-
-    # Resolve local llama host/port once so all stages can reference it.
-    _llama_url = str(a_conf.get("url", "")).strip()
-    local_llama_global = parse_local_llama_cpp_host_port(_llama_url) if _llama_url else None
-
-    stages_per_file = (
-        (1 if transcribe_enabled else 0)
-        + (1 if diar_enabled else 0)
-        + (1 if proofread_enabled else 0)
-        + (1 if article_enabled else 0)
-        + (1 if analyze_enabled else 0)
-        + (1 if cut_enabled else 0)
-    )
-    total_stages = len(queue) * stages_per_file
     # A plain progress object, advanced explicitly. Driving a tqdm iterator
     # with next() renders one step behind (tqdm counts an iteration when the
     # following next() arrives), so the bar sat at N-1 and finished at 3/4.
-    stage_bar = tqdm(
-        total=total_stages,
+    run.stage_bar = tqdm(
+        total=len(queue) * run.stages_per_episode(),
         disable=(not progress) or quiet,
         desc="Podcast Reels Forge",
     )
-
-    for item in queue:
-        video_path = item["video"]
-        target_audio = item["audio"]
-        # RU: Моделям отдаём PCM: у Whisper нет артефактов mp3, а pyannote на
-        #     mp3 просто падает (обрезка даёт на несколько сэмплов меньше).
-        # EN: The models get the PCM copy: Whisper avoids the mp3 artefacts and
-        #     pyannote outright fails on mp3 (a crop comes back a few samples
-        #     short of what it asked for).
-        model_audio = item.get("wav") or target_audio
-        if not _file_has_content(model_audio):
-            model_audio = target_audio
-        stem = item["stem"]
-
-        io = PipelineIO(
-            input_dir=input_dir_path,
-            output_dir=base_output_dir / stem,
-        )
-        os.makedirs(io.output_dir, exist_ok=True)
-        analysis_model_folder = io.output_dir / final_model_folder
-
-        status(f"\n[forge] processing: {stem}", quiet=quiet)
-        status(
-            f"[forge] video: {video_path.name}" if video_path is not None
-            else "[forge] video: нет (источник только аудио)",
-            quiet=quiet,
-        )
-        status(f"[forge] transcribe input: {model_audio.name}", quiet=quiet)
-
-        # 1) Transcribe
-        t_conf = conf.get("transcription", {})
-
-        transcript_path = io.output_dir / target_audio.with_suffix(".json").name
-        transcript_srt_path = io.output_dir / target_audio.with_suffix(".srt").name
-        legacy_audio_json = io.output_dir / "audio.json"
-        if not transcript_path.exists() and legacy_audio_json.exists():
-            transcript_path = legacy_audio_json
-            transcript_srt_path = legacy_audio_json.with_suffix(".srt")
-
-        _transcribe_needed = transcribe_enabled and not (skip_existing and _outputs_ready(
-            [transcript_path, transcript_srt_path],
-            validate_json=validate_json,
-        ))
-        if _transcribe_needed and local_llama_global:
-            # Whisper large-v3 needs ~10GB VRAM. Kill any llama-server that
-            # holds the GPU before we start transcription.
-            _kill_llama_server(local_llama_global[1])
-
-        if not transcribe_enabled:
-            status("[transcribe] skip (not selected)", quiet=quiet)
-        elif not _transcribe_needed:
-            status("[transcribe] skip (exists)", quiet=quiet)
+    episodes = [run.episode_state(item, base_output_dir) for item in queue]
+    try:
+        if run.scheduling == "episode":
+            for ep in episodes:
+                run.run_episode(ep)
         else:
-            status("[transcribe] start", quiet=quiet)
-            device_raw = str(t_conf.get("device", "cuda")).strip().lower()
-            if device_raw == "auto":
-                device_raw = "cuda" if _has_cuda() else "cpu"
-            if autotune and device_raw == "auto":
-                device_raw = "cuda" if _has_cuda() else "cpu"
-
-            compute_type_raw = t_conf.get("compute_type")
-            compute_type = None
-            if isinstance(compute_type_raw, str) and compute_type_raw.strip():
-                compute_type = compute_type_raw.strip()
-                if autotune and compute_type.lower() == "auto":
-                    compute_type = None
-
-            transcribe_config = TranscribeConfig(
-                input_path=model_audio,
-                outdir=io.output_dir,
-                model_name=str(t_conf.get("model", "large-v3")),
-                device=device_raw,
-                language=str(t_conf.get("language", "ru")),
-                beam_size=int(t_conf.get("beam_size", 5)),
-                compute_type=compute_type,
-                best_of=int(t_conf.get("best_of", 1)),
-                patience=float(t_conf.get("patience", 1.0)),
-                batch_size=int(t_conf.get("batch_size", 16)),
-                repetition_penalty=float(t_conf.get("repetition_penalty", 1.1)),
-                no_repeat_ngram_size=int(t_conf.get("no_repeat_ngram_size", 3)),
-                condition_on_previous_text=bool(
-                    t_conf.get("condition_on_previous_text", False)
-                ),
-                mode=str(t_conf.get("mode", "fast")),
-                initial_prompt=t_conf.get("initial_prompt") or None,
-                quality_beam_size=int(t_conf.get("quality_beam_size", 10)),
-                quiet=quiet,
-                verbose=verbose,
-            )
-            transcript_path = transcribe_file(transcribe_config)
-            status("[transcribe] done", quiet=quiet)
-
-        if transcribe_enabled:
-            stage_bar.update(1)
-
-        # 2) Optional diarization
-        diar_path = io.output_dir / "diarization.json"
-        if diar_enabled:
-            if skip_existing and _outputs_ready([diar_path], validate_json=validate_json):
-                status("[diarize] skip (exists)", quiet=quiet)
-            else:
-                status("[diarize] start", quiet=quiet)
-                diarize_args = [
-                    "--input",
-                    str(model_audio),
-                    "--outdir",
-                    str(io.output_dir),
-                    "--model",
-                    str(diar_conf.get("model", "pyannote/speaker-diarization")),
-                ]
-                num_speakers = diar_conf.get("num_speakers")
-                if num_speakers:
-                    diarize_args += ["--num-speakers", str(int(num_speakers))]
-                if quiet:
-                    diarize_args.append("--quiet")
-                if verbose:
-                    diarize_args.append("--verbose")
-                run_module(
-                    "podcast_reels_forge.scripts.diarize",
-                    diarize_args,
-                    quiet=quiet,
-                    verbose=verbose,
-                )
-                status("[diarize] done", quiet=quiet)
-
-            stage_bar.update(1)
-
-        # 3) Proofread + Analyze (share one llama-server session; proofread runs
-        #    after diarization so pyannote gets the GPU before llama loads).
-        url = str(a_conf.get("url", "http://127.0.0.1:8080/v1/chat/completions")).strip()
-        llama_cpp_proc: subprocess.Popen | None = None
-        local_llama = parse_local_llama_cpp_host_port(str(url))
-        service_conf = a_conf.get("service", {}) if isinstance(a_conf, dict) else {}
-        if local_llama and bool(service_conf.get("auto_start", True)):
-            host, port = local_llama
-            llama_cpp_proc = llama_cpp_start(
-                host=host,
-                port=port,
-                service_conf=service_conf if isinstance(service_conf, dict) else {},
-            )
-
-        # Wait for the server to finish loading the model before sending requests.
-        # This handles both our own auto-started instance and an external server
-        # that is still loading (returns 503 "Loading model" until ready).
-        if local_llama:
-            host, port = local_llama
-            startup_timeout = int((service_conf or {}).get("startup_timeout", 120))
-            wait_for_server_ready(host, port, timeout_s=max(startup_timeout, 300))
-
-        try:
-            # 3a) Proofread transcript: LLM fixes spelling/punctuation, writes
-            #     <stem>.proofread.json; downstream stages use the corrected file.
-            if proofread_enabled:
-                proofread_path = transcript_path.with_name(
-                    transcript_path.stem + ".proofread.json",
-                )
-                proofread_srt_path = proofread_path.with_suffix(".srt")
-                if skip_existing and _outputs_ready(
-                    [proofread_path, proofread_srt_path],
-                    validate_json=validate_json,
-                ):
-                    status("[proofread] skip (exists)", quiet=quiet)
-                    transcript_path = proofread_path
-                else:
-                    status(f"[proofread] start ({roles.proofread})", quiet=quiet)
-                    try:
-                        asyncio.run(run_proofread(
-                            transcript_path=transcript_path,
-                            output_path=proofread_path,
-                            url=url,
-                            model=roles.proofread,
-                            proofread_conf=proofread_conf,
-                            prompts_conf=prompts_conf,
-                            quiet=quiet,
-                            verbose=verbose,
-                        ))
-                        transcript_path = proofread_path
-                        status("[proofread] done", quiet=quiet)
-                    except Exception as exc:
-                        log.exception(
-                            "Proofread failed; continuing with the raw transcript: %s",
-                            exc,
-                        )
-                stage_bar.update(1)
-
-            # RU: Вычитанный транскрипт мог быть сделан прошлым запуском. Даже
-            #     если стадия сейчас не запускалась (--only analyze), дальше
-            #     должен идти исправленный текст, а не сырой.
-            # EN: The proofread transcript may come from an earlier run. Even
-            #     when the stage did not execute this time (--only analyze), the
-            #     corrected text is what the rest of the pipeline must use.
-            _existing_proofread = transcript_path.with_name(
-                transcript_path.stem + ".proofread.json",
-            )
-            if _existing_proofread.exists() and _outputs_ready(
-                [_existing_proofread], validate_json=validate_json,
-            ):
-                transcript_path = _existing_proofread
-
-            # 3b) Article: retell the (proofread) transcript as readable prose
-            #     with meaning-based sections. Read-only for the transcript.
-            if article_enabled:
-                article_stem = transcript_path.stem.replace(".proofread", "")
-                article_md_path = transcript_path.with_name(article_stem + ".article.md")
-                article_json_path = article_md_path.with_suffix(".json")
-                if skip_existing and _outputs_ready(
-                    [article_md_path, article_json_path],
-                    validate_json=validate_json,
-                ):
-                    status("[article] skip (exists)", quiet=quiet)
-                else:
-                    status(f"[article] start ({roles.article})", quiet=quiet)
-                    try:
-                        asyncio.run(run_article(
-                            transcript_path=transcript_path,
-                            output_path=article_md_path,
-                            url=url,
-                            model=roles.article,
-                            article_conf=article_conf,
-                            prompts_conf=prompts_conf,
-                            diarization_path=(
-                                diar_path if diar_path.exists() else None
-                            ),
-                            title=stem,
-                            quiet=quiet,
-                            verbose=verbose,
-                        ))
-                        status("[article] done", quiet=quiet)
-                    except Exception as exc:
-                        # The article is a side artefact; reels must still ship.
-                        log.exception("Article stage failed; continuing: %s", exc)
-                stage_bar.update(1)
-
-            analysis_model_folder.mkdir(parents=True, exist_ok=True)
-            moments_path = analysis_model_folder / "moments.json"
-            reels_md_path = analysis_model_folder / "reels.md"
-
-            if not analyze_enabled:
-                status("[analyze] skip (not selected)", quiet=quiet)
-            elif skip_existing and _analysis_outputs_ready(
-                moments_path,
-                reels_md_path,
-                validate_json=validate_json,
-            ):
-                status(
-                    f"[analyze] skip ({final_model_folder})",
-                    quiet=quiet,
-                )
-            else:
-                status(
-                    f"[analyze] start ({final_model_folder})",
-                    quiet=quiet,
-                )
-                try:
-                    final_moments = asyncio.run(run_staged_analysis(
-                        transcript_path=transcript_path,
-                        outdir=analysis_model_folder,
-                        provider_name="llama_cpp",
-                        url=url,
-                        api_key=None,
-                        roles=roles,
-                        llama_cpp_conf=a_conf,
-                        prompts_conf=prompts_conf,
-                        processing_conf=p_conf,
-                        diarization_path=diar_path if diar_enabled and diar_path.exists() else None,
-                        quiet=quiet,
-                        verbose=verbose,
-                        progress=progress,
-                    ))
-                    status(
-                        f"[analyze] done ({final_model_folder}, moments={len(final_moments)})",
-                        quiet=quiet,
-                    )
-                except SystemExit as exc:
-                    log.error(
-                        "Analyze failed; continuing. folder=%s code=%s",
-                        final_model_folder,
-                        exc,
-                    )
-                    _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
-                except Exception as exc:
-                    log.exception(
-                        "Analyze raised exception; continuing. folder=%s error=%s",
-                        final_model_folder,
-                        exc,
-                    )
-                    _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
-                else:
-                    _ensure_placeholder_analyze_outputs(moments_path, reels_md_path)
-            if analyze_enabled:
-                stage_bar.update(1)
-        finally:
-            if llama_cpp_proc:
-                llama_cpp_stop(llama_cpp_proc)
-            # Free VRAM from any llama-server (ours or external) before the cut
-            # stage so NVENC can use the GPU unimpeded.
-            if local_llama:
-                h, p = local_llama
-                if is_tcp_open(h, p):
-                    _kill_llama_server(p)
-
-        # 4) Cut + exports (single final output)
-        padding = int(p_conf.get("reel_padding", 5))
-        reels_dir = analysis_model_folder / "reels"
-        moments_data = _read_json_if_valid(moments_path)
-        if moments_data is None or (isinstance(moments_data, list) and not moments_data):
-            # RU: Пустой moments.json резать нечем, и молчать об этом нельзя:
-            #     именно так выглядит эпизод, у которого анализ не дал моментов.
-            # EN: An empty moments.json leaves nothing to cut, and that must be
-            #     said out loud: it is how an episode with no analysed moments looks.
-            status(
-                f"[cut] skip ({final_model_folder}): no moments — "
-                "анализ не дал ни одного момента, перезапустите стадию analyze",
-                quiet=quiet,
-            )
-            if cut_enabled:
-                stage_bar.update(1)
-            continue
-
-        import re as _re
-        existing_reels = [
-            p for p in (reels_dir.glob("reel_*.mp4") if reels_dir.exists() else [])
-            if _re.match(r"^reel_\d+\.mp4$", p.name)
-        ]
-        # RU: Резать нечего, если видео нет: так выглядит эпизод, скачанный
-        #     только аудиодорожкой. Это не ошибка — остальные стадии уже отдали
-        #     транскрипт, лонгрид и moments.json, — но сказать надо прямо.
-        # EN: Nothing to cut without a video: that is an audio-only fetch. Not an
-        #     error — the other stages already produced the transcript, long-read
-        #     and moments.json — but it must be said out loud.
-        no_video = video_path is None
-        skip_cut = (not cut_enabled) or no_video or (skip_existing and bool(existing_reels))
-        if not cut_enabled:
-            status("[cut] skip (not selected)", quiet=quiet)
-        elif no_video:
-            status(
-                f"[cut] skip ({stem}): источник только аудио — "
-                "перекачайте ролик со стадией cut в наборе",
-                quiet=quiet,
-            )
-        elif skip_cut:
-            status(
-                f"[cut] skip ({final_model_folder}): exists",
-                quiet=quiet,
-            )
-        else:
-            status(
-                f"[cut] start ({final_model_folder})",
-                quiet=quiet,
-            )
-            video_args = [
-                "--input",
-                str(video_path),
-                "--moments",
-                str(moments_path),
-                "--outdir",
-                str(analysis_model_folder),
-                "--threads",
-                str(v_conf.get("threads", 4)),
-                "--v-bitrate",
-                str(v_conf.get("video_bitrate", "5M")),
-                "--a-bitrate",
-                str(v_conf.get("audio_bitrate", "192k")),
-                "--preset",
-                str(v_conf.get("preset", "fast")),
-                "--padding",
-                str(padding),
-            ]
-            if "use_nvenc" in v_conf and not bool(v_conf.get("use_nvenc")):
-                video_args.append("--no-nvenc")
-            video_args += ["--nvenc-cq", str(v_conf.get("nvenc_cq", 21))]
-            video_args += ["--nvenc-preset", str(v_conf.get("nvenc_preset", "p5"))]
-            if v_conf.get("vertical_crop", True):
-                video_args.append("--vertical")
-            if v_conf.get("smart_crop_face", True):
-                video_args.append("--smart-crop-face")
-                video_args += ["--face-samples", str(v_conf.get("face_samples", 7))]
-                video_args += ["--face-min-size", str(v_conf.get("face_min_size", 60))]
-
-            q_conf = conf.get("processing", {}).get("quality_filters", {})
-            if "min_score" in q_conf:
-                video_args += ["--filter-min-score", str(q_conf["min_score"])]
-            if "min_duration" in q_conf:
-                video_args += ["--filter-min-duration", str(q_conf["min_duration"])]
-            if "max_duration" in q_conf:
-                video_args += ["--filter-max-duration", str(q_conf["max_duration"])]
-            if "face_min_ratio" in q_conf:
-                video_args += ["--filter-face-ratio", str(q_conf["face_min_ratio"])]
-
-            if exports_conf.get("webm", False):
-                video_args.append("--export-webm")
-            if exports_conf.get("gif", False):
-                video_args.append("--export-gif")
-            if exports_conf.get("audio_only", False):
-                video_args.append("--export-audio")
-            if subtitle_settings.enabled:
-                video_args.append("--burn-subtitles")
-                video_args += ["--transcript-json", str(transcript_path)]
-                video_args += ["--subtitle-font", str(subtitle_settings.font_path)]
-                if not subtitle_settings.wrap_words:
-                    video_args.append("--no-subtitle-wrap-words")
-            if quiet:
-                video_args.append("--quiet")
-            if verbose:
-                video_args.append("--verbose")
-
-            run_module(
-                "podcast_reels_forge.scripts.video_processor",
-                video_args,
-                quiet=quiet,
-                verbose=verbose,
-            )
-            status(f"[cut] done ({final_model_folder})", quiet=quiet)
-
-        if isinstance(moments_data, list):
-            try:
-                sync_reel_markdowns(
-                    [m for m in moments_data if isinstance(m, dict)],
-                    reels_dir,
-                )
-            except OSError as exc:
-                log.warning(
-                    "Failed to write reel markdowns for %s: %s",
-                    final_model_folder,
-                    exc,
-                )
-            if subtitle_settings.enabled and skip_cut:
-                sync_reel_burned_subtitles(
-                    [m for m in moments_data if isinstance(m, dict)],
-                    reels_dir,
-                    transcript_json_path=transcript_path,
-                    padding=padding,
-                    settings=subtitle_settings,
-                    verbose=verbose and not quiet,
-                )
-
-        if cut_enabled:
-            stage_bar.update(1)
-
-    stage_bar.close()
-    status("[forge] done", quiet=quiet)
+            run.run_stage_major(episodes)
+    finally:
+        run.stage_bar.close()
+    status(f"[forge] done: {report.summary_line()}", quiet=quiet)
+    return report
