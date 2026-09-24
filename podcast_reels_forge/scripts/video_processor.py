@@ -162,6 +162,16 @@ def ffmpeg_cut(
     if is_rejected and rejected_dir:
         out_path = rejected_dir / out_path.name
 
+    # RU: Каталог может ещё не существовать: отбраковка по доле кадров с лицом
+    #     решается здесь, уже после mkdir на стороне вызывающего кода. Без этого
+    #     ffmpeg молча падает с "No such file or directory", и клип теряется —
+    #     ни в reels/, ни в rejected/.
+    # EN: The directory may not exist yet: face-ratio rejection is decided here,
+    #     after the caller has done its mkdir. Without this ffmpeg fails with
+    #     "No such file or directory" and the clip is lost — it lands neither in
+    #     reels/ nor in rejected/.
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
     start_offset = max(0, start - opts.padding)
     end_offset = end + opts.padding
 
@@ -204,6 +214,13 @@ def ffmpeg_cut(
         # NVENC was attempted but failed; rebuild with software libx264.
         LOG.warning("NVENC encode failed for %s; retrying with software libx264", out_path.name)
         res = _run_subprocess(_build(False))
+
+    if res.returncode != 0 and not burning_subtitles:
+        LOG.error(
+            "Encode failed for %s: %s",
+            out_path.name,
+            (res.stderr or "").strip()[-800:],
+        )
 
     return res.returncode == 0, out_path, face_rejection_reason
 
@@ -592,7 +609,19 @@ def main(argv: list[str] | None = None) -> None:
             except OSError as exc:
                 LOG.warning("Failed to write reel markdown for %s: %s", clip_path.name, exc)
 
-    _status(f"[cut] done ({len(final_reels)} reels)", quiet=args.quiet)
+    # RU: Отбраковка и провал кодирования — разные исходы, и оба нужно назвать:
+    #     иначе «done (0 reels)» читается как успех.
+    # EN: Rejection and a failed encode are different outcomes and both must be
+    #     named: otherwise "done (0 reels)" reads as success.
+    rejected_count = sum(1 for p in all_cut_paths if p is not None and "rejected" in p.parts)
+    failed_count = sum(1 for p in all_cut_paths if p is None)
+    if failed_count:
+        LOG.error("%d of %d clips failed to encode", failed_count, len(all_cut_paths))
+    _status(
+        f"[cut] done ({len(final_reels)} reels, "
+        f"{rejected_count} rejected, {failed_count} failed)",
+        quiet=args.quiet,
+    )
 
 
 if __name__ == "__main__":
