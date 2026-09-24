@@ -13,10 +13,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# import yaml  <-- Move this down to avoid ModuleNotFoundError before venv activation
-
-from podcast_reels_forge.pipeline import PIPELINE_STAGES, resolve_stages, run_pipeline
-
 log = logging.getLogger("Forge")
 
 
@@ -44,6 +40,18 @@ def ensure_venv() -> None:
 
 
 ensure_venv()
+
+# RU: Только после re-exec в venv. Эта цепочка тянет requests, aiohttp и torch —
+#     импортируй её раньше, и запуск через системный python3 будет зависеть от
+#     того, оказались ли они там случайно.
+# EN: Only after the re-exec into the venv. This chain pulls in requests, aiohttp
+#     and torch — importing it earlier makes a `python3 start_forge.py` launch
+#     depend on the system interpreter happening to have them.
+from podcast_reels_forge.pipeline import (  # noqa: E402
+    PIPELINE_STAGES,
+    resolve_stages,
+    run_pipeline,
+)
 
 
 def _configure_logging(*, verbose: bool, quiet: bool) -> None:
