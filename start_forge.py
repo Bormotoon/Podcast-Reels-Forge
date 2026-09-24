@@ -125,6 +125,15 @@ def main() -> None:
 
     _configure_logging(verbose=args.verbose, quiet=args.quiet)
 
+    # RU: `.env` из корня проекта — источник ключей вроде YOUTUBE_API_KEY и
+    #     PYANNOTE_TOKEN. Настоящая переменная окружения всегда важнее файла.
+    # EN: The project-root `.env` supplies keys such as YOUTUBE_API_KEY and
+    #     PYANNOTE_TOKEN. A real environment variable always beats the file.
+    from podcast_reels_forge.utils.env import load_dotenv
+
+    repo_dir = Path(__file__).resolve().parent
+    load_dotenv(repo_dir)
+
     import yaml
 
     config_path = Path(args.config)
@@ -142,7 +151,7 @@ def main() -> None:
 
     run_pipeline(
         conf=conf,
-        repo_dir=Path(__file__).resolve().parent,
+        repo_dir=repo_dir,
         quiet=quiet,
         verbose=verbose,
         skip_existing=not args.no_skip_existing,
