@@ -958,6 +958,10 @@ def test_resolve_stages_only_skip_and_typos() -> None:
     import pytest
 
     assert pipeline.resolve_stages() == set(pipeline.PIPELINE_STAGES)
+    # The YouTube fetch is a first-class stage, selectable like any other.
+    assert pipeline.PIPELINE_STAGES[0] == "fetch"
+    assert pipeline.resolve_stages(only="fetch") == {"fetch"}
+    assert "fetch" not in pipeline.resolve_stages(skip="fetch")
     assert pipeline.resolve_stages(only="proofread,article") == {"proofread", "article"}
     assert pipeline.resolve_stages(only=["article"]) == {"article"}
 
@@ -1163,3 +1167,369 @@ def test_find_input_queue_ignores_its_own_companions(
     queue = pipeline.find_input_queue(input_dir)
 
     assert [item["stem"] for item in queue] == ["episode"]
+
+
+def _youtube_conf_fixture(input_dir: Path, output_root: Path) -> dict[str, object]:
+    return {
+        "paths": {"input_dir": str(input_dir), "output_dir": str(output_root)},
+        "transcription": {"language": "ru", "device": "cpu"},
+        "llama_cpp": {
+            "roles": {
+                "scout": "gemma4", "cleanup_refine": "gemma4",
+                "judge_metadata": "gemma4", "proofread": "gemma4", "article": "gemma4",
+            },
+            "url": "http://127.0.0.1:8080/v1/chat/completions",
+            "service": {"auto_start": False},
+        },
+        "processing": {"reels_count": 1, "reel_padding": 5},
+        "video": {"threads": 1},
+        "exports": {},
+        "subtitles": {"enabled": False},
+        "diarization": {"enabled": False},
+        "proofread": {"enabled": False},
+        "article": {"enabled": False},
+        "prompts": {"language": "auto", "variant": "default"},
+        "youtube": {"download_dir": str(input_dir / "youtube")},
+    }
+
+
+def _stub_llama(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr(pipeline, "llama_cpp_start", lambda **kw: None)
+    monkeypatch.setattr(pipeline, "llama_cpp_stop", lambda proc: None)
+    monkeypatch.setattr(pipeline, "wait_for_server_ready", lambda *a, **kw: None)
+    monkeypatch.setattr(pipeline, "_kill_llama_server", lambda *a: None)
+    monkeypatch.setattr(pipeline, "is_tcp_open", lambda *a: False)
+
+
+def test_youtube_fetch_runs_first_and_narrows_the_queue(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A --youtube run must not drag every local episode along with it."""
+    input_dir = tmp_path / "input"
+    download_dir = input_dir / "youtube"
+    download_dir.mkdir(parents=True)
+    # A large local episode that this run has nothing to do with.
+    (input_dir / "POS-1 - Local.mp4").write_text("x")
+
+    fetched_file = download_dir / "2026-02-08 - Эпизод [aaa00000000].mp4"
+
+    def fake_resolve_sources(sources, *, api_key=None, filters=None, exclude=None):  # noqa: ANN001
+        assert sources == ["https://youtu.be/aaa00000000"]
+        return [_fake_youtube_video("aaa00000000")]
+
+    def fake_fetch_videos(videos, config, *, on_progress=None):  # noqa: ANN001
+        assert config.download_dir == download_dir
+        fetched_file.write_text("media")
+        return [SimpleNamespace(path=fetched_file, stem=fetched_file.stem, downloaded=True)]
+
+    monkeypatch.setattr(pipeline, "resolve_sources", fake_resolve_sources)
+    monkeypatch.setattr(pipeline, "fetch_videos", fake_fetch_videos)
+
+    ffmpeg_calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str] | tuple[str, ...], **_: object) -> SimpleNamespace:
+        cmd_list = list(cmd)
+        ffmpeg_calls.append(cmd_list)
+        _write_ffmpeg_outputs(cmd_list)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fake_run)
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
+
+    transcribed: list[Path] = []
+
+    def fake_transcribe_file(config: pipeline.TranscribeConfig) -> Path:
+        transcribed.append(config.input_path)
+        out_path = config.outdir / config.input_path.with_suffix(".json").name
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps({"segments": []}), encoding="utf-8")
+        out_path.with_suffix(".srt").write_text("1\n", encoding="utf-8")
+        return out_path
+
+    monkeypatch.setattr(pipeline, "transcribe_file", fake_transcribe_file)
+    _stub_llama(monkeypatch)
+
+    pipeline.run_pipeline(
+        conf=_youtube_conf_fixture(input_dir, tmp_path / "output"),
+        repo_dir=tmp_path,
+        quiet=True,
+        verbose=False,
+        stages={"fetch", "transcribe"},
+        youtube_sources=["https://youtu.be/aaa00000000"],
+    )
+
+    assert [p.stem for p in transcribed] == ["2026-02-08 - Эпизод [aaa00000000]"]
+    # The untouched local episode never went near ffmpeg.
+    assert not any("POS-1 - Local" in " ".join(c) for c in ffmpeg_calls)
+
+
+def _fake_youtube_video(video_id: str) -> object:
+    from podcast_reels_forge.sources.youtube import YouTubeVideo
+
+    return YouTubeVideo(
+        video_id=video_id, title="Эпизод", upload_date="2026-02-08", duration=3600,
+    )
+
+
+def test_youtube_without_the_fetch_stage_still_narrows_the_run(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """--youtube <link> --only transcribe works over already-downloaded material."""
+    input_dir = tmp_path / "input"
+    download_dir = input_dir / "youtube"
+    download_dir.mkdir(parents=True)
+    (input_dir / "POS-1 - Local.mp4").write_text("x")
+    existing = download_dir / "2026-02-08 - Эпизод [aaa00000000].mp4"
+    existing.write_text("media")
+
+    monkeypatch.setattr(
+        pipeline, "resolve_sources",
+        lambda sources, **kw: [_fake_youtube_video("aaa00000000")],
+    )
+
+    def fail_fetch(*a: object, **kw: object) -> None:
+        raise AssertionError("fetch must not download when the stage is deselected")
+
+    monkeypatch.setattr(pipeline, "fetch_videos", fail_fetch)
+
+    def fake_run(cmd: list[str] | tuple[str, ...], **_: object) -> SimpleNamespace:
+        _write_ffmpeg_outputs(list(cmd))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fake_run)
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
+
+    transcribed: list[Path] = []
+
+    def fake_transcribe_file(config: pipeline.TranscribeConfig) -> Path:
+        transcribed.append(config.input_path)
+        out_path = config.outdir / config.input_path.with_suffix(".json").name
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps({"segments": []}), encoding="utf-8")
+        out_path.with_suffix(".srt").write_text("1\n", encoding="utf-8")
+        return out_path
+
+    monkeypatch.setattr(pipeline, "transcribe_file", fake_transcribe_file)
+    _stub_llama(monkeypatch)
+
+    pipeline.run_pipeline(
+        conf=_youtube_conf_fixture(input_dir, tmp_path / "output"),
+        repo_dir=tmp_path,
+        quiet=True,
+        verbose=False,
+        stages={"transcribe"},
+        youtube_sources=["https://youtu.be/aaa00000000"],
+    )
+
+    assert [p.stem for p in transcribed] == ["2026-02-08 - Эпизод [aaa00000000]"]
+
+
+def test_yt_all_inputs_keeps_the_whole_input_folder(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The escape hatch: fetch the link, then process everything on disk."""
+    input_dir = tmp_path / "input"
+    download_dir = input_dir / "youtube"
+    download_dir.mkdir(parents=True)
+    (input_dir / "local.mp4").write_text("x")
+    (download_dir / "2026-02-08 - Эпизод [aaa00000000].mp4").write_text("media")
+
+    monkeypatch.setattr(
+        pipeline, "resolve_sources",
+        lambda sources, **kw: [_fake_youtube_video("aaa00000000")],
+    )
+    monkeypatch.setattr(
+        pipeline, "fetch_videos", lambda videos, config, **kw: [],
+    )
+
+    def fake_run(cmd: list[str] | tuple[str, ...], **_: object) -> SimpleNamespace:
+        _write_ffmpeg_outputs(list(cmd))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fake_run)
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
+
+    transcribed: list[Path] = []
+
+    def fake_transcribe_file(config: pipeline.TranscribeConfig) -> Path:
+        transcribed.append(config.input_path)
+        out_path = config.outdir / config.input_path.with_suffix(".json").name
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps({"segments": []}), encoding="utf-8")
+        out_path.with_suffix(".srt").write_text("1\n", encoding="utf-8")
+        return out_path
+
+    monkeypatch.setattr(pipeline, "transcribe_file", fake_transcribe_file)
+    _stub_llama(monkeypatch)
+
+    pipeline.run_pipeline(
+        conf=_youtube_conf_fixture(input_dir, tmp_path / "output"),
+        repo_dir=tmp_path,
+        quiet=True,
+        verbose=False,
+        stages={"fetch", "transcribe"},
+        youtube_sources=["https://youtu.be/aaa00000000"],
+        scope_to_youtube=False,
+    )
+
+    assert sorted(p.stem for p in transcribed) == [
+        "2026-02-08 - Эпизод [aaa00000000]", "local",
+    ]
+
+
+def test_only_fetch_downloads_and_stops(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """--only fetch fills the folder without touching a single processing stage."""
+    input_dir = tmp_path / "input"
+    (input_dir / "youtube").mkdir(parents=True)
+    (input_dir / "local.mp4").write_text("x")
+
+    monkeypatch.setattr(
+        pipeline, "resolve_sources",
+        lambda sources, **kw: [_fake_youtube_video("aaa00000000")],
+    )
+
+    configs: list[object] = []
+
+    def fake_fetch_videos(videos, config, **kw):  # noqa: ANN001, ANN202
+        configs.append(config)
+        return []
+
+    monkeypatch.setattr(pipeline, "fetch_videos", fake_fetch_videos)
+
+    def fail(*a: object, **kw: object) -> None:
+        raise AssertionError("no stage after fetch may run")
+
+    monkeypatch.setattr(pipeline, "transcribe_file", fail)
+    monkeypatch.setattr(pipeline, "run_module", fail)
+    # find_input_queue would run ffmpeg over the local episode; --only fetch must
+    # return before it ever gets there.
+    monkeypatch.setattr(pipeline, "find_input_queue", fail)
+    _stub_llama(monkeypatch)
+
+    pipeline.run_pipeline(
+        conf=_youtube_conf_fixture(input_dir, tmp_path / "output"),
+        repo_dir=tmp_path,
+        quiet=True,
+        verbose=False,
+        stages={"fetch"},
+        youtube_sources=["https://youtu.be/aaa00000000"],
+    )
+
+    # Intent is unknown under --only fetch, so the video track is kept.
+    assert configs and configs[0].want_video is True
+
+
+def test_yt_list_prints_and_stops(
+    monkeypatch: MonkeyPatch, tmp_path: Path, capsys: object,
+) -> None:
+    """--yt-list resolves the sources and exits without downloading anything."""
+    input_dir = tmp_path / "input"
+    (input_dir / "youtube").mkdir(parents=True)
+
+    monkeypatch.setattr(
+        pipeline, "resolve_sources",
+        lambda sources, **kw: [_fake_youtube_video("aaa00000000")],
+    )
+    monkeypatch.setattr(pipeline, "fetch_videos", lambda *a, **kw: (_ for _ in ()).throw(
+        AssertionError("--yt-list must not download"),
+    ))
+    monkeypatch.setattr(pipeline, "find_input_queue", lambda *a, **kw: (_ for _ in ()).throw(
+        AssertionError("--yt-list must not build a queue"),
+    ))
+
+    pipeline.run_pipeline(
+        conf=_youtube_conf_fixture(input_dir, tmp_path / "output"),
+        repo_dir=tmp_path,
+        quiet=True,
+        verbose=False,
+        youtube_sources=["@pedobraz"],
+        youtube_list_only=True,
+    )
+
+    out = capsys.readouterr().out  # type: ignore[attr-defined]
+    assert "aaa00000000" in out
+
+
+def test_cut_is_skipped_cleanly_for_an_audio_only_source(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """No video means nothing to cut — a clear skip, not a crash."""
+    input_dir = tmp_path / "input"
+    download_dir = input_dir / "youtube"
+    download_dir.mkdir(parents=True)
+    (download_dir / "episode.m4a").write_text("audio")
+
+    output_root = tmp_path / "output"
+    model_dir = output_root / "episode" / "gemma4"
+    model_dir.mkdir(parents=True)
+    (output_root / "episode" / "episode.json").write_text(
+        json.dumps({"segments": []}), encoding="utf-8",
+    )
+    (output_root / "episode" / "episode.srt").write_text("1\n", encoding="utf-8")
+    (model_dir / "moments.json").write_text(
+        json.dumps([{"start": 1.0, "end": 5.0, "title": "T", "score": 9}]),
+        encoding="utf-8",
+    )
+    (model_dir / "reels.md").write_text("# Reels\n", encoding="utf-8")
+
+    def fake_run(cmd: list[str] | tuple[str, ...], **_: object) -> SimpleNamespace:
+        _write_ffmpeg_outputs(list(cmd))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fake_run)
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
+
+    def fail_cut(module: str, *a: object, **kw: object) -> None:
+        raise AssertionError(f"the cut stage must not run: {module}")
+
+    monkeypatch.setattr(pipeline, "run_module", fail_cut)
+    monkeypatch.setattr(pipeline, "sync_reel_markdowns", lambda *a, **kw: [])
+    _stub_llama(monkeypatch)
+
+    conf = _youtube_conf_fixture(input_dir, output_root)
+
+    pipeline.run_pipeline(
+        conf=conf,
+        repo_dir=tmp_path,
+        quiet=True,
+        verbose=False,
+        stages={"cut"},
+    )
+
+
+def test_config_exclusions_and_cli_exclusions_add_up(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A standing config rule must survive a one-off --yt-exclude.
+
+    If the CLI replaced the list instead, a single command would quietly lift
+    "never take this show" without saying so.
+    """
+    input_dir = tmp_path / "input"
+    (input_dir / "youtube").mkdir(parents=True)
+
+    seen: list[list[str]] = []
+
+    def fake_resolve_sources(sources, *, api_key=None, filters=None, exclude=None):  # noqa: ANN001
+        seen.append(list(exclude or []))
+        return []
+
+    monkeypatch.setattr(pipeline, "resolve_sources", fake_resolve_sources)
+    monkeypatch.setattr(pipeline, "find_input_queue", lambda *a, **kw: [])
+
+    conf = _youtube_conf_fixture(input_dir, tmp_path / "output")
+    conf["youtube"]["exclude"] = ["PLshow"]
+
+    pipeline.run_pipeline(
+        conf=conf,
+        repo_dir=tmp_path,
+        quiet=True,
+        verbose=False,
+        stages={"fetch", "transcribe"},
+        youtube_sources=["@pedobraz"],
+        youtube_exclude=["https://youtu.be/aaa00000000"],
+    )
+
+    assert seen == [["PLshow", "https://youtu.be/aaa00000000"]]

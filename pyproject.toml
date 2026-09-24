@@ -44,6 +44,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7.4.0", "ruff>=0.1.0", "mypy>=1.5.0", "types-requests", "types-PyYAML"]
 diarization = ["pyannote.audio>=3.1"]
+# YouTube keeps changing how it serves video, so keep this one current:
+#   pip install -U yt-dlp
+youtube = ["yt-dlp>=2025.1.0"]
 
 [project.urls]
 Homepage = "https://github.com/Bormotoon/Podcast-Reels-Forge"

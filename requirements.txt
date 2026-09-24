@@ -9,3 +9,8 @@ PyYAML>=6.0.1
 opencv-python-headless>=4.8.0
 mediapipe>=0.10.9
 platformdirs>=4.0.0
+
+# Optional. Needed only to pull episodes straight off YouTube (the `fetch` stage).
+# YouTube keeps changing how it serves video, so install it with -U and update it
+# when downloads start failing:  pip install -U yt-dlp
+# yt-dlp>=2025.1.0

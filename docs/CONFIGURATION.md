@@ -10,6 +10,98 @@ paths:
   output_dir: "output"
 ```
 
+## YouTube / Загрузка с YouTube
+
+RU: Стадия `fetch` — первая в конвейере. Ролик по ссылке, плейлист целиком или
+весь канал скачиваются в `download_dir`, после чего файл ничем не отличается от
+положенного руками. Нужен `yt-dlp` (`pip install -U yt-dlp`).
+
+EN: The `fetch` stage comes first in the pipeline. A video link, a whole playlist
+or an entire channel is downloaded into `download_dir`, after which the file is
+indistinguishable from one placed by hand. Needs `yt-dlp`.
+
+```yaml
+youtube:
+  sources: []                  # постоянные источники: ссылки, @handle
+  exclude: []                  # никогда не брать: обычно плейлист
+  download_dir: "input/youtube"
+  api_key_env: "YOUTUBE_API_KEY"
+  download: "audio"            # audio | auto | video
+  max_height: 1080
+  filename_template: "%(upload_date>%Y-%m-%d)s - %(title).150B [%(id)s].%(ext)s"
+  archive: "input/youtube/.archive.txt"
+  limit: 0                     # 0 = без ограничения, отсчёт от новых
+  since: null                  # "2026-01-01"
+  until: null
+  min_duration: 60             # отсекает Shorts
+  max_duration: 0
+  skip_live: true
+  cookies_file: null
+  retries: 3
+  rate_limit: null             # напр. "5M"
+  ydl_options: {}              # сырые опции yt-dlp, подмешиваются последними
+```
+
+| Ключ | Что делает |
+|---|---|
+| `sources` | Источники, обрабатываемые каждым запуском. Разовые задаются флагом `--youtube`, он идёт первым в списке. |
+| `exclude` | Ролики, которые не берутся никогда — ни скачиваются, ни обрабатываются. Принимает те же формы, что и `sources`; плейлист удобнее перечня id: правило «всё с канала, кроме этого шоу» остаётся верным само, когда в шоу добавляют выпуск. Исключение сильнее прямой ссылки и применяется **до** `limit`, поэтому `--yt-limit 5` даёт пять подходящих роликов, а не «пять новых, из которых часть выпала». Разовые исключения (`--yt-exclude`) складываются с этим списком, а не заменяют его. |
+| `download` | `audio` (по умолчанию) — всегда только аудиодорожка: час подкаста ~64 МБ вместо ~1 ГБ. Нарезать нечего, и стадия `cut` для таких эпизодов сообщит, что видео нет. `video` — всегда видео. `auto` — видео, только если в наборе стадий есть `cut`; под `--only fetch` намерение неизвестно, и `auto` оставляет видео, потому что ошибка в другую сторону стоит перекачки всего канала. Разовое переопределение — `--yt-audio-only` / `--yt-video`. |
+| `max_height` | На выходе всё равно вертикальный клип шириной 1080, поэтому 4K-исходник — просто занятый диск. `0` — брать лучшее доступное. |
+| `filename_template` | Шаблон вывода в синтаксисе yt-dlp. Дата ставит папки эпизодов в хронологический порядок, id делает имя уникальным и позволяет узнать уже скачанный ролик после переименования на YouTube. `.150B` — предел в **байтах**: кириллица весит два байта на символ, а лимит имени файла 255. |
+| `archive` | Журнал взятых id: ночной прогон канала берёт только новое. `null` — выключить. |
+| `min_duration` | Нижняя граница длительности. 60 отсекает Shorts. Ролики с неизвестной длительностью (так бывает при перечислении без API-ключа) фильтр пропускает: иначе прогон канала без ключа молча остался бы пустым. |
+| `cookies_file` | Файл cookies в формате Netscape — для возрастных ограничений и материалов для спонсоров. |
+| `ydl_options` | Опции yt-dlp как есть, подмешиваются последними и перекрывают всё вычисленное. YouTube регулярно меняет отдачу видео, и чинится это обычно одной опцией — знать её здесь важнее, чем править код. |
+
+RU: Если ролик не скачался, стадия делает вторую попытку через другой набор
+клиентов YouTube (`web_safari`, `tv`, `android`). Это лечит реальный случай: на
+части старых роликов дефолтные клиенты не видят ни одного формата и ролик
+выглядит как «This video is not available», хотя API отдаёт его публичным и без
+региональных ограничений. Повтор только после неудачи — навязывать этот набор
+всем подряд значит менять рабочее на неизвестное: у клиента `tv`, например,
+часть форматов приходит под DRM. Если `player_client` задан вручную через
+`ydl_options`, повтора нет: иначе заданная настройка выглядела бы бесполезной.
+
+EN: When a download fails, the stage makes one more attempt through another set
+of YouTube clients (`web_safari`, `tv`, `android`). This fixes a real case: for
+some older videos the default clients see no formats at all and the video reads
+as "This video is not available", even though the API reports it public with no
+region restriction. The retry happens only after a failure — forcing that set on
+everything would trade what works for the unknown (the `tv` client returns some
+formats DRM-protected). A `player_client` set by hand in `ydl_options` disables
+the retry, or that setting would look like it did nothing.
+
+RU: Чего повтор не лечит: блокировку правообладателем и региональные
+ограничения. Такой ролик недоступен любому клиенту, и стадия честно скажет об
+этом, не прерывая остальную очередь.
+
+EN: What the retry cannot fix: a rights-holder block or a region lock. Such a
+video is out of reach for every client, and the stage says so plainly without
+stopping the rest of the queue.
+
+RU: Ключ `YOUTUBE_API_KEY` не обязателен — без него перечисление делает сам
+yt-dlp. Он читается из `.env` в корне проекта или из окружения и уходит
+заголовком `X-goog-api-key`, а не в строке запроса: под `--verbose` urllib3
+логирует каждый URL, и ключ попал бы в лог. С ключом перечисление целого канала
+стоит ~41 единицу из бесплатных 10 000 в сутки.
+
+EN: `YOUTUBE_API_KEY` is optional — without it yt-dlp does the listing. It is read
+from the project-root `.env` or the environment and travels as an
+`X-goog-api-key` header rather than in the query string: under `--verbose`
+urllib3 logs every URL, and the key would land in the log. With a key, listing a
+whole channel costs ~41 units of the free 10,000/day quota.
+
+RU: Как только источники заданы — флагом `--youtube` или списком `sources`, —
+обрабатываются только названные ролики: иначе один запуск потянул бы за собой все
+локальные эпизоды из `input/` с перекодированием аудио для каждого. Снимается
+флагом `--yt-all-inputs`.
+
+EN: Once sources are given — via `--youtube` or the `sources` list — only the
+named videos are processed: otherwise one run would drag along every local
+episode in `input/`, transcoding audio for each. `--yt-all-inputs` lifts the
+restriction.
+
 ## Host memory / Освобождение памяти хоста
 
 RU: Пайплайн держит на хосте несколько гигабайт (llama-server плюс питон с
@@ -455,7 +547,7 @@ whose name is never stated keeps its technical id — no invented "Host" or "Gue
 ## Running single stages / Запуск отдельных этапов
 
 ```bash
-python3 start_forge.py --list-stages          # transcribe diarize proofread article analyze cut
+python3 start_forge.py --list-stages          # fetch transcribe diarize proofread article analyze cut
 python3 start_forge.py --only article         # only the long-read stage
 python3 start_forge.py --only proofread,article
 python3 start_forge.py --skip cut             # everything but video cutting

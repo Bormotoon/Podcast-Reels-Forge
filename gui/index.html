@@ -70,6 +70,11 @@
             <span data-i18n="dash_pipeline_status">Статус пайплайна</span>
           </div>
           <div class="pipeline-visual" id="pipelineVisual">
+            <div class="pipeline-stage" data-stage="fetch">
+              <div class="pipeline-stage-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+              <div class="pipeline-stage-label" data-i18n="stage_fetch">Загрузка с YouTube</div>
+            </div>
+            <div class="pipeline-connector"></div>
             <div class="pipeline-stage" data-stage="transcribe">
               <div class="pipeline-stage-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></div>
               <div class="pipeline-stage-label" data-i18n="stage_transcribe">Транскрибация</div>
@@ -135,6 +140,7 @@
             Снимите галочки с этапов, которые нужно пропустить, и скопируйте готовую команду. Выбор влияет только на команду — страницы работают без сервера.
           </p>
           <div class="stage-picker" id="stagePicker">
+            <label class="stage-chip"><input type="checkbox" data-stage-pick="fetch" checked><span data-i18n="stage_fetch">Загрузка с YouTube</span></label>
             <label class="stage-chip"><input type="checkbox" data-stage-pick="transcribe" checked><span data-i18n="stage_transcribe">Транскрибация</span></label>
             <label class="stage-chip"><input type="checkbox" data-stage-pick="diarize"><span data-i18n="stage_diarize">Диаризация</span></label>
             <label class="stage-chip"><input type="checkbox" data-stage-pick="proofread" checked><span data-i18n="stage_proofread">Вычитка</span></label>
@@ -145,6 +151,90 @@
           <div class="code-inline">
             <code id="stageCommand">python3 start_forge.py</code>
             <button class="btn btn-outlined" id="btnCopyStageCmd" data-i18n="dash_copy_cmd">Копировать</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z"/><polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"/></svg>
+            <span data-i18n="yt_title">Источник: YouTube</span>
+          </div>
+          <p style="margin:0 0 12px; font-size:12px; color:var(--md-sys-color-outline); line-height:1.5;" data-i18n="yt_hint">
+            Ссылка на ролик, плейлист или канал, либо @handle — по одному в строке. Нужен yt-dlp (pip install -U yt-dlp); YOUTUBE_API_KEY в .env не обязателен.
+          </p>
+          <div class="field" style="margin-bottom: 16px;">
+            <label data-i18n="yt_sources">Источники</label>
+            <textarea id="cfgYtSources" rows="3" data-i18n-placeholder="yt_sources_ph" placeholder="@pedobraz&#10;https://youtu.be/D6WjXRJt1DA"></textarea>
+          </div>
+          <div class="field" style="margin-bottom: 16px;">
+            <label data-i18n="yt_exclude">Не брать никогда</label>
+            <textarea id="cfgYtExclude" rows="2" data-i18n-placeholder="yt_exclude_ph" placeholder="https://www.youtube.com/playlist?list=PL..."></textarea>
+            <p style="margin:6px 0 0; font-size:11px; color:var(--md-sys-color-outline); line-height:1.5;" data-i18n="yt_exclude_hint">
+              Ссылка на плейлист, канал или ролик — по одной в строке. Такие ролики не скачиваются и не обрабатываются, даже если названы в источниках. Плейлист удобнее списка id: правило остаётся верным, когда в него добавляют выпуск.
+            </p>
+          </div>
+          <div class="grid-3" style="margin-bottom: 16px;">
+            <div class="field">
+              <label data-i18n="yt_download">Что качать</label>
+              <select id="cfgYtDownload">
+                <option value="audio" data-i18n="yt_download_audio" selected>Только аудио</option>
+                <option value="auto" data-i18n="yt_download_auto">Авто (видео только под нарезку)</option>
+                <option value="video" data-i18n="yt_download_video">Всегда видео</option>
+              </select>
+            </div>
+            <div class="field">
+              <label data-i18n="yt_limit">Взять последних (0 — все)</label>
+              <input type="number" id="cfgYtLimit" min="0" step="1" value="0">
+            </div>
+            <div class="field">
+              <label data-i18n="yt_since">Не раньше даты</label>
+              <input type="text" id="cfgYtSince" placeholder="2026-01-01">
+            </div>
+            <div class="field">
+              <label data-i18n="yt_min_dur">Мин. длительность, сек (60 отсекает Shorts)</label>
+              <input type="number" id="cfgYtMinDuration" min="0" step="1" value="60">
+            </div>
+            <div class="field">
+              <label data-i18n="yt_max_dur">Макс. длительность, сек (0 — без ограничения)</label>
+              <input type="number" id="cfgYtMaxDuration" min="0" step="1" value="0">
+            </div>
+            <div class="field">
+              <label data-i18n="yt_max_height">Потолок высоты, px</label>
+              <input type="number" id="cfgYtMaxHeight" min="0" step="1" value="1080">
+            </div>
+          </div>
+          <div class="field" style="margin-bottom: 16px;">
+            <label data-i18n="yt_dir">Папка загрузок</label>
+            <input type="text" id="cfgYtDownloadDir" value="input/youtube">
+          </div>
+          <div class="field" style="margin-bottom: 16px;">
+            <label class="m3-switch">
+              <div>
+                <div class="m3-switch-text" data-i18n="yt_skip_live">Пропускать эфиры и премьеры</div>
+              </div>
+              <input type="checkbox" id="cfgYtSkipLive" checked>
+              <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+            </label>
+          </div>
+          <div class="field" style="margin-bottom: 16px;">
+            <label class="m3-switch">
+              <div>
+                <div class="m3-switch-text" data-i18n="yt_archive">Вести журнал скачанного</div>
+                <div class="m3-switch-desc" data-i18n="yt_archive_desc">Повторный прогон канала берёт только новые ролики</div>
+              </div>
+              <input type="checkbox" id="cfgYtArchive" checked>
+              <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+            </label>
+          </div>
+          <div class="field">
+            <label class="m3-switch">
+              <div>
+                <div class="m3-switch-text" data-i18n="yt_all_inputs">Обрабатывать всю входную папку</div>
+                <div class="m3-switch-desc" data-i18n="yt_all_inputs_desc">По умолчанию прогон сужается до роликов из списка выше</div>
+              </div>
+              <input type="checkbox" id="cfgYtAllInputs">
+              <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+            </label>
           </div>
         </div>
 
@@ -197,6 +287,7 @@
       </div>
       <div class="bottom-bar-center">
         <div class="pipeline-overview" id="pipelineOverview">
+          <div class="pipeline-overview-dot" data-stage="fetch"></div>
           <div class="pipeline-overview-dot" data-stage="transcribe"></div>
           <div class="pipeline-overview-dot" data-stage="diarize"></div>
           <div class="pipeline-overview-dot" data-stage="proofread"></div>

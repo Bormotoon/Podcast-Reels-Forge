@@ -55,6 +55,28 @@ python3 start_forge.py
 - `--no-skip-existing` - пересчитать все стадии
 - `--autotune` - более безопасные параметры для текущего железа
 
+### 4) Или забрать материал с YouTube
+
+Ничего класть руками не нужно: Forge умеет скачивать ролик по ссылке, плейлист
+целиком или весь канал. Нужен `yt-dlp` (`pip install -U yt-dlp`); ключ
+`YOUTUBE_API_KEY` не обязателен.
+
+```bash
+# Один ролик через весь пайплайн
+python3 start_forge.py --youtube "https://youtu.be/D6WjXRJt1DA"
+
+# Весь канал, всё кроме нарезки
+python3 start_forge.py --youtube "@pedobraz" --skip cut
+
+# Посмотреть отбор, ничего не скачивая
+python3 start_forge.py --youtube "@pedobraz" --yt-limit 5 --yt-list
+```
+
+Файлы падают в `input/youtube/` под именем `ГГГГ-ММ-ДД - Заголовок [id]`, а прогон
+сужается до названных роликов — локальные эпизоды из `input/` не трогаются.
+Подробности и все флаги — в [CONFIGURATION.md](CONFIGURATION.md#youtube--загрузка-с-youtube)
+и в README.
+
 ---
 
 ## RU: Где лежат результаты
@@ -134,6 +156,7 @@ Podcast Reels Forge finds strong moments in long-form podcasts and cuts them int
 
 Default pipeline:
 
+0. Optional YouTube fetch: a video link, a playlist or a whole channel is downloaded into `input/youtube/`.
 1. Transcription via `faster-whisper`.
 2. Optional speaker diarization via `pyannote`.
 3. Staged analysis through the local llama.cpp-only Gemma 4 lineup.

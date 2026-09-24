@@ -1,6 +1,7 @@
 """RU: Оркестрация пайплайна Podcast Reels Forge.
 
 Модуль содержит логику основного пайплайна и оркестрирует стадии:
+0) Опциональная загрузка с YouTube (ссылка/плейлист/канал → файл во входной папке)
 1) Транскрибация (аудио/видео → JSON транскрипт)
 2) Опциональная диаризация (распознавание спикеров)
 3) Анализ (LLM ищет «вирусные» моменты)
@@ -9,6 +10,7 @@
 EN: Pipeline orchestration for Podcast Reels Forge.
 
 This module contains the main pipeline logic that orchestrates all stages:
+0) Optional YouTube fetch (link/playlist/channel → a file in the input folder)
 1) Transcription (audio/video → JSON transcript)
 2) Optional diarization (speaker identification)
 3) Analysis (LLM finds viral moments)
@@ -47,8 +49,23 @@ from podcast_reels_forge.config import (
     normalize_model_folder_name,
     resolve_llama_cpp_role_mapping,
 )
+from podcast_reels_forge.sources.youtube import (
+    VideoFilters,
+    YouTubeError,
+    api_key_from_env,
+    resolve_sources,
+)
 from podcast_reels_forge.stages.analyze_stage import run_staged_analysis
 from podcast_reels_forge.stages.article_stage import run_article
+from podcast_reels_forge.stages.fetch_stage import (
+    DEFAULT_FILENAME_TEMPLATE,
+    FetchConfig,
+    describe_videos,
+    fetch_videos,
+    locate_existing,
+    resolve_download_dir,
+    want_video_for_stages,
+)
 from podcast_reels_forge.stages.proofread_stage import run_proofread
 from podcast_reels_forge.stages.transcribe_stage import (
     TranscribeConfig,
@@ -499,6 +516,7 @@ def run_module(
 
 #: Stages in execution order, as accepted by ``--only`` / ``--skip``.
 PIPELINE_STAGES: tuple[str, ...] = (
+    "fetch",
     "transcribe",
     "diarize",
     "proofread",
@@ -544,6 +562,180 @@ def resolve_stages(
     return selected
 
 
+def _youtube_conf(
+    conf: dict[str, Any], overrides: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """RU: Блок youtube из конфига поверх значений с CLI.
+
+    EN: The youtube config block, with CLI overrides applied on top.
+
+    Only keys the caller actually set are taken from ``overrides``: argparse
+    hands us ``None`` for everything untouched, and letting those through would
+    wipe the config values they are meant to override.
+    """
+
+    base = conf.get("youtube") if isinstance(conf, dict) else None
+    merged: dict[str, Any] = dict(base) if isinstance(base, dict) else {}
+    for key, value in (overrides or {}).items():
+        if value is not None:
+            merged[key] = value
+    return merged
+
+
+def _run_youtube_fetch(
+    *,
+    conf: dict[str, Any],
+    input_dir: Path,
+    active: set[str],
+    sources: Sequence[str] | None,
+    cli_exclude: Sequence[str] | None,
+    overrides: dict[str, Any] | None,
+    scope: bool,
+    list_only: bool,
+    skip_existing: bool,
+    quiet: bool,
+    verbose: bool,
+    progress: bool,
+) -> set[str] | None:
+    """RU: Разворачивает источники YouTube и скачивает недостающее.
+
+    EN: Expand the YouTube sources and download whatever is missing.
+
+    Returns the stems this run should be limited to, or ``None`` for "no
+    narrowing" — either nothing was requested from YouTube or the caller asked
+    for the whole input folder.
+
+    Resolution happens even when the ``fetch`` stage is not selected: the run
+    still has to know which episodes were meant, so ``--youtube <link> --only
+    analyze`` works on already-downloaded material.
+    """
+
+    yt_conf = _youtube_conf(conf, overrides)
+
+    cli_sources = [str(s).strip() for s in (sources or []) if str(s).strip()]
+    conf_sources = yt_conf.get("sources")
+    conf_sources = (
+        [str(s).strip() for s in conf_sources if str(s).strip()]
+        if isinstance(conf_sources, list)
+        else []
+    )
+    # CLI first: "the link I just typed" should head the list.
+    all_sources = cli_sources + [s for s in conf_sources if s not in cli_sources]
+    if not all_sources:
+        return None
+
+    # RU: Исключения складываются, а не переопределяются: постоянный список в
+    #     конфиге («никогда не брать этот подкаст») должен пережить разовое
+    #     --yt-exclude, иначе одна команда молча снимет правило.
+    # EN: Exclusions add up rather than override: a standing config list ("never
+    #     take this show") must survive a one-off --yt-exclude, or a single
+    #     command would quietly lift the rule.
+    conf_exclude = yt_conf.get("exclude")
+    exclude = [
+        str(s).strip()
+        for s in (conf_exclude if isinstance(conf_exclude, list) else [])
+        if str(s).strip()
+    ]
+    exclude += [s for s in (cli_exclude or []) if s not in exclude]
+
+    download_dir = resolve_download_dir(yt_conf, input_dir)
+
+    filters = VideoFilters(
+        limit=max(0, int(yt_conf.get("limit") or 0)),
+        since=yt_conf.get("since") or None,
+        until=yt_conf.get("until") or None,
+        min_duration=max(0, int(yt_conf.get("min_duration") or 0)),
+        max_duration=max(0, int(yt_conf.get("max_duration") or 0)),
+        skip_live=bool(yt_conf.get("skip_live", True)),
+    )
+    api_key = api_key_from_env(str(yt_conf.get("api_key_env") or "YOUTUBE_API_KEY"))
+
+    status(f"[fetch] источники: {', '.join(all_sources)}", quiet=quiet)
+    if exclude:
+        status(f"[fetch] исключения: {', '.join(exclude)}", quiet=quiet)
+    if not api_key and not quiet:
+        status(
+            "[fetch] YOUTUBE_API_KEY не задан — перечисление делает yt-dlp "
+            "(без дат публикации до скачивания)",
+            quiet=quiet,
+        )
+
+    try:
+        videos = resolve_sources(
+            all_sources, api_key=api_key, filters=filters, exclude=exclude,
+        )
+    except YouTubeError as exc:
+        raise SystemExit(f"YouTube: {exc}") from exc
+
+    if list_only:
+        print(describe_videos(videos, download_dir))
+        return None
+
+    if not videos:
+        status("[fetch] под условия отбора не попал ни один ролик", quiet=quiet)
+        return set() if scope else None
+
+    if "fetch" not in active:
+        status(f"[fetch] skip (not selected); роликов выбрано: {len(videos)}", quiet=quiet)
+        fetched = locate_existing(videos, download_dir)
+    else:
+        want_video = want_video_for_stages(yt_conf, active)
+        config = FetchConfig(
+            download_dir=download_dir,
+            want_video=want_video,
+            max_height=max(0, int(yt_conf.get("max_height") or 0)),
+            filename_template=str(
+                yt_conf.get("filename_template") or DEFAULT_FILENAME_TEMPLATE,
+            ),
+            archive=(Path(str(yt_conf["archive"])) if yt_conf.get("archive") else None),
+            skip_existing=skip_existing,
+            cookies_file=(
+                Path(str(yt_conf["cookies_file"])) if yt_conf.get("cookies_file") else None
+            ),
+            retries=int(yt_conf.get("retries") or 3),
+            rate_limit=(str(yt_conf["rate_limit"]) if yt_conf.get("rate_limit") else None),
+            # RU: Сквозной проброс опций yt-dlp. YouTube регулярно меняет отдачу
+            #     видео, и лечится это обычно одной опцией — не хочется ради
+            #     каждой такой правки трогать код.
+            # EN: A pass-through for raw yt-dlp options. YouTube keeps changing
+            #     how it serves video, and the fix is usually a single option —
+            #     which should not require a code change every time.
+            extra_options=(
+                dict(yt_conf["ydl_options"])
+                if isinstance(yt_conf.get("ydl_options"), dict)
+                else {}
+            ),
+            quiet=quiet,
+            verbose=verbose,
+        )
+        status(
+            f"[fetch] start ({len(videos)} шт., "
+            f"{'видео до ' + str(config.max_height) + 'p' if want_video else 'только аудио'})",
+            quiet=quiet,
+        )
+        bar = tqdm(
+            total=len(videos),
+            disable=(not progress) or quiet,
+            desc="YouTube",
+        )
+        try:
+            fetched = fetch_videos(
+                videos, config, on_progress=lambda _v: bar.update(1),
+            )
+        finally:
+            bar.close()
+        downloaded = sum(1 for f in fetched if f.downloaded)
+        status(
+            f"[fetch] done (скачано {downloaded}, уже было {len(fetched) - downloaded}, "
+            f"не получилось {len(videos) - len(fetched)})",
+            quiet=quiet,
+        )
+
+    if not scope:
+        return None
+    return {f.stem for f in fetched}
+
+
 def run_pipeline(
     *,
     conf: dict[str, Any],
@@ -554,6 +746,11 @@ def run_pipeline(
     autotune: bool = False,
     progress: bool = True,
     stages: Collection[str] | None = None,
+    youtube_sources: Sequence[str] | None = None,
+    youtube_exclude: Sequence[str] | None = None,
+    youtube_overrides: dict[str, Any] | None = None,
+    scope_to_youtube: bool = True,
+    youtube_list_only: bool = False,
 ) -> None:
     """RU: Запускает полный пайплайн на основе config.yaml и файлов на диске.
 
@@ -562,6 +759,11 @@ def run_pipeline(
         repo_dir: Путь к корню репозитория (для поиска prompts и т.п.).
         quiet: Подавлять статус-сообщения.
         verbose: Включить подробный лог.
+        youtube_sources: Ссылки/handle с CLI; дополняют youtube.sources из конфига.
+        youtube_exclude: Разовые исключения; складываются с youtube.exclude.
+        youtube_overrides: Переопределения блока youtube с CLI.
+        scope_to_youtube: Сузить очередь до роликов из youtube_sources.
+        youtube_list_only: Показать список роликов и выйти, ничего не скачивая.
 
     EN: Run the full pipeline based on config and filesystem discovery.
 
@@ -570,6 +772,11 @@ def run_pipeline(
         repo_dir: Path to the repository root (for locating prompts, etc.).
         quiet: Suppress status messages.
         verbose: Enable detailed logging.
+        youtube_sources: CLI links/handles; they extend youtube.sources from config.
+        youtube_exclude: One-off exclusions; they add to youtube.exclude.
+        youtube_overrides: CLI overrides for the youtube config block.
+        scope_to_youtube: Narrow the queue to the videos named in youtube_sources.
+        youtube_list_only: Print the resolved video list and exit without downloading.
 
     """
     paths = conf.get("paths", {})
@@ -580,12 +787,6 @@ def run_pipeline(
     validate_json = bool(cache_conf.get("validate_json", True))
     if "enabled" in cache_conf:
         skip_existing = bool(cache_conf.get("enabled", True)) and skip_existing
-
-    queue = find_input_queue(input_dir_path)
-    if not queue:
-        status(f"RU: В папке {input_dir_path} не найдено видео-файлов.", quiet=quiet)
-        status(f"EN: No video files found in {input_dir_path}", quiet=quiet)
-        return
 
     diar_conf = conf.get("diarization", {})
     diar_enabled = bool(diar_conf.get("enabled", False))
@@ -600,6 +801,38 @@ def run_pipeline(
 
     # A stage runs when the config enables it AND the caller selected it.
     active = set(stages) if stages is not None else set(PIPELINE_STAGES)
+
+    # 0) YouTube: resolve the sources, download what is missing, and work out
+    #    which episodes this run is about. Runs before the queue is built so the
+    #    narrowing can spare untouched local files from the ffmpeg pass.
+    only_stems = _run_youtube_fetch(
+        conf=conf,
+        input_dir=input_dir_path,
+        active=active,
+        sources=youtube_sources,
+        cli_exclude=youtube_exclude,
+        overrides=youtube_overrides,
+        scope=scope_to_youtube,
+        list_only=youtube_list_only,
+        skip_existing=skip_existing,
+        quiet=quiet,
+        verbose=verbose,
+        progress=progress,
+    )
+    if youtube_list_only or active == {"fetch"}:
+        return
+
+    queue = find_input_queue(input_dir_path, only_stems=only_stems)
+    if not queue:
+        if only_stems is not None:
+            hint = "" if "fetch" in active else " Запустите стадию fetch, чтобы их скачать."
+            status(f"RU: Обрабатывать нечего: подходящих файлов нет.{hint}", quiet=quiet)
+            status("EN: Nothing to process: no matching files.", quiet=quiet)
+        else:
+            status(f"RU: В папке {input_dir_path} не найдено видео-файлов.", quiet=quiet)
+            status(f"EN: No video files found in {input_dir_path}", quiet=quiet)
+        return
+
     diar_enabled = diar_enabled and "diarize" in active
     proofread_enabled = proofread_enabled and "proofread" in active
     article_enabled = article_enabled and "article" in active

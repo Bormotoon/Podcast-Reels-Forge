@@ -30,9 +30,14 @@ podcast_reels_forge/
 │   ├── transcribe.py    # Транскрипция (обёртка) / Transcription wrapper
 │   ├── video_processor.py  # Обработка видео / Video processing
 │   ├── diarize.py       # Диаризация / Diarization
+│   ├── fetch_youtube.py # Загрузка с YouTube / YouTube downloader
 │   └── evaluate_prompts.py # A/B тестирование / A/B prompt evaluation
+├── sources/             # Внешние источники видео / External video sources
+│   ├── __init__.py
+│   └── youtube.py       # Разбор ссылок и перечисление / Link parsing and listing
 ├── stages/              # Реализации этапов / Stage implementations
 │   ├── __init__.py
+│   ├── fetch_stage.py       # Скачивание через yt-dlp / yt-dlp downloading
 │   ├── transcribe_stage.py  # Логика транскрипции / Transcription logic
 │   ├── analyze_stage.py     # Метрики анализа / Analysis metrics
 │   └── video_stage.py       # Конфиги видео / Video configs
@@ -41,9 +46,18 @@ podcast_reels_forge/
 │   └── providers.py     # llama.cpp/OpenAI-compatible providers
 └── utils/               # Утилиты / Utilities
     ├── __init__.py
+    ├── env.py           # Загрузка .env / .env loading
     ├── json_utils.py    # Извлечение JSON из текста / Extract JSON from text
     └── logging_utils.py # Настройка логирования / Logging setup
 ```
+
+RU: `sources/` отвечает на вопрос «какие ролики имеются в виду» и ничего не
+скачивает; скачивание живёт в `stages/fetch_stage.py`. Разделение позволяет
+тестировать разбор ссылок и работу с Data API без сети и без yt-dlp.
+
+EN: `sources/` answers "which videos are meant" and downloads nothing; the
+downloading lives in `stages/fetch_stage.py`. The split lets link parsing and the
+Data API work be tested without a network and without yt-dlp installed.
 
 ## Запуск тестов / Running tests
 

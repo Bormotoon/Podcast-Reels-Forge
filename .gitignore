@@ -110,3 +110,6 @@ llama-server.log
 
 # Host-memory run state (original VM sizes, kept until they are restored)
 .forge-host-memory.json
+
+# Detached channel-run log
+run_channel.log

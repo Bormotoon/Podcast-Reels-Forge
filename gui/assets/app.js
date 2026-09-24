@@ -27,6 +27,28 @@
         dash_run: 'Запустить пайплайн', dash_autotune: 'Автоподбор', dash_style_editor: 'Редактор стилей',
         dash_queue: 'Очередь обработки',
         dash_empty_title: 'Очередь пуста', dash_empty_desc: 'Загрузите видеофайлы для начала обработки',
+        // YouTube
+        stage_fetch: 'Загрузка с YouTube',
+        yt_title: 'Источник: YouTube',
+        yt_hint: 'Ссылка на ролик, плейлист или канал, либо @handle — по одному в строке. ' +
+                 'Нужен yt-dlp (pip install -U yt-dlp); YOUTUBE_API_KEY в .env не обязателен.',
+        yt_sources: 'Источники', yt_sources_ph: '@pedobraz\nhttps://youtu.be/D6WjXRJt1DA',
+        yt_exclude: 'Не брать никогда',
+        yt_exclude_hint: 'Ссылка на плейлист, канал или ролик — по одной в строке. ' +
+                         'Такие ролики не скачиваются и не обрабатываются, даже если названы в источниках. ' +
+                         'Плейлист удобнее списка id: правило остаётся верным, когда в него добавляют выпуск.',
+        yt_exclude_ph: 'https://www.youtube.com/playlist?list=PL...',
+        yt_dir: 'Папка загрузок', yt_download: 'Что качать',
+        yt_download_auto: 'Авто (видео только под нарезку)',
+        yt_download_video: 'Всегда видео', yt_download_audio: 'Только аудио',
+        yt_max_height: 'Потолок высоты, px', yt_limit: 'Взять последних (0 — все)',
+        yt_since: 'Не раньше даты', yt_min_dur: 'Мин. длительность, сек (60 отсекает Shorts)',
+        yt_max_dur: 'Макс. длительность, сек (0 — без ограничения)',
+        yt_skip_live: 'Пропускать эфиры и премьеры',
+        yt_archive: 'Вести журнал скачанного',
+        yt_archive_desc: 'Повторный прогон канала берёт только новые ролики',
+        yt_all_inputs: 'Обрабатывать всю входную папку',
+        yt_all_inputs_desc: 'По умолчанию прогон сужается до роликов из списка выше',
         // Transcribe
         trans_title: 'Транскрибация', trans_desc: 'Настройка модели Whisper и параметров транскрибации',
         trans_model_device: 'Модель и устройство', trans_whisper_model: 'Модель Whisper',
@@ -228,6 +250,28 @@
         dash_run: 'Run Full Pipeline', dash_autotune: 'Autotune', dash_style_editor: 'Style Editor',
         dash_queue: 'Processing Queue',
         dash_empty_title: 'Queue is empty', dash_empty_desc: 'Upload video files to start processing',
+        // YouTube
+        stage_fetch: 'YouTube fetch',
+        yt_title: 'Source: YouTube',
+        yt_hint: 'A video, playlist or channel link, or an @handle — one per line. ' +
+                 'Needs yt-dlp (pip install -U yt-dlp); YOUTUBE_API_KEY in .env is optional.',
+        yt_sources: 'Sources', yt_sources_ph: '@pedobraz\nhttps://youtu.be/D6WjXRJt1DA',
+        yt_exclude: 'Never take',
+        yt_exclude_hint: 'A playlist, channel or video link — one per line. These are ' +
+                         'never downloaded or processed, even when named in the sources. ' +
+                         'A playlist beats a list of ids: the rule stays correct as episodes are added to it.',
+        yt_exclude_ph: 'https://www.youtube.com/playlist?list=PL...',
+        yt_dir: 'Download folder', yt_download: 'What to download',
+        yt_download_auto: 'Auto (video only when cutting)',
+        yt_download_video: 'Always video', yt_download_audio: 'Audio only',
+        yt_max_height: 'Height ceiling, px', yt_limit: 'Newest N (0 = all)',
+        yt_since: 'Published on or after', yt_min_dur: 'Min duration, s (60 drops Shorts)',
+        yt_max_dur: 'Max duration, s (0 = no limit)',
+        yt_skip_live: 'Skip live streams and premieres',
+        yt_archive: 'Keep a download archive',
+        yt_archive_desc: 'A repeat channel run then takes only new videos',
+        yt_all_inputs: 'Process the whole input folder',
+        yt_all_inputs_desc: 'By default the run narrows to the videos listed above',
         trans_title: 'Transcription', trans_desc: 'Configure Whisper model and transcription parameters',
         trans_model_device: 'Model & Device', trans_whisper_model: 'Whisper Model',
         trans_device: 'Device', trans_compute_type: 'Compute Type', trans_language: 'Language',
@@ -500,7 +544,11 @@
       settingsCache: true, settingsValidateJson: true, settingsProofread: true,
       settingsArticle: true, settingsDiarization: false,
       settingsDiarModel: 'pyannote/speaker-diarization', settingsDiarNumSpeakers: '',
-      stagePicks: ['transcribe', 'proofread', 'article', 'analyze', 'cut'],
+      // YouTube source (the `fetch` stage). Sources are one per line in a textarea.
+      ytSources: '', ytExclude: '', ytDownloadDir: 'input/youtube', ytDownload: 'audio',
+      ytMaxHeight: 1080, ytLimit: 0, ytSince: '', ytMinDuration: 60,
+      ytMaxDuration: 0, ytSkipLive: true, ytArchive: true, ytAllInputs: false,
+      stagePicks: ['fetch', 'transcribe', 'proofread', 'article', 'analyze', 'cut'],
       settingsQuiet: false, settingsVerbose: false, settingsSkipExisting: true,
       settingsNoProgress: false,
     };
@@ -716,6 +764,12 @@
       // Font path is owned by the style editor's "Путь к шрифту" field (subtitles page).
       // Prefer the live editor value, fall back to the mirrored state so export works on every page.
       const subsFont = (document.getElementById('fontPath')?.value || state.subsFont || 'assets/fonts/bignoodletoooblique.ttf').trim();
+      // Sources are typed one per line; a YAML list of quoted strings, or [] when empty.
+      const ytSrc = youtubeSources();
+      const ytSrcYaml = ytSrc.length ? '\n' + ytSrc.map(s => `    - "${s}"`).join('\n') : ' []';
+      const ytExc = youtubeExclusions();
+      const ytExcYaml = ytExc.length ? '\n' + ytExc.map(s => `    - "${s}"`).join('\n') : ' []';
+      const ytArchivePath = String(state.ytDownloadDir || 'input/youtube').replace(/\/+$/, '') + '/.archive.txt';
       return `# Podcast Reels Forge — Generated by Pipeline GUI
 # ${new Date().toISOString()}
 
@@ -725,6 +779,24 @@ paths:
 cli:
   quiet: ${state.settingsQuiet}
   verbose: ${state.settingsVerbose}
+youtube:
+  sources:${ytSrcYaml}
+  exclude:${ytExcYaml}
+  download_dir: "${state.ytDownloadDir}"
+  api_key_env: "YOUTUBE_API_KEY"
+  download: "${state.ytDownload}"
+  max_height: ${state.ytMaxHeight}
+  filename_template: "%(upload_date>%Y-%m-%d)s - %(title).150B [%(id)s].%(ext)s"
+  archive: ${state.ytArchive ? `"${ytArchivePath}"` : 'null'}
+  limit: ${state.ytLimit || 0}
+  since: ${state.ytSince ? `"${state.ytSince}"` : 'null'}
+  until: null
+  min_duration: ${state.ytMinDuration || 0}
+  max_duration: ${state.ytMaxDuration || 0}
+  skip_live: ${state.ytSkipLive}
+  cookies_file: null
+  retries: 3
+  rate_limit: null
 cache:
   enabled: ${state.settingsCache}
   validate_json: ${state.settingsValidateJson}
@@ -898,13 +970,20 @@ diarization:
 `;
     }
 
-    function updateConfigPreview() { const el = document.getElementById('configPreview'); if (el) el.value = generateConfig(); }
+    // Every bound input funnels through here, so this is also where the assembled
+    // command gets refreshed: the YouTube fields feed both outputs, and updating
+    // only the config preview would leave the copy button handing out a stale command.
+    function updateConfigPreview() {
+      const el = document.getElementById('configPreview');
+      if (el) el.value = generateConfig();
+      updateStageCommand();
+    }
 
     // ---- Stage picker (dashboard): build the start_forge.py command ----
     // The GUI is a set of static pages with no backend, so it cannot execute a
     // stage itself. What it can do is assemble the exact command, which is the
     // part that is easy to get wrong by hand.
-    const ALL_STAGES = ['transcribe', 'diarize', 'proofread', 'article', 'analyze', 'cut'];
+    const ALL_STAGES = ['fetch', 'transcribe', 'diarize', 'proofread', 'article', 'analyze', 'cut'];
 
     function selectedStages() {
       return ALL_STAGES.filter(name => {
@@ -912,6 +991,17 @@ diarization:
         return el ? el.checked : false;
       });
     }
+
+    // One entry per line, blanks and #-comments dropped.
+    function youtubeLines(value) {
+      return String(value || '')
+        .split('\n')
+        .map(s => s.trim())
+        .filter(s => s && !s.startsWith('#'));
+    }
+
+    function youtubeSources() { return youtubeLines(state.ytSources); }
+    function youtubeExclusions() { return youtubeLines(state.ytExclude); }
 
     function buildStageCommand() {
       const chosen = selectedStages();
@@ -924,6 +1014,17 @@ diarization:
           ? `--skip ${dropped.join(',')}`
           : `--only ${chosen.join(',')}`);
       }
+      // `--youtube=` rather than a space: a handle or id may begin with a dash
+      // (`-3LisPanK24` is a real one) and argparse would read it as a flag.
+      // Exclusions deliberately do NOT appear here: they are a standing rule and
+      // belong in the generated config's `exclude:` list. Repeating them on every
+      // command line would invite dropping one by accident.
+      youtubeSources().forEach(src => parts.push(`--youtube="${src}"`));
+      if (state.ytLimit && Number(state.ytLimit) > 0) parts.push(`--yt-limit ${Number(state.ytLimit)}`);
+      if (state.ytSince) parts.push(`--yt-since ${state.ytSince}`);
+      if (state.ytDownload === 'audio') parts.push('--yt-audio-only');
+      if (state.ytDownload === 'video') parts.push('--yt-video');
+      if (state.ytAllInputs) parts.push('--yt-all-inputs');
       if (state.settingsVerbose) parts.push('--verbose');
       if (state.settingsQuiet) parts.push('--quiet');
       if (!state.settingsSkipExisting) parts.push('--no-skip-existing');

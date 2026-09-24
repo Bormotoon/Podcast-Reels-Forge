@@ -18,6 +18,7 @@
 - [What it does](#what-it-does)
 - [Key Features](#key-features)
 - [Quick Start](#quick-start)
+- [Working with YouTube](#working-with-youtube)
 - [Run Modes by Task](#run-modes-by-task)
 - [Pipeline Overview](#pipeline-overview)
 - [Output Layout](#output-layout)
@@ -77,6 +78,7 @@ Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 - **FFmpeg** (must be in PATH)
 - **llama.cpp (`llama-server`)** (for local LLM support)
 - **NVIDIA GPU** (highly recommended for performance)
+- **yt-dlp** — optional, only to pull material off YouTube: `pip install -U yt-dlp`
 
 ### Installation
 
@@ -91,7 +93,7 @@ pip install -r requirements.txt
 
 ### Prepare Input
 
-Place your video files (mp4, mkv, mov) in the `input/` directory.
+Place your video files (mp4, mkv, mov) in the `input/` directory — or place nothing and point Forge at a YouTube link instead (see [Working with YouTube](#working-with-youtube)). The folder is scanned together with its sub-folders.
 *Tip: If a same-name `mp3` already exists, Forge will use it. Otherwise it automatically extracts audio from the video into `video.mp3` at 320 kbps and continues the pipeline as usual.*
 
 ### Run
@@ -99,6 +101,110 @@ Place your video files (mp4, mkv, mov) in the `input/` directory.
 ```bash
 python3 start_forge.py
 ```
+
+---
+
+## Working with YouTube
+
+Instead of copying material in by hand, Forge can pull it straight off YouTube: one video by link, a whole playlist, or an entire channel. This is the pipeline's first stage, `fetch`. It drops the file into `input/youtube/`, and from there it is indistinguishable from one you copied in yourself.
+
+### What you need
+
+```bash
+./whisper-env/bin/pip install -U yt-dlp
+```
+
+`YOUTUBE_API_KEY` is optional. Without it, yt-dlp does the playlist and channel listing itself — slower, and publish dates are unknown until a video is downloaded. With a key it is a single fast request: listing a whole channel costs ~41 units of the free 10,000/day quota. The key is read from the project-root `.env` or from the environment; create one in Google Cloud Console by enabling "YouTube Data API v3", then Credentials → Create credentials → API key. Read-only public data, no OAuth.
+
+### Examples
+
+```bash
+# One video, through the whole pipeline
+python3 start_forge.py --youtube "https://youtu.be/D6WjXRJt1DA"
+
+# A whole channel, everything but video cutting
+python3 start_forge.py --youtube "@pedobraz" --skip cut
+
+# A playlist: download and transcribe only
+python3 start_forge.py --youtube "https://www.youtube.com/playlist?list=PL..." --only fetch,transcribe
+
+# See what would be taken, downloading nothing
+python3 start_forge.py --youtube "@pedobraz" --yt-limit 5 --yt-list
+
+# Only this year, no Shorts (60 seconds is the default floor)
+python3 start_forge.py --youtube "@pedobraz" --yt-since 2026-01-01
+
+# Work over what is already downloaded, fetching nothing
+python3 start_forge.py --skip fetch
+```
+
+Every link shape is understood: `watch?v=`, `youtu.be/`, `shorts/`, `live/`, `playlist?list=`, `/@handle`, `/channel/UC…`, the legacy `/c/` and `/user/` paths, plus a bare `@handle` or video id. When a value starts with a dash (`-3LisPanK24` is a real id), attach it with `=`: `--youtube=-3LisPanK24`, or argparse will read it as a flag.
+
+### What never to take
+
+Part of a channel may be handled differently — a podcast cut from local masters rather than from YouTube audio, say. Those videos go in `youtube.exclude`:
+
+```yaml
+youtube:
+  exclude:
+    - "PLoXa43IuWqDcGdAQbPvtJy0TzS8cWeIC6"   # ПедОбраз Show
+```
+
+A playlist beats a list of ids here: the rule "everything on the channel except this show" stays correct on its own as episodes are added to the show. The same source shapes as `sources` are accepted — a playlist, a channel, a single video.
+
+An exclusion outranks a direct link: a video on the list is not taken even when named in `--youtube`. Filtering happens before the cap, so `--yt-limit 5` yields five usable videos rather than "the newest five, some of which then dropped out".
+
+One-off exclusions use the repeatable `--yt-exclude` flag. It **adds** to the config list rather than replacing it: a standing rule must not be lifted silently by a single command.
+
+### What gets downloaded
+
+By default (`youtube.download: audio`) **only the audio track** is taken: an hour of podcast is ~64 MB instead of ~1 GB, which is what makes a whole-channel run affordable in bandwidth and disk. There is then nothing to cut — the `cut` stage says the video is missing and moves on, while the transcript, long-read and `moments.json` are produced as usual.
+
+When you do want the video:
+
+```bash
+# One run: fetch with video and cut it
+python3 start_forge.py --youtube "https://youtu.be/D6WjXRJt1DA" --yt-video
+```
+
+Or change `youtube.download` in the config: `video` always fetches it, `auto` fetches it only when `cut` is among the selected stages.
+
+Video is capped at 1080p: the output is a 1080-wide vertical clip either way, so a 4K source is only occupied disk. Change it via `youtube.max_height`.
+
+Transcription is always our own: YouTube's captions are never used, even when present. The rest of the pipeline — proofreading, the long-read, quote verification, burn-in — is built on Whisper's output, and auto-captions with their missing punctuation would drag all of it down at once.
+
+### Names and repeat runs
+
+Files are named `YYYY-MM-DD - Title [id]`, for example:
+
+```
+input/youtube/2026-07-06 - Что я понял на выпускном… [B8G2ANNBIrU].mp4
+output/2026-07-06 - Что я понял на выпускном… [B8G2ANNBIrU]/
+```
+
+The date sorts episode folders chronologically; the id keeps names unique and lets Forge recognise an already-downloaded video even after it was retitled on YouTube. yt-dlp's `.info.json` — title, description, chapters — stays alongside.
+
+A repeat run downloads nothing twice: the file on disk is checked first, then the `input/youtube/.archive.txt` archive. Thanks to the archive, a nightly channel run takes only new episodes. `--no-skip-existing` bypasses both checks.
+
+### When a download fails
+
+One failure earns a second attempt through another set of YouTube clients. This fixes a real case: for some older videos the default clients see no formats at all, and the video reads as "This video is not available" though the API reports it public and unrestricted.
+
+What the retry cannot fix is a rights-holder block or a region lock — such a video is out of reach for every client. The pipeline says so and moves on; one blocked episode does not bring down a whole-channel run.
+
+If YouTube changed something else, it can be fixed from config rather than in code — `youtube.ydl_options` passes any yt-dlp option straight through:
+
+```yaml
+youtube:
+  ydl_options:
+    extractor_args:
+      youtube:
+        player_client: ["web_safari", "tv", "android"]
+```
+
+### Run scope
+
+Once YouTube sources are given — via `--youtube` or the `youtube.sources` list in the config — **only** the named videos are processed. Otherwise a single run with a YouTube link would drag along every local episode in `input/`, transcoding audio for each. Lift it with `--yt-all-inputs`. A run with no sources at all behaves as before: it takes everything it finds in the input folder, sub-folders included.
 
 ---
 
@@ -163,6 +269,7 @@ PY
 
 The orchestrator [start_forge.py](start_forge.py) runs [podcast_reels_forge/pipeline.py](podcast_reels_forge/pipeline.py), which executes the following stages for each file:
 
+0. **Fetch**: (When YouTube sources are given) A video, playlist or channel is downloaded into `input/youtube/` as `YYYY-MM-DD - Title [id]`. It runs before the queue is built, so the run can narrow itself to the episodes that were asked for.
 1. **Transcription**: Uses `faster-whisper`. Output: `output/<file_stem>/audio.json` + `audio.srt`.
 2. **Diarization**: (If enabled) Creates `diarization.json` with speaker turns.
 3. **Proofread**: gemma4 proofreads the transcript (spelling/punctuation) with a guardrail check on every correction. Output: `<file_stem>.proofread.json` + `.srt`; the raw transcript is untouched.
@@ -217,7 +324,7 @@ Main flags for `start_forge.py`:
 - `--skip <stages>`: Run everything except these stages. Example: `--skip cut`.
 - `--list-stages`: Print the stages in order and exit.
 
-Stages: `transcribe`, `diarize`, `proofread`, `article`, `analyze`, `cut`. A typo is an error, not a silent skip of half the pipeline. Skipping a stage does not strand the others: when a proofread transcript already exists from an earlier run, `--only article` picks it up.
+Stages: `fetch`, `transcribe`, `diarize`, `proofread`, `article`, `analyze`, `cut`. A typo is an error, not a silent skip of half the pipeline. Skipping a stage does not strand the others: when a proofread transcript already exists from an earlier run, `--only article` picks it up.
 
 ```bash
 # Build long-reads from existing transcripts without re-cutting anything
@@ -225,6 +332,26 @@ python3 start_forge.py --only article
 
 # Everything except video cutting
 python3 start_forge.py --skip cut
+```
+
+YouTube flags (see [Working with YouTube](#working-with-youtube) for the detail):
+
+- `--youtube <URL>`: A video, playlist or channel link, or an `@handle`. Repeatable. Attach a value starting with a dash using `=`: `--youtube=-3LisPanK24`.
+- `--yt-exclude <URL>`: Never take these videos (usually a playlist). Repeatable; adds to `youtube.exclude` from the config.
+- `--yt-list`: Print the selected videos and exit, downloading nothing.
+- `--yt-limit <N>`: Take only the newest N.
+- `--yt-since <date>` / `--yt-until <date>`: Publish-date bounds, `YYYY-MM-DD`.
+- `--yt-min-duration <s>` / `--yt-max-duration <s>`: Length bounds. The default floor of 60 seconds drops Shorts.
+- `--yt-audio-only` / `--yt-video`: Override the automatic track choice.
+- `--yt-max-height <px>`: Video height ceiling (default 1080).
+- `--yt-cookies <file>`: Netscape cookie jar — for age-gated or members-only material.
+- `--yt-all-inputs`: Do not narrow the run to what was fetched; process the whole input folder.
+
+Downloading can also run on its own, without the rest of the pipeline:
+
+```bash
+python3 -m podcast_reels_forge.scripts.fetch_youtube --list "@pedobraz"
+python3 -m podcast_reels_forge.scripts.fetch_youtube "@pedobraz" --limit 5 --audio-only
 ```
 
 Flags for the standalone transcriber `transcribe_input_audio.py`:

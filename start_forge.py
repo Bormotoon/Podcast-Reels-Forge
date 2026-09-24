@@ -125,6 +125,77 @@ def main() -> None:
         help="Не трогать память виртуалок, даже если host_memory.enabled: true",
     )
 
+    yt = ap.add_argument_group(
+        "YouTube",
+        "Забрать материал прямо с YouTube. Значения по умолчанию — в блоке "
+        "youtube: файла config.yaml; флаги ниже переопределяют их на один запуск.",
+    )
+    yt.add_argument(
+        "--youtube",
+        metavar="URL",
+        action="append",
+        default=None,
+        help=(
+            "Ссылка на ролик, плейлист или канал, либо @handle. Можно повторять. "
+            "Значение, начинающееся с дефиса, отделяйте знаком =: --youtube=-3LisPanK24"
+        ),
+    )
+    yt.add_argument(
+        "--yt-exclude",
+        metavar="URL",
+        action="append",
+        default=None,
+        help=(
+            "Никогда не брать эти ролики: ссылка на плейлист (удобнее всего), "
+            "канал или отдельный ролик. Можно повторять. Складывается со "
+            "списком youtube.exclude из конфига, а не заменяет его"
+        ),
+    )
+    yt.add_argument(
+        "--yt-list",
+        action="store_true",
+        help="Показать, какие ролики попадают под отбор, и выйти — ничего не скачивая",
+    )
+    yt.add_argument("--yt-limit", type=int, default=None, help="Взять только N последних")
+    yt.add_argument("--yt-since", default=None, help="Не раньше даты, ГГГГ-ММ-ДД")
+    yt.add_argument("--yt-until", default=None, help="Не позже даты, ГГГГ-ММ-ДД")
+    yt.add_argument(
+        "--yt-min-duration",
+        type=int,
+        default=None,
+        help="Пропускать короче N секунд (60 отсекает Shorts)",
+    )
+    yt.add_argument(
+        "--yt-max-duration", type=int, default=None, help="Пропускать длиннее N секунд",
+    )
+    yt.add_argument(
+        "--yt-audio-only",
+        dest="yt_download",
+        action="store_const",
+        const="audio",
+        default=None,
+        help="Качать только аудиодорожку (нарезать при этом будет нечего)",
+    )
+    yt.add_argument(
+        "--yt-video",
+        dest="yt_download",
+        action="store_const",
+        const="video",
+        help="Качать видео, даже если стадия cut не выбрана",
+    )
+    yt.add_argument(
+        "--yt-max-height", type=int, default=None, help="Потолок высоты видео, напр. 1080",
+    )
+    yt.add_argument("--yt-cookies", default=None, help="Файл cookies (Netscape)")
+    yt.add_argument(
+        "--yt-all-inputs",
+        action="store_true",
+        help=(
+            "Не сужать очередь до скачанного: обрабатывать всё, что лежит "
+            "во входной папке"
+        ),
+    )
+
     args = ap.parse_args()
 
     if args.list_stages:
@@ -191,6 +262,14 @@ def main() -> None:
     #     disk, and the next run (or --restore) puts them back.
     install_restore_on_signals(give_memory_back)
 
+    # RU: Под --yt-list обработки не будет, а освобождение памяти стоит
+    #     виртуалке полного цикла выключения и загрузки. Ради вывода списка
+    #     это чистый вред.
+    # EN: --yt-list does no processing, and freeing memory costs a VM a full
+    #     shutdown-and-boot cycle. For printing a list that is pure harm.
+    if args.yt_list:
+        host_memory = replace(host_memory, enabled=False)
+
     freed_mb = free_host_memory(host_memory, repo_dir=repo_dir, quiet=quiet)
     if freed_mb and not quiet:
         print(f"[ram] всего освобождено {freed_mb} МБ", flush=True)
@@ -205,6 +284,20 @@ def main() -> None:
             autotune=bool(args.autotune),
             progress=not args.no_progress,
             stages=stages,
+            youtube_sources=args.youtube,
+            youtube_exclude=args.yt_exclude,
+            youtube_overrides={
+                "limit": args.yt_limit,
+                "since": args.yt_since,
+                "until": args.yt_until,
+                "min_duration": args.yt_min_duration,
+                "max_duration": args.yt_max_duration,
+                "download": args.yt_download,
+                "max_height": args.yt_max_height,
+                "cookies_file": args.yt_cookies,
+            },
+            scope_to_youtube=not args.yt_all_inputs,
+            youtube_list_only=bool(args.yt_list),
         )
     finally:
         give_memory_back()
