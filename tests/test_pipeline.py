@@ -1065,3 +1065,101 @@ def test_run_pipeline_only_article_skips_the_other_stages(
     assert len(article_calls) == 1
     # Even though proofreading did not run now, its output is what gets edited.
     assert article_calls[0] == episode_dir / "video.proofread.json"
+
+
+# --------------------------------------------------------------------- YouTube
+
+
+def test_find_input_queue_scans_subfolders(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """A download folder such as input/youtube/ must be visible to the queue."""
+    input_dir = tmp_path / "input"
+    (input_dir / "youtube").mkdir(parents=True)
+    (input_dir / "local.mp4").write_text("x")
+    (input_dir / "youtube" / "2026-02-08 - Эпизод [aaa].mp4").write_text("x")
+
+    def fake_run(cmd: list[str] | tuple[str, ...], **_: object) -> SimpleNamespace:
+        _write_ffmpeg_outputs(list(cmd))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fake_run)
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
+
+    queue = pipeline.find_input_queue(input_dir)
+
+    assert [item["stem"] for item in queue] == ["2026-02-08 - Эпизод [aaa]", "local"]
+
+
+def test_find_input_queue_only_stems_filters_before_ffmpeg(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Narrowing must spare untouched episodes the audio-companion pass.
+
+    Building MP3/WAV for a folder of large local sources costs an hour of
+    transcoding, so the filter has to come before ffmpeg is ever invoked.
+    """
+    input_dir = tmp_path / "input"
+    (input_dir / "youtube").mkdir(parents=True)
+    (input_dir / "huge-local-episode.mp4").write_text("x")
+    (input_dir / "youtube" / "wanted.mp4").write_text("x")
+
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str] | tuple[str, ...], **_: object) -> SimpleNamespace:
+        cmd_list = list(cmd)
+        calls.append(cmd_list)
+        _write_ffmpeg_outputs(cmd_list)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fake_run)
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
+
+    queue = pipeline.find_input_queue(input_dir, only_stems={"wanted"})
+
+    assert [item["stem"] for item in queue] == ["wanted"]
+    assert len(calls) == 1
+    assert not any("huge-local-episode" in " ".join(c) for c in calls)
+
+
+def test_find_input_queue_accepts_audio_only_sources(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """An audio-only YouTube fetch leaves an m4a and no video."""
+    input_dir = tmp_path / "input"
+    (input_dir / "youtube").mkdir(parents=True)
+    m4a = input_dir / "youtube" / "episode.m4a"
+    m4a.write_text("audio")
+
+    def fake_run(cmd: list[str] | tuple[str, ...], **_: object) -> SimpleNamespace:
+        _write_ffmpeg_outputs(list(cmd))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(pipeline.subprocess, "run", fake_run)
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
+
+    queue = pipeline.find_input_queue(input_dir)
+
+    assert len(queue) == 1
+    assert queue[0]["video"] is None
+    # The companions are still built, from the m4a rather than from a video.
+    assert queue[0]["audio"] == input_dir / "youtube" / "episode.mp3"
+    assert queue[0]["wav"] == input_dir / "youtube" / "episode.wav"
+
+
+def test_find_input_queue_ignores_its_own_companions(
+    monkeypatch: MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The .mp3/.wav we generate must not register as episodes of their own."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "episode.mp4").write_text("x")
+    (input_dir / "episode.mp3").write_text("mp3")
+    (input_dir / "episode.wav").write_text("wav")
+    (input_dir / "orphan.mp3").write_text("mp3")
+
+    monkeypatch.setattr(pipeline, "ffmpeg_bin", lambda: "ffmpeg")
+
+    queue = pipeline.find_input_queue(input_dir)
+
+    assert [item["stem"] for item in queue] == ["episode"]

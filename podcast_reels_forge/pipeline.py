@@ -129,17 +129,21 @@ MP3_BITRATE = "320k"
 WAV_SAMPLE_RATE = 16000
 
 
-def _ensure_audio_companions(video_path: Path) -> tuple[Path, Path]:
-    """RU: Готовит рядом с видео MP3 и WAV — одним проходом ffmpeg.
+def _ensure_audio_companions(source_path: Path) -> tuple[Path, Path]:
+    """RU: Готовит рядом с исходником MP3 и WAV — одним проходом ffmpeg.
 
-    EN: Produce the MP3 and WAV companions next to a video in one ffmpeg pass.
+    EN: Produce the MP3 and WAV companions next to a source in one ffmpeg pass.
 
-    Both are encoded from the video's own audio stream, decoded once. Deriving
+    Both are encoded from the source's own audio stream, decoded once. Deriving
     the WAV from the MP3 instead would bake the lossy artefacts into what the
     models hear.
+
+    The source is usually a video, but an audio-only YouTube fetch lands an m4a
+    here instead — ffmpeg does not care, and re-encoding that m4a to MP3 would be
+    a second lossy pass, which is why the download keeps it as delivered.
     """
-    mp3_path = video_path.with_suffix(".mp3")
-    wav_path = video_path.with_suffix(".wav")
+    mp3_path = source_path.with_suffix(".mp3")
+    wav_path = source_path.with_suffix(".wav")
 
     need_mp3 = not _file_has_content(mp3_path)
     need_wav = not _file_has_content(wav_path)
@@ -149,9 +153,9 @@ def _ensure_audio_companions(video_path: Path) -> tuple[Path, Path]:
     wanted = ", ".join(
         name for name, needed in (("MP3", need_mp3), ("WAV", need_wav)) if needed
     )
-    log.info("Creating %s companion(s) for %s", wanted, video_path.name)
+    log.info("Creating %s companion(s) for %s", wanted, source_path.name)
 
-    cmd = [ffmpeg_bin(), "-y", "-i", str(video_path)]
+    cmd = [ffmpeg_bin(), "-y", "-i", str(source_path)]
     if need_mp3:
         cmd += ["-vn", "-c:a", "libmp3lame", "-b:a", MP3_BITRATE, str(mp3_path)]
     if need_wav:
@@ -172,7 +176,7 @@ def _ensure_audio_companions(video_path: Path) -> tuple[Path, Path]:
         stdout = (res.stdout or "").strip()
         detail = stderr or stdout or "unknown ffmpeg error"
         raise SystemExit(
-            f"Failed to create audio companions for {video_path.name}: {detail[-500:]}",
+            f"Failed to create audio companions for {source_path.name}: {detail[-500:]}",
         )
     return mp3_path, wav_path
 
@@ -183,33 +187,69 @@ def _ensure_mp3_companion(video_path: Path) -> Path:
     return _ensure_audio_companions(video_path)[0]
 
 
-def find_input_queue(input_dir: Path) -> list[dict[str, Any]]:
-    """RU: Находит видео и гарантирует MP3-спутник для каждого ролика.
+#: Containers treated as an episode's video source.
+VIDEO_EXTS: tuple[str, ...] = (".mp4", ".mkv", ".mov", ".avi", ".webm")
 
-    EN: Find video files and ensure each one has a same-stem MP3 companion.
+#: RU: Контейнеры, которые годятся как исходник, когда видео нет вовсе — так
+#:     выглядит эпизод, скачанный с YouTube без видеодорожки. Собственные
+#:     спутники (.mp3/.wav) исключены: иначе они сами стали бы «эпизодами».
+#: EN: Containers usable as a source when there is no video at all — what a
+#:     YouTube fetch without the video track leaves behind. Our own companions
+#:     (.mp3/.wav) are excluded, or they would register as episodes themselves.
+AUDIO_ONLY_EXTS: tuple[str, ...] = (".m4a", ".opus", ".aac", ".ogg", ".flac")
+
+
+def find_input_queue(
+    input_dir: Path,
+    *,
+    only_stems: Collection[str] | None = None,
+) -> list[dict[str, Any]]:
+    """RU: Находит эпизоды и гарантирует MP3/WAV-спутники для каждого.
+
+    EN: Find episodes and ensure each one has its MP3/WAV companions.
+
+    The scan is recursive so a download folder such as ``input/youtube/`` is
+    seen; every pre-existing file sits at the top level, so nothing changes for
+    them. The stem stays the single identity key and the output layout stays
+    flat — ids in YouTube filenames make collisions a non-issue.
+
+    ``only_stems`` narrows the queue **before** any ffmpeg runs. That ordering is
+    the point: building companions for a folder of untouched local episodes would
+    cost an hour of transcoding that the caller never asked for.
+
+    An entry whose stem has audio but no video gets ``video=None``; every stage
+    except cutting works from the audio anyway.
     """
-    video_exts = {".mp4", ".mkv", ".mov", ".avi"}
-
     if not input_dir.exists():
         return []
 
-    stems: dict[str, Path] = {}
+    wanted = set(only_stems) if only_stems is not None else None
 
-    for p in input_dir.iterdir():
+    videos: dict[str, Path] = {}
+    audio_only: dict[str, Path] = {}
+
+    for p in sorted(input_dir.rglob("*")):
         if not p.is_file():
             continue
-        if p.suffix.lower() not in video_exts:
-            continue
         stem = p.stem
-        curr_v = stems.get(stem)
-        # Pick newest if multiple video formats for the same stem.
-        if curr_v is None or p.stat().st_mtime > curr_v.stat().st_mtime:
-            stems[stem] = p
+        if wanted is not None and stem not in wanted:
+            continue
+        suffix = p.suffix.lower()
+        if suffix in VIDEO_EXTS:
+            current = videos.get(stem)
+            # Pick newest if multiple video formats for the same stem.
+            if current is None or p.stat().st_mtime > current.stat().st_mtime:
+                videos[stem] = p
+        elif suffix in AUDIO_ONLY_EXTS:
+            current = audio_only.get(stem)
+            if current is None or p.stat().st_mtime > current.stat().st_mtime:
+                audio_only[stem] = p
 
     queue = []
-    for stem in sorted(stems.keys()):
-        video_path = stems[stem]
-        mp3_path, wav_path = _ensure_audio_companions(video_path)
+    for stem in sorted(set(videos) | set(audio_only)):
+        video_path = videos.get(stem)
+        source_path = video_path if video_path is not None else audio_only[stem]
+        mp3_path, wav_path = _ensure_audio_companions(source_path)
         queue.append({
             "stem": stem,
             "video": video_path,
@@ -642,7 +682,11 @@ def run_pipeline(
         analysis_model_folder = io.output_dir / final_model_folder
 
         status(f"\n[forge] processing: {stem}", quiet=quiet)
-        status(f"[forge] video: {video_path.name}", quiet=quiet)
+        status(
+            f"[forge] video: {video_path.name}" if video_path is not None
+            else "[forge] video: нет (источник только аудио)",
+            quiet=quiet,
+        )
         status(f"[forge] transcribe input: {model_audio.name}", quiet=quiet)
 
         # 1) Transcribe
@@ -940,9 +984,22 @@ def run_pipeline(
             p for p in (reels_dir.glob("reel_*.mp4") if reels_dir.exists() else [])
             if _re.match(r"^reel_\d+\.mp4$", p.name)
         ]
-        skip_cut = (not cut_enabled) or (skip_existing and bool(existing_reels))
+        # RU: Резать нечего, если видео нет: так выглядит эпизод, скачанный
+        #     только аудиодорожкой. Это не ошибка — остальные стадии уже отдали
+        #     транскрипт, лонгрид и moments.json, — но сказать надо прямо.
+        # EN: Nothing to cut without a video: that is an audio-only fetch. Not an
+        #     error — the other stages already produced the transcript, long-read
+        #     and moments.json — but it must be said out loud.
+        no_video = video_path is None
+        skip_cut = (not cut_enabled) or no_video or (skip_existing and bool(existing_reels))
         if not cut_enabled:
             status("[cut] skip (not selected)", quiet=quiet)
+        elif no_video:
+            status(
+                f"[cut] skip ({stem}): источник только аудио — "
+                "перекачайте ролик со стадией cut в наборе",
+                quiet=quiet,
+            )
         elif skip_cut:
             status(
                 f"[cut] skip ({final_model_folder}): exists",
