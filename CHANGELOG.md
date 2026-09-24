@@ -146,6 +146,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `FORGE_*` variables and/or a JSON webhook), on failure or always.
 
 ### Changed
+- Dependencies are bounded below the next major version, so an unattended
+  run never picks up a breaking release on its own; yt-dlp instead updates
+  itself every `youtube.self_update_days` days (`youtube.self_update`).
+- New guide for scheduled runs: `docs/AUTONOMOUS.md` (systemd timer and cron,
+  exit codes, the run report, logs, notifications). The GUI config template
+  carries every new key.
 - **The queue runs stage by stage** (`autonomy.scheduling: stage`, the
   default): every transcription with one Whisper load, then one llama-server
   session for every LLM stage, then every cut. Before, both models were
@@ -230,6 +236,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`subtitles.keep_nosubs`, `--keep-nosubs`).
 - Boundary snapping picks the cheapest nearby speech edge (sentence edges
   preferred, inward moves allowed) and never trims into the quote.
+
+### Removed
+- Orphaned experiment scripts `burn_drawtext_subs.py`, `burn_subs_pillow.py`
+  (it imported Pillow, which is not a dependency) and `render_viral_subs.py`;
+  the legacy benchmarks `scripts/test_models.py` and `test_models_v2.py`,
+  which carried their own outdated prompts; the unused `refine`, `metadata`
+  and `select_*` prompt templates.
 
 ### Fixed
 - **Proofreading no longer desynchronises word timings.** Only

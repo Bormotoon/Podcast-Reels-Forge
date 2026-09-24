@@ -763,3 +763,57 @@ processing:
 ```
 
 Compatibility note: older `models:` lists are still accepted by the loader, but the new role mapping is the preferred format.
+
+## Прогон без присмотра / Unattended runs
+
+RU: Подробно — в [AUTONOMOUS.md](AUTONOMOUS.md). Все ключи опциональны.
+
+EN: Details in [AUTONOMOUS.md](AUTONOMOUS.md). Every key is optional.
+
+```yaml
+autonomy:
+  lock_file: ".forge.lock"   # one run at a time; a second one exits with 75
+  scheduling: stage          # stage | episode
+  log_dir: "logs"            # daily-rotated forge.log at INFO ("" disables)
+  log_keep_days: 14
+  runs_dir: ""               # run reports; default <output_dir>/_runs
+  min_free_disk_gb: 5        # preflight refuses to start below this
+  notify:
+    when: failure            # always | failure | never
+    command: ""              # gets FORGE_OUTCOME, FORGE_EXIT_CODE, FORGE_SUMMARY, FORGE_REPORT
+    webhook: ""              # POST of the summary as JSON
+
+audio:
+  listening_copy: false             # 320k MP3 next to the source (models use the WAV)
+  delete_wav_after_analysis: false  # drop the 16 kHz WAV once the episode is analysed
+
+youtube:
+  self_update: true          # pip install -U yt-dlp every self_update_days
+  self_update_days: 7
+
+proofread:
+  scope: full                # full | clips (only the selected clips' spans; needs article off)
+
+processing:
+  analysis:
+    llm_cache: true          # cache LLM answers in <model folder>/llm_cache
+  quality_filters:
+    render_rejected: false   # encode rejected clips into reels/rejected/ too
+
+subtitles:
+  keep_nosubs: false         # also render a clean reel_XX.nosubs.mp4
+
+video:
+  two_speaker_layout: split  # split | single
+  qa: true                   # ffprobe check of every rendered clip
+  qa_blackdetect: false      # also fail mostly-black clips (one more decode)
+```
+
+RU: Фильтры `processing.quality_filters` (`min_score`, `min_duration`,
+`max_duration`) теперь применяются уже при отборе моментов, а не только при
+нарезке: каждый выбранный слот достаётся клипу, который действительно будет
+нарезан.
+
+EN: `processing.quality_filters` (`min_score`, `min_duration`,
+`max_duration`) are now enforced at selection, not only at the cut: every
+selected slot goes to a clip that will actually be cut.

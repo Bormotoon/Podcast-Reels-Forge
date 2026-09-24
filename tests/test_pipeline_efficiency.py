@@ -239,3 +239,28 @@ def test_listening_copy_is_optional(env: _Env, tmp_path: Path) -> None:
     _run(_conf(input_dir, tmp_path / "out", audio={"listening_copy": False}), tmp_path, stages={"transcribe"})
     assert (input_dir / "a.wav").exists()
     assert not (input_dir / "a.mp3").exists()
+
+
+def test_cut_only_settings_do_not_redo_the_analysis(env: _Env, tmp_path: Path) -> None:
+    input_dir = _episodes(tmp_path, "a")
+    conf = _conf(input_dir, tmp_path / "out")
+    _run(conf, tmp_path)
+    conf["processing"]["reel_padding"] = 2
+    conf["processing"]["quality_filters"] = {"face_min_ratio": 0.5}
+    _run(conf, tmp_path)
+    assert env.events.count("analyze:a") == 1
+    assert env.events.count("cut:a") == 2, "but the cut is redone"
+
+
+def test_unreachable_llama_server_skips_llm_stages_fast(
+    env: _Env, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pipeline, "llama_cpp_start", lambda **kw: None)
+    monkeypatch.setattr(pipeline, "wait_for_server_ready", lambda *a, **kw: False)
+    input_dir = _episodes(tmp_path, "a")
+
+    report = _run(_conf(input_dir, tmp_path / "out"), tmp_path)
+
+    assert "analyze:a" not in env.events
+    assert report.episodes["a"].stages["analyze"].detail == "llama-server unavailable"
+    assert report.outcome == "partial"

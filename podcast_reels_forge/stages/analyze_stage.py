@@ -138,13 +138,6 @@ _STAGE_FILES = {
     "judge_metadata": "judge",
 }
 
-_LEGACY_STAGE_FALLBACKS = {
-    "scout": ("chunk", "select"),
-    "cleanup": ("select", "chunk"),
-    "refine": ("select", "chunk"),
-    "judge": ("select", "chunk"),
-    "metadata": ("select", "chunk"),
-}
 
 
 def _status(msg: str, *, quiet: bool) -> None:
@@ -251,13 +244,6 @@ def _load_prompt(*, lang: str, variant: str, name: str) -> str:
         base / f"{name}_{variant}.txt",
         base / f"{name}_default.txt",
     ]
-    for legacy_name in _LEGACY_STAGE_FALLBACKS.get(name, ()):
-        candidates.extend(
-            [
-                base / f"{legacy_name}_{variant}.txt",
-                base / f"{legacy_name}_default.txt",
-            ],
-        )
 
     for candidate in candidates:
         if candidate.exists():

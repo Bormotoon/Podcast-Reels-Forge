@@ -22,6 +22,9 @@ from __future__ import annotations
 
 import logging
 import re
+import subprocess
+import sys
+import time
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -509,3 +512,44 @@ def want_video_for_stages(
         )
     active = set(active_stages)
     return "cut" in active or active == {"fetch"}
+
+
+def maybe_update_yt_dlp(conf: dict[str, Any], stamp: Path, *, now: float | None = None) -> bool:
+    """RU: Раз в N дней обновить yt-dlp (youtube.self_update).
+
+    EN: Update yt-dlp every N days when ``youtube.self_update`` is on.
+
+    YouTube breaks old yt-dlp releases every few weeks, and an unattended
+    nightly run has nobody to type ``pip install -U yt-dlp``. The stamp file
+    keeps it to one attempt per period; a failure is logged and the run goes
+    on with the version it has. Returns True when an update ran successfully.
+    """
+
+    if not bool((conf or {}).get("self_update", False)):
+        return False
+    try:
+        days = float((conf or {}).get("self_update_days", 7))
+    except (TypeError, ValueError):
+        days = 7.0
+    current = time.time() if now is None else now
+    try:
+        if current - stamp.stat().st_mtime < days * 86400:
+            return False
+    except OSError:
+        pass
+    log.info("youtube.self_update: updating yt-dlp")
+    try:
+        res = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-U", "--quiet", "yt-dlp"],
+            capture_output=True, text=True, timeout=300, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("yt-dlp update failed: %s", exc)
+        return False
+    # Stamp even on failure: retrying pip every run would only add noise.
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.touch()
+    if res.returncode != 0:
+        log.warning("yt-dlp update failed: %s", (res.stderr or res.stdout or "").strip()[-300:])
+        return False
+    return True

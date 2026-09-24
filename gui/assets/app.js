@@ -797,9 +797,25 @@ youtube:
   cookies_file: null
   retries: 3
   rate_limit: null
+  self_update: true
+  self_update_days: 7
 cache:
   enabled: ${state.settingsCache}
   validate_json: ${state.settingsValidateJson}
+autonomy:
+  lock_file: ".forge.lock"
+  scheduling: stage
+  log_dir: "logs"
+  log_keep_days: 14
+  runs_dir: ""
+  min_free_disk_gb: 5
+  notify:
+    when: failure
+    command: ""
+    webhook: ""
+audio:
+  listening_copy: false
+  delete_wav_after_analysis: false
 transcription:
   model: "${state.transcribeModel}"
   device: "${state.transcribeDevice}"
@@ -854,12 +870,15 @@ llama_cpp:
       timeout: ${state.roScoutTimeout}
       chunk_seconds: ${state.roScoutChunk}
       temperature: ${state.roScoutTemp}
+      n_predict: 2048
     cleanup_refine:
       timeout: ${state.roCleanupTimeout}
       temperature: ${state.roCleanupTemp}
+      n_predict: 1024
     judge_metadata:
       timeout: ${state.roJudgeTimeout}
       temperature: ${state.roJudgeTemp}
+      n_predict: 2048
   model_overrides: {}
 prompts:
   language: "${state.analyzeLang}"
@@ -874,6 +893,7 @@ article:
   max_length_ratio: 1.1
 proofread:
   enabled: ${state.settingsProofread}
+  scope: full
   max_chars_chunk: 4000
   temperature: 0.0
   timeout: 600
@@ -883,6 +903,7 @@ processing:
     cleanup_cap: 16
     json_retry: 1
     json_retry_budget: 10
+    llm_cache: true
     strict_json_schema: true
     validation:
       chunk_tolerance_s: 3.0
@@ -925,6 +946,7 @@ processing:
     min_duration: ${state.cutMinDur}
     max_duration: ${state.cutMaxDur}
     face_min_ratio: ${state.cutFaceRatio}
+    render_rejected: false
   clips:
     stories:
       count: ${state.clipsStoriesCount}
@@ -959,6 +981,7 @@ subtitles:
   vertical_offset: ${state.subsVOffset}
   fade_in_duration: ${state.subsFadeIn}
   fade_out_duration: ${state.subsFadeOut}
+  keep_nosubs: false
 video:
   threads: ${state.cutThreads}
   vertical_crop: ${state.cutVertical}
@@ -971,6 +994,9 @@ video:
   nvenc_preset: "${state.cutNvencPreset}"
   face_samples: ${state.cutFaceSamples}
   face_min_size: ${state.cutFaceMinSize}
+  two_speaker_layout: split
+  qa: true
+  qa_blackdetect: false
 diarization:
   enabled: ${state.settingsDiarization}
   model: "${state.settingsDiarModel}"

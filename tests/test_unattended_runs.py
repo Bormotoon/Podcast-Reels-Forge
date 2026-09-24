@@ -326,3 +326,23 @@ def test_finished_empty_analysis_is_not_redone(tmp_path: Path) -> None:
     assert not pipeline._analysis_outputs_ready(moments, reels, validate_json=True)
     (folder / "analysis_complete.json").write_text(json.dumps({"status": "ok", "moments": 0}))
     assert pipeline._analysis_outputs_ready(moments, reels, validate_json=True)
+
+
+def test_yt_dlp_self_update_runs_once_per_period(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from podcast_reels_forge.stages import fetch_stage
+
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_: Any) -> SimpleNamespace:
+        calls.append(cmd)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(fetch_stage.subprocess, "run", fake_run)
+    stamp = tmp_path / ".yt-dlp-updated"
+    conf = {"self_update": True, "self_update_days": 7}
+
+    assert fetch_stage.maybe_update_yt_dlp(conf, stamp)
+    assert not fetch_stage.maybe_update_yt_dlp(conf, stamp), "fresh stamp: no second update"
+    assert fetch_stage.maybe_update_yt_dlp(conf, stamp, now=stamp.stat().st_mtime + 8 * 86400)
+    assert len(calls) == 2 and calls[0][-1] == "yt-dlp"
+    assert not fetch_stage.maybe_update_yt_dlp({"self_update": False}, tmp_path / "other")

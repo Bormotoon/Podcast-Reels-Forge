@@ -22,8 +22,6 @@ own JSON schema (also the llama.cpp sampling grammar, see
 | judge | `judge_default.txt` | `reviews[]`: `candidate_id`, `keep`, `score`, `title`, `hook`, `why`, `reason_codes` | keep / drop, score, presentation fields |
 
 The loader falls back from `*_a` / `*_b` to `*_default` if a variant is missing.
-`refine_default.txt`, `metadata_default.txt` and `select_*` are legacy and not
-used by the staged pipeline.
 
 ## Scout
 

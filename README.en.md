@@ -47,6 +47,7 @@ Main workflow steps:
 6. **Video Editing (FFmpeg + NVENC)**: Cuts the video, applies vertical cropping (9:16), stabilized face framing, and burns karaoke subtitles timed from real word timestamps. GPU encoding via NVENC (~5× faster than software).
 
 Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
+Unattended scheduled runs (nightly channel runs, reports, notifications): [docs/AUTONOMOUS.md](docs/AUTONOMOUS.md)
 
 ---
 
@@ -294,6 +295,7 @@ output/
     my_podcast.article.md        # Episode retelling, ready to read
     my_podcast.article.json      # Sections, timings and guardrail metadata
     diarization.json           # (Optional) Speaker info
+    .forge_state.json          # Stage input fingerprints: what to redo on change
     gemma4_26b/                # Analysis model folder
       analysis_manifest.json   # Run parameters: quotas, chunks, language
       episode_context.json     # Episode overview (cached)
@@ -301,13 +303,18 @@ output/
       cleaned_candidates.json  # After quote checks, dedupe, cleanup and audio probing
       rejected_candidates.json # Everything a gate threw out, with the reason
       analysis_metrics.json    # Run metrics: survival, quotes, duplicates, stage timings
+      analysis_complete.json   # The analysis ran to the end (an empty result is a result)
+      llm_cache/               # Cached LLM answers for resuming after a crash
       moments.json             # Final list: score (1-10), priority, quote_match_ratio…
       reels.md                 # Clip summary
       reels/                   # Cut video clips .mp4
         reel_01.srt            # Local subtitle timeline (reference)
         reel_01.md             # Description + 5 hashtags for reel_01.mp4
-        rejected/              # Clips that failed quality_filters
+        rejected.json          # Rejected moments with reasons
+        rejected/              # Clips that failed filters or QA (when encoded)
       reels_preview.mp4        # Concatenated preview of all clips
+  _runs/
+    latest.json                # Report of the latest run (see docs/AUTONOMOUS.md)
 ```
 
 ---

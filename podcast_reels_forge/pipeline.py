@@ -73,6 +73,7 @@ from podcast_reels_forge.stages.fetch_stage import (
     fetch_videos,
     is_download_fragment,
     locate_existing,
+    maybe_update_yt_dlp,
     resolve_download_dir,
     want_video_for_stages,
 )
@@ -704,6 +705,9 @@ def _run_youtube_fetch(
             quiet=quiet,
         )
 
+    if "fetch" in active and not list_only:
+        maybe_update_yt_dlp(yt_conf, download_dir / ".yt-dlp-updated")
+
     try:
         videos = resolve_sources(
             all_sources, api_key=api_key, filters=filters, exclude=exclude,
@@ -874,6 +878,8 @@ class _LlamaSession:
         self.service_conf: dict[str, Any] = service if isinstance(service, dict) else {}
         self._proc: subprocess.Popen | None = None
         self.opened = False
+        #: False once it is known that no server will answer this session.
+        self.available = True
 
     def open(self) -> None:
         if self.opened:
@@ -885,10 +891,14 @@ class _LlamaSession:
         if bool(self.service_conf.get("auto_start", True)):
             self._proc = llama_cpp_start(host=host, port=port, service_conf=self.service_conf)
         if self._proc is None and not is_tcp_open(host, port):
-            log.error(
-                "llama-server на %s:%s не запущен и не отвечает; LLM-стадии будут падать",
-                host, port,
-            )
+            # Nothing was started and nothing listens: give an external
+            # server a short grace period, not the full 300 s load wait.
+            if wait_for_server_ready(host, port, timeout_s=10) is False:
+                log.error(
+                    "llama-server на %s:%s не запущен и не отвечает; LLM-стадии пропускаются",
+                    host, port,
+                )
+                self.available = False
             return
         # Wait for the model to load: both our own instance and an external
         # server answer 503 "Loading model" until they are ready.
@@ -899,6 +909,7 @@ class _LlamaSession:
         if not self.opened:
             return
         self.opened = False
+        self.available = True
         if self._proc is not None:
             llama_cpp_stop(self._proc)
             self._proc = None
@@ -1145,6 +1156,17 @@ class _PipelineRun:
             self._tick()
 
     def phase_llm(self, ep: EpisodeState) -> None:
+        if not self.llama.available:
+            # Minutes of connection retries per stage buy nothing here.
+            for stage, enabled in (
+                ("proofread", self.proofread_enabled),
+                ("article", self.article_enabled),
+                ("analyze", self.analyze_enabled),
+            ):
+                if enabled:
+                    self.report.record(ep.stem, stage, FAILED, detail="llama-server unavailable")
+                    self._tick()
+            return
         if self.proofread_enabled and not self.proofread_clips_only:
             self.guard(ep, "proofread", self.stage_proofread)
             self._tick()
@@ -1439,7 +1461,7 @@ class _PipelineRun:
             file_digest(ep.transcript_path),
             file_digest(diar),
             file_digest(info_json_path(ep.source)),
-            self.p_conf,
+            self._analysis_processing_conf(),
             self.prompts_conf,
             self.roles.as_dict(),
             subset(
@@ -1449,6 +1471,24 @@ class _PipelineRun:
             ),
             files_digest(prompt_files),
         )
+
+    def _analysis_processing_conf(self) -> dict[str, Any]:
+        """``processing`` minus what only the cut uses (padding, face ratio)."""
+
+        conf = dict(self.p_conf) if isinstance(self.p_conf, dict) else {}
+        conf.pop("reel_padding", None)
+        filters = conf.get("quality_filters")
+        if isinstance(filters, dict):
+            kept = {
+                key: value
+                for key, value in filters.items()
+                if key not in {"face_min_ratio", "render_rejected"}
+            }
+            if kept:
+                conf["quality_filters"] = kept
+            else:
+                conf.pop("quality_filters", None)
+        return conf
 
     def stage_analyze(self, ep: EpisodeState) -> str:
         ep.analysis_folder.mkdir(parents=True, exist_ok=True)
