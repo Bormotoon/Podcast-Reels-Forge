@@ -1,14 +1,16 @@
-faster-whisper>=1.1.1
+# Upper bounds are the next major: a nightly unattended run must not pick up a
+# breaking release on its own. yt-dlp (below) is the exception — keep it fresh.
+faster-whisper>=1.1.1,<2
 ctranslate2>=4.6.0,<5
-torch>=2.7.0
-tqdm>=4.66.0
-coloredlogs>=15.0.1
-requests>=2.31.0
-aiohttp>=3.9.0
-PyYAML>=6.0.1
-opencv-python-headless>=4.8.0
-mediapipe>=0.10.9
-platformdirs>=4.0.0
+torch>=2.7.0,<3
+tqdm>=4.66.0,<5
+coloredlogs>=15.0.1,<16
+requests>=2.31.0,<3
+aiohttp>=3.9.0,<4
+PyYAML>=6.0.1,<7
+opencv-python-headless>=4.8.0,<5
+mediapipe>=0.10.9,<1
+platformdirs>=4.0.0,<5
 
 # Optional. Needed only to pull episodes straight off YouTube (the `fetch` stage).
 # YouTube keeps changing how it serves video, so install it with -U and update it

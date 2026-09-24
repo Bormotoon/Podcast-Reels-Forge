@@ -253,3 +253,66 @@ def test_dump_srt_output_emits_one_sentence_per_cue(tmp_path: Path) -> None:
     assert third in text
     # The two sentences of the first segment are on separate cues, not one line.
     assert f"{first} {second}" not in text
+
+
+def test_oom_during_lazy_decoding_steps_the_batch_down(tmp_path: Path, monkeypatch) -> None:
+    """faster-whisper decodes inside the generator; an OOM there must be retried.
+
+    The ladder used to wrap only the call that *creates* the generator, so a
+    CUDA OOM while decoding crashed the stage (and, with it, the whole run).
+    """
+    from types import SimpleNamespace
+
+    from podcast_reels_forge.stages import transcribe_stage
+
+    audio = tmp_path / "ep.wav"
+    audio.write_bytes(b"x")
+    batches: list[int] = []
+
+    def fake_transcribe(_model, _path, *, batch_size, **_kwargs):
+        batches.append(batch_size)
+
+        def segments():
+            if batch_size > 4:
+                raise RuntimeError("CUDA failed: out of memory")
+            yield SimpleNamespace(start=0.0, end=1.0, text="привет", words=[], avg_logprob=-0.1)
+
+        return segments(), SimpleNamespace(language="ru", language_probability=0.9, duration=1.0)
+
+    monkeypatch.setattr(transcribe_stage, "resolve_device", lambda _d: "cuda")
+    monkeypatch.setattr(transcribe_stage, "_load_model", lambda *a: object())
+    monkeypatch.setattr(transcribe_stage, "_transcribe_with_optional_kwargs", fake_transcribe)
+
+    out = transcribe_file(
+        TranscribeConfig(
+            input_path=audio,
+            outdir=tmp_path / "out",
+            model_name="large-v3",
+            device="cuda",
+            language="ru",
+            beam_size=5,
+            compute_type="float16",
+            batch_size=16,
+            quiet=True,
+        ),
+    )
+
+    assert batches == [16, 8, 4]
+    assert out.exists()
+    assert not out.with_name(out.name + ".tmp").exists()
+
+
+def test_model_session_loads_once_and_releases(monkeypatch) -> None:
+    from podcast_reels_forge.stages import transcribe_stage
+
+    loads: list[tuple] = []
+    monkeypatch.setattr(transcribe_stage, "WhisperModel", lambda *a, **k: loads.append(a) or object())
+
+    with transcribe_stage.whisper_model_session():
+        first = transcribe_stage._load_model("large-v3", "cuda", "float16")
+        second = transcribe_stage._load_model("large-v3", "cuda", "float16")
+    third = transcribe_stage._load_model("large-v3", "cuda", "float16")
+
+    assert first is second
+    assert third is not first
+    assert len(loads) == 2

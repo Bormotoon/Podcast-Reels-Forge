@@ -83,6 +83,12 @@ def resolve_ffmpeg() -> tuple[str, bool]:
     return (usable[0] if usable else "ffmpeg", False)
 
 
+@functools.lru_cache(maxsize=8)
+def build_has_nvenc(ffmpeg: str) -> bool:
+    """Whether this specific ffmpeg build can encode with NVENC (cached)."""
+    return _has_nvenc(ffmpeg)
+
+
 def ffmpeg_bin() -> str:
     """Path to the chosen ffmpeg binary."""
     return resolve_ffmpeg()[0]

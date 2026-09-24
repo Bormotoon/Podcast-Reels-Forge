@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import gc
 import json
 import os
 import re
 from dataclasses import dataclass
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Final
 
@@ -227,9 +229,54 @@ def _select_compute_type(resolved_device: str, requested: str | None) -> str:
     return _default_compute_type(resolved_device)
 
 
+#: RU: Кэш моделей на время сессии (см. whisper_model_session); None — без кэша.
+#: EN: Model cache for the duration of a session (see whisper_model_session);
+#:     None means no caching.
+_MODEL_SESSION: dict[tuple[str, str, str], WhisperModel] | None = None
+
+
+@contextlib.contextmanager
+def whisper_model_session() -> Iterator[None]:
+    """RU: Держать загруженную модель между эпизодами внутри блока.
+
+    EN: Keep the loaded model across episodes inside the block.
+
+    Loading large-v3 costs tens of seconds and a VRAM churn every time; a
+    stage-major run transcribes the whole queue in one block and pays it
+    once. The model is released (and CUDA memory returned) on exit, before
+    the LLM server needs the GPU.
+    """
+
+    global _MODEL_SESSION
+    previous, _MODEL_SESSION = _MODEL_SESSION, {}
+    try:
+        yield
+    finally:
+        _MODEL_SESSION = previous
+        gc.collect()
+        if torch is not None:
+            try:
+                torch.cuda.empty_cache()
+            except (AttributeError, RuntimeError):
+                pass
+
+
 def _load_model(model_name: str, resolved_device: str, compute_type: str) -> WhisperModel:
     """Load the Whisper model with chosen device and compute type."""
-    return WhisperModel(model_name, device=resolved_device, compute_type=compute_type)
+    key = (model_name, resolved_device, compute_type)
+    if _MODEL_SESSION is not None and key in _MODEL_SESSION:
+        return _MODEL_SESSION[key]
+    model = WhisperModel(model_name, device=resolved_device, compute_type=compute_type)
+    if _MODEL_SESSION is not None:
+        _MODEL_SESSION[key] = model
+    return model
+
+
+def _drop_cached_models() -> None:
+    """Forget session-cached models (an OOM ladder needs the VRAM back)."""
+
+    if _MODEL_SESSION:
+        _MODEL_SESSION.clear()
 
 
 # RU: Лестница температур — главный предохранитель от галлюцинаций. Если сегмент
@@ -300,9 +347,14 @@ def _transcribe_with_optional_kwargs(
             **kwargs,
         )
     except TypeError:
-        # RU: Запасной путь для несовместимой версии API.
-        # EN: Fallback for an incompatible API version.
-        return model.transcribe(str(input_path), language=language, beam_size=beam_size)
+        # RU: Запасной путь для несовместимой версии API: последовательный
+        #     конвейер с теми же параметрами. Раньше здесь терялись пословные
+        #     тайминги и VAD — молча, и субтитры с проверкой цитат деградировали.
+        # EN: Fallback for an incompatible API version: the sequential pipeline
+        #     with the same parameters. Word timings and VAD used to be dropped
+        #     here silently, degrading subtitles and quote checks.
+        LOGGER.warning("batched transcription API mismatch; using the sequential pipeline")
+        return model.transcribe(str(input_path), **kwargs)
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
@@ -314,9 +366,15 @@ def _is_cuda_oom(exc: BaseException) -> bool:
 
 
 def _dump_output(out_path: Path, output: dict[str, object]) -> None:
-    """Write transcription output to disk."""
-    with out_path.open("w", encoding="utf-8") as f:
+    """Write transcription output to disk atomically.
+
+    A crash mid-write must not leave a truncated transcript that a later run
+    could mistake for a finished one.
+    """
+    tmp_path = out_path.with_name(out_path.name + ".tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, out_path)
 
 
 def _format_srt_timestamp(seconds: float) -> str:
@@ -459,8 +517,10 @@ def _dump_srt_output(srt_path: Path, segments: list[dict[str, Any]]) -> None:
             lines.append("")
             idx += 1
 
-    with srt_path.open("w", encoding="utf-8") as f:
+    tmp_path = srt_path.with_name(srt_path.name + ".tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
         f.write("\n".join(lines).rstrip() + "\n")
+    os.replace(tmp_path, srt_path)
 
 
 def _word_to_dict(word: Any) -> dict[str, Any]:
@@ -540,6 +600,7 @@ def transcribe_file(config: TranscribeConfig) -> Path:
     model: WhisperModel | None = None
     try:
         def _cleanup_cuda() -> None:
+            _drop_cached_models()
             gc.collect()
             if resolved_device == "cuda" and torch is not None:
                 try:
@@ -624,6 +685,15 @@ def transcribe_file(config: TranscribeConfig) -> Path:
                     initial_prompt=config.initial_prompt,
                     quality_beam_size=config.quality_beam_size,
                 )
+                # RU: faster-whisper декодирует лениво, внутри генератора: вся
+                #     работа (и весь риск OOM) — здесь, а не при вызове выше.
+                #     Раньше генератор потреблялся вне цикла, и лесенка ловила
+                #     только OOM при подготовке.
+                # EN: faster-whisper decodes lazily, inside the generator: all
+                #     the work — and all the OOM risk — happens here, not in the
+                #     call above. The generator used to be drained outside this
+                #     loop, so the ladder only ever caught set-up OOMs.
+                segments_list = list(segments)
                 break
             except RuntimeError as exc:
                 if not (resolved_device == "cuda" and _is_cuda_oom(exc)):
@@ -643,7 +713,6 @@ def transcribe_file(config: TranscribeConfig) -> Path:
                 compute_type = "float32"
                 model = _load_model(config.model_name, resolved_device, compute_type)
 
-        segments_list = list(segments)
         segment_dicts: list[dict[str, Any]] = []
         for seg in segments_list:
             raw_words = getattr(seg, "words", None)

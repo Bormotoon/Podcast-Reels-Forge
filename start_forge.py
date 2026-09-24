@@ -110,6 +110,11 @@ def main() -> None:
         action="store_true",
         help="Print the pipeline stages in order and exit",
     )
+    ap.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Не проверять окружение перед стартом (llama-server, ffmpeg, токены, диск)",
+    )
     ram = ap.add_mutually_exclusive_group()
     ram.add_argument(
         "--free-ram",
@@ -236,18 +241,135 @@ def main() -> None:
     verbose = bool(args.verbose or cli_conf.get("verbose", False))
     _configure_logging(verbose=verbose, quiet=quiet)
 
-    from podcast_reels_forge.utils.host_memory import (
-        HostMemoryConfig,
-        free_host_memory,
-        install_restore_on_signals,
-        restore_host_memory,
+    from podcast_reels_forge.autonomy import (
+        lock_path,
+        notify,
+        runs_dir,
+        setup_file_logging,
     )
+    from podcast_reels_forge.preflight import run_preflight
+    from podcast_reels_forge.run_report import EXIT_BUSY, RunReport
+    from podcast_reels_forge.utils.host_memory import HostMemoryConfig
+    from podcast_reels_forge.utils.run_lock import RunLock, RunLockBusy
 
     host_memory = HostMemoryConfig.from_conf(conf.get("host_memory"))
     if args.no_free_ram:
         host_memory = replace(host_memory, enabled=False)
     elif args.free_ram:
         host_memory = replace(host_memory, enabled=True)
+
+    youtube_overrides = {
+        "limit": args.yt_limit,
+        "since": args.yt_since,
+        "until": args.yt_until,
+        "min_duration": args.yt_min_duration,
+        "max_duration": args.yt_max_duration,
+        "download": args.yt_download,
+        "max_height": args.yt_max_height,
+        "cookies_file": args.yt_cookies,
+    }
+
+    # RU: --yt-list ничего не обрабатывает: ни блокировки, ни отчёта, ни
+    #     освобождения памяти (оно стоит виртуалке полного цикла выключения).
+    # EN: --yt-list processes nothing: no lock, no report, no memory freeing
+    #     (which costs a VM a full shutdown-and-boot cycle).
+    if args.yt_list:
+        run_pipeline(
+            conf=conf,
+            repo_dir=repo_dir,
+            quiet=quiet,
+            verbose=verbose,
+            stages=stages,
+            youtube_sources=args.youtube,
+            youtube_exclude=args.yt_exclude,
+            youtube_overrides=youtube_overrides,
+            scope_to_youtube=not args.yt_all_inputs,
+            youtube_list_only=True,
+        )
+        return
+
+    log_file = setup_file_logging(conf, repo_dir)
+    if log_file is not None:
+        log.info("log file: %s", log_file)
+
+    lock = RunLock(lock_path(conf, repo_dir))
+    try:
+        lock.acquire()
+    except RunLockBusy as exc:
+        log.error("%s; этот запуск пропущен", exc)
+        print(f"[forge] уже идёт другой прогон: {exc}", file=sys.stderr)
+        sys.exit(EXIT_BUSY)
+
+    report = RunReport()
+    try:
+        youtube_conf = conf.get("youtube") if isinstance(conf.get("youtube"), dict) else {}
+        if not args.skip_preflight:
+            preflight = run_preflight(
+                conf,
+                stages=stages if stages is not None else PIPELINE_STAGES,
+                repo_dir=repo_dir,
+                youtube_requested=bool(args.youtube or (youtube_conf or {}).get("sources")),
+            )
+            for warning in preflight.warnings:
+                log.warning("preflight: %s", warning)
+                report.event("warning", warning)
+            if not preflight.ok:
+                for error in preflight.errors:
+                    log.error("preflight: %s", error)
+                    print(f"[preflight] {error}", file=sys.stderr)
+                report.fatal("preflight: " + "; ".join(preflight.errors))
+        if report.fatal_error is None:
+            _run_with_memory(
+                host_memory=host_memory,
+                repo_dir=repo_dir,
+                quiet=quiet,
+                report=report,
+                pipeline_kwargs={
+                    "conf": conf,
+                    "repo_dir": repo_dir,
+                    "quiet": quiet,
+                    "verbose": verbose,
+                    "skip_existing": not args.no_skip_existing,
+                    "autotune": bool(args.autotune),
+                    "progress": not args.no_progress,
+                    "stages": stages,
+                    "youtube_sources": args.youtube,
+                    "youtube_exclude": args.yt_exclude,
+                    "youtube_overrides": youtube_overrides,
+                    "scope_to_youtube": not args.yt_all_inputs,
+                    "report": report,
+                },
+            )
+    finally:
+        report.finish()
+        report_path = None
+        try:
+            report_path = report.write(runs_dir(conf, repo_dir))
+            log.info("run report: %s (%s)", report_path, report.summary_line())
+        except OSError as exc:
+            log.error("run report not written: %s", exc)
+        notify(conf, report, report_path)
+        lock.release()
+        if not quiet:
+            print(f"[forge] {report.summary_line()}", flush=True)
+    sys.exit(report.exit_code())
+
+
+def _run_with_memory(
+    *,
+    host_memory: Any,
+    repo_dir: Path,
+    quiet: bool,
+    report: Any,
+    pipeline_kwargs: dict[str, Any],
+) -> None:
+    """Free VM memory, run the pipeline, give the memory back — always."""
+
+    from podcast_reels_forge.utils.host_memory import (
+        free_host_memory,
+        install_restore_on_signals,
+        restore_host_memory,
+    )
 
     def give_memory_back() -> None:
         restore_host_memory(host_memory, repo_dir=repo_dir, quiet=quiet)
@@ -256,49 +378,25 @@ def main() -> None:
     #     выход и исключения, обработчики — Ctrl+C и `kill`. Чего не закроет
     #     ничто: SIGKILL и OOM — на этот случай размеры лежат на диске, и
     #     следующий запуск (или --restore) вернёт их сам.
-    # EN: The return must happen whatever the outcome. `finally` covers a normal
-    #     exit and exceptions, the handlers cover Ctrl+C and `kill`. What nothing
-    #     can cover is SIGKILL and the OOM killer — for those the sizes sit on
-    #     disk, and the next run (or --restore) puts them back.
+    # EN: The return must happen whatever the outcome. `finally` covers a
+    #     normal exit and exceptions, the handlers cover Ctrl+C and `kill`.
+    #     What nothing can cover is SIGKILL and the OOM killer — for those the
+    #     sizes sit on disk, and the next run (or --restore) puts them back.
     install_restore_on_signals(give_memory_back)
-
-    # RU: Под --yt-list обработки не будет, а освобождение памяти стоит
-    #     виртуалке полного цикла выключения и загрузки. Ради вывода списка
-    #     это чистый вред.
-    # EN: --yt-list does no processing, and freeing memory costs a VM a full
-    #     shutdown-and-boot cycle. For printing a list that is pure harm.
-    if args.yt_list:
-        host_memory = replace(host_memory, enabled=False)
 
     freed_mb = free_host_memory(host_memory, repo_dir=repo_dir, quiet=quiet)
     if freed_mb and not quiet:
         print(f"[ram] всего освобождено {freed_mb} МБ", flush=True)
 
     try:
-        run_pipeline(
-            conf=conf,
-            repo_dir=repo_dir,
-            quiet=quiet,
-            verbose=verbose,
-            skip_existing=not args.no_skip_existing,
-            autotune=bool(args.autotune),
-            progress=not args.no_progress,
-            stages=stages,
-            youtube_sources=args.youtube,
-            youtube_exclude=args.yt_exclude,
-            youtube_overrides={
-                "limit": args.yt_limit,
-                "since": args.yt_since,
-                "until": args.yt_until,
-                "min_duration": args.yt_min_duration,
-                "max_duration": args.yt_max_duration,
-                "download": args.yt_download,
-                "max_height": args.yt_max_height,
-                "cookies_file": args.yt_cookies,
-            },
-            scope_to_youtube=not args.yt_all_inputs,
-            youtube_list_only=bool(args.yt_list),
-        )
+        run_pipeline(**pipeline_kwargs)
+    except SystemExit as exc:
+        # A run-level abort (bad config, unusable input folder): record it.
+        report.fatal(f"run aborted: {exc.code}")
+        log.error("run aborted: %s", exc.code)
+    except Exception as exc:
+        report.fatal(f"run crashed: {type(exc).__name__}: {exc}")
+        log.exception("run crashed")
     finally:
         give_memory_back()
 

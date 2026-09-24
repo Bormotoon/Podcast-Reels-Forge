@@ -28,15 +28,17 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from podcast_reels_forge.analysis.serializers import atomic_write_json
 from podcast_reels_forge.llm.providers import (
     LlamaCppConfig,
     LlamaCppProvider,
+    close_provider,
     LLMProvider,
 )
 from podcast_reels_forge.utils.json_utils import extract_first_json_value
+from podcast_reels_forge.utils.word_alignment import realign_transcript_words
 from podcast_reels_forge.utils.llama_cpp_service import (
     ENV_MANAGED_BY_PIPELINE,
     llama_cpp_start,
@@ -133,6 +135,56 @@ def build_proofread_batches(
     if current:
         batches.append(current)
     return batches
+
+
+def render_glossary(template: str, glossary: Sequence[str] | None, *, lang: str) -> str:
+    """Fill ``{glossary}`` with the author's spelling of names and terms.
+
+    Proper names are where ASR errs most, and the episode description usually
+    spells them right. Rendered empty when there is nothing to offer.
+    """
+
+    terms = [str(term).strip() for term in (glossary or []) if str(term).strip()]
+    if not terms:
+        text = ""
+    elif lang == "en":
+        text = (
+            "Names and terms as the episode author spells them (use exactly this "
+            "spelling when the audio clearly means them): " + ", ".join(terms)
+        )
+    else:
+        text = (
+            "Имена и термины в написании автора эпизода (используй именно такое "
+            "написание, когда в речи явно они): " + ", ".join(terms)
+        )
+    return template.replace("{glossary}", text)
+
+
+def _overlaps(segment: dict[str, Any], ranges: Sequence[tuple[float, float]]) -> bool:
+    try:
+        start = float(segment.get("start", 0.0))
+        end = float(segment.get("end", 0.0))
+    except (TypeError, ValueError):
+        return False
+    return any(end > low and start < high for low, high in ranges)
+
+
+def _batches_within(
+    segments: list[dict[str, Any]],
+    time_ranges: Sequence[tuple[float, float]] | None,
+    *,
+    max_chars: int,
+) -> list[list[int]]:
+    """Batches over every segment, or only over those inside ``time_ranges``."""
+
+    if time_ranges is None:
+        return build_proofread_batches(segments, max_chars=max_chars)
+    allowed = [i for i, seg in enumerate(segments) if _overlaps(seg, time_ranges)]
+    subset = [segments[i] for i in allowed]
+    return [
+        [allowed[j] for j in batch]
+        for batch in build_proofread_batches(subset, max_chars=max_chars)
+    ]
 
 
 def _normalize_prompt_lang(prompt_lang: str | None, transcript_lang: str | None) -> str:
@@ -327,10 +379,17 @@ async def run_proofread(
     quiet: bool = False,
     verbose: bool = False,
     provider: LLMProvider | None = None,
+    time_ranges: Sequence[tuple[float, float]] | None = None,
+    glossary: Sequence[str] | None = None,
 ) -> Path:
     """RU: Запускает вычитку транскрипта и пишет `.proofread.json` + `.srt`.
 
     EN: Run transcript proofreading and write `.proofread.json` + `.srt`.
+
+    ``time_ranges`` limits the work to segments overlapping them (the spans
+    of the selected clips): subtitles and captions only ever show those, and
+    proofreading the rest of the episode is where most of the LLM time went.
+    The output still carries every segment; the others are left as they were.
     """
     # RU: Ленивый импорт: transcribe_stage тянет faster_whisper.
     # EN: Lazy import: transcribe_stage pulls in faster_whisper.
@@ -362,8 +421,9 @@ async def run_proofread(
         str((prompts_conf or {}).get("language", "auto")),
         str(data.get("language") or ""),
     )
-    prompt_template = _load_proofread_prompt(prompt_lang)
+    prompt_template = render_glossary(_load_proofread_prompt(prompt_lang), glossary, lang=prompt_lang)
 
+    owns_provider = provider is None
     if provider is None:
         provider = LlamaCppProvider(
             LlamaCppConfig(
@@ -372,96 +432,107 @@ async def run_proofread(
                 n_predict=n_predict,
             ),
         )
+    try:
+        segment_dicts = [seg for seg in segments if isinstance(seg, dict)]
+        batches = _batches_within(segment_dicts, time_ranges, max_chars=max_chars)
 
-    segment_dicts = [seg for seg in segments if isinstance(seg, dict)]
-    batches = build_proofread_batches(segment_dicts, max_chars=max_chars)
-
-    if not quiet:
-        LOGGER.info(
-            "[proofread] model=%s segments=%d batches=%d lang=%s",
-            model,
-            len(segment_dicts),
-            len(batches),
-            prompt_lang,
-        )
-
-    applied_total = 0
-    rejected_total = 0
-    failed_batches = 0
-    for batch_no, indices in enumerate(batches, 1):
-        try:
-            applied, rejected = await _proofread_batch(
-                provider,
-                segment_dicts,
-                indices,
-                prompt_template=prompt_template,
-                temperature=temperature,
-                timeout=timeout,
-                min_similarity=min_similarity,
-                verbose=verbose and not quiet,
-            )
-        except Exception as exc:
-            # RU: Одна упавшая пачка не должна ронять стадию — текст остаётся как был.
-            # EN: One failed batch must not kill the stage — that text stays as-is.
-            failed_batches += 1
-            LOGGER.warning(
-                "[proofread] batch %d/%d failed (%s); keeping original text",
-                batch_no,
-                len(batches),
-                exc,
-            )
-            continue
-        applied_total += applied
-        rejected_total += rejected
-        if not quiet and verbose:
+        if not quiet:
             LOGGER.info(
-                "[proofread] batch %d/%d: applied=%d rejected=%d",
-                batch_no,
+                "[proofread] model=%s segments=%d batches=%d lang=%s",
+                model,
+                len(segment_dicts),
                 len(batches),
-                applied,
-                rejected,
+                prompt_lang,
             )
 
-    terms_conf = conf.get("terms")
-    term_fixes: list[dict[str, Any]] = []
-    if isinstance(terms_conf, Mapping) and terms_conf.get("enabled"):
-        out_path_hint = output_path or _proofread_output_path(transcript_path)
-        try:
-            term_fixes = _check_terms(
-                segment_dicts,
-                conf=terms_conf,
-                cache_path=out_path_hint.with_name("term_lookups.json"),
-                quiet=quiet,
+        applied_total = 0
+        rejected_total = 0
+        failed_batches = 0
+        for batch_no, indices in enumerate(batches, 1):
+            try:
+                applied, rejected = await _proofread_batch(
+                    provider,
+                    segment_dicts,
+                    indices,
+                    prompt_template=prompt_template,
+                    temperature=temperature,
+                    timeout=timeout,
+                    min_similarity=min_similarity,
+                    verbose=verbose and not quiet,
+                )
+            except Exception as exc:
+                # RU: Одна упавшая пачка не должна ронять стадию — текст остаётся как был.
+                # EN: One failed batch must not kill the stage — that text stays as-is.
+                failed_batches += 1
+                LOGGER.warning(
+                    "[proofread] batch %d/%d failed (%s); keeping original text",
+                    batch_no,
+                    len(batches),
+                    exc,
+                )
+                continue
+            applied_total += applied
+            rejected_total += rejected
+            if not quiet and verbose:
+                LOGGER.info(
+                    "[proofread] batch %d/%d: applied=%d rejected=%d",
+                    batch_no,
+                    len(batches),
+                    applied,
+                    rejected,
+                )
+
+        terms_conf = conf.get("terms")
+        term_fixes: list[dict[str, Any]] = []
+        if isinstance(terms_conf, Mapping) and terms_conf.get("enabled"):
+            out_path_hint = output_path or _proofread_output_path(transcript_path)
+            try:
+                term_fixes = _check_terms(
+                    segment_dicts,
+                    conf=terms_conf,
+                    cache_path=out_path_hint.with_name("term_lookups.json"),
+                    quiet=quiet,
+                )
+            except Exception as exc:
+                # An outside source is never allowed to fail the transcript.
+                LOGGER.warning("[proofread] term check skipped (%s)", exc)
+
+        # RU: Исправленный текст получает свои тайминги: иначе караоке и
+        #     проверка цитат работали бы по сырым словам Whisper.
+        # EN: The corrected text gets its own timings; otherwise karaoke and
+        #     quote checks would keep running on Whisper's raw words.
+        realigned = realign_transcript_words(segment_dicts)
+        data["sentences"] = _build_sentence_groups(segment_dicts)
+        data["proofread"] = {
+            "term_fixes": term_fixes,
+            "model": model,
+            "prompt_lang": prompt_lang,
+            "segments_total": len(segment_dicts),
+            "applied": applied_total,
+            "rejected": rejected_total,
+            "failed_batches": failed_batches,
+            "words_realigned": realigned,
+            "scope": "full" if time_ranges is None else "clips",
+            "time_ranges": [list(r) for r in time_ranges] if time_ranges is not None else None,
+        }
+
+        out_path = output_path or _proofread_output_path(transcript_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(out_path, data)
+        _dump_srt_output(out_path.with_suffix(".srt"), segment_dicts)
+
+        if not quiet:
+            LOGGER.info(
+                "[proofread] done: applied=%d rejected=%d failed_batches=%d saved=%s",
+                applied_total,
+                rejected_total,
+                failed_batches,
+                out_path,
             )
-        except Exception as exc:
-            # An outside source is never allowed to fail the transcript.
-            LOGGER.warning("[proofread] term check skipped (%s)", exc)
-
-    data["sentences"] = _build_sentence_groups(segment_dicts)
-    data["proofread"] = {
-        "term_fixes": term_fixes,
-        "model": model,
-        "prompt_lang": prompt_lang,
-        "segments_total": len(segment_dicts),
-        "applied": applied_total,
-        "rejected": rejected_total,
-        "failed_batches": failed_batches,
-    }
-
-    out_path = output_path or _proofread_output_path(transcript_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(out_path, data)
-    _dump_srt_output(out_path.with_suffix(".srt"), segment_dicts)
-
-    if not quiet:
-        LOGGER.info(
-            "[proofread] done: applied=%d rejected=%d failed_batches=%d saved=%s",
-            applied_total,
-            rejected_total,
-            failed_batches,
-            out_path,
-        )
-    return out_path
+        return out_path
+    finally:
+        if owns_provider:
+            await close_provider(provider)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
