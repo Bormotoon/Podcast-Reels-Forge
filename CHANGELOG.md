@@ -108,6 +108,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   network cannot rewrite text. Only the suspect word and one neighbour ever
   leave the machine, and every edit is recorded with its evidence.
 
+### Added
+- **Unattended runs** (see `docs/AUTONOMY_REVIEW.md`):
+  - every stage of every episode runs in a failure guard — a broken file, a
+    CUDA OOM, a failed diarization or cut costs that episode, never the rest
+    of the queue; audio companions are built per episode instead of for the
+    whole queue up front;
+  - a run report (`<output_dir>/_runs/<time>.json` and `latest.json`) with the
+    status, timing and error of each stage of each episode, and exit codes a
+    scheduler can act on: 0 ok, 3 partial, 1 fatal, 75 another run is active;
+  - a single-run lock (`autonomy.lock_file`), so a timer and a manual start
+    cannot kill each other's llama-server;
+  - a preflight check before any work: ffmpeg, faster-whisper, llama-server
+    and its model (unless a server already answers), pyannote and
+    `PYANNOTE_TOKEN`, yt-dlp, free disk space (`autonomy.min_free_disk_gb`);
+    `--skip-preflight` bypasses it;
+  - a daily-rotated `logs/forge.log` at INFO whatever the console verbosity,
+    and a notification hook (`autonomy.notify`: a shell command with
+    `FORGE_*` variables and/or a JSON webhook), on failure or always.
+
 ### Changed
 - **Moment analysis: "LLM discovers → Python proves → deterministic selector
   chooses → LLM writes metadata"** (from the moment-selection audit in
@@ -169,6 +188,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   preferred, inward moves allowed) and never trims into the quote.
 
 ### Fixed
+- An interrupted yt-dlp merge left `… [id].f137.mp4` (video, no audio) and
+  `… [id].f140.m4a` behind; both were taken for finished downloads and for
+  separate episodes, and the silent one aborted every following run. Such
+  pieces are now ignored, so yt-dlp resumes the merge.
+- The Whisper OOM ladder (smaller batch, then CPU) never fired on a real OOM:
+  faster-whisper decodes lazily and the generator was drained outside the
+  retry loop. The API-mismatch fallback also silently dropped word timings
+  and VAD; it now keeps every parameter.
+- With YouTube unreachable the whole run aborted; it now logs the outage and
+  processes what is already downloaded.
+- A llama-server that failed to start was still polled for up to 300 s per
+  episode.
+- Transcripts and their SRT are written atomically.
 - `crop_confidence` was filled with the duration-fit score; the field is now
   called `duration_fit_score`, and a stale `crop_confidence` is dropped.
 - A cached episode overview was reused after the transcript, model or prompt

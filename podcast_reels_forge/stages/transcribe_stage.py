@@ -300,9 +300,14 @@ def _transcribe_with_optional_kwargs(
             **kwargs,
         )
     except TypeError:
-        # RU: Запасной путь для несовместимой версии API.
-        # EN: Fallback for an incompatible API version.
-        return model.transcribe(str(input_path), language=language, beam_size=beam_size)
+        # RU: Запасной путь для несовместимой версии API: последовательный
+        #     конвейер с теми же параметрами. Раньше здесь терялись пословные
+        #     тайминги и VAD — молча, и субтитры с проверкой цитат деградировали.
+        # EN: Fallback for an incompatible API version: the sequential pipeline
+        #     with the same parameters. Word timings and VAD used to be dropped
+        #     here silently, degrading subtitles and quote checks.
+        LOGGER.warning("batched transcription API mismatch; using the sequential pipeline")
+        return model.transcribe(str(input_path), **kwargs)
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
@@ -314,9 +319,15 @@ def _is_cuda_oom(exc: BaseException) -> bool:
 
 
 def _dump_output(out_path: Path, output: dict[str, object]) -> None:
-    """Write transcription output to disk."""
-    with out_path.open("w", encoding="utf-8") as f:
+    """Write transcription output to disk atomically.
+
+    A crash mid-write must not leave a truncated transcript that a later run
+    could mistake for a finished one.
+    """
+    tmp_path = out_path.with_name(out_path.name + ".tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, out_path)
 
 
 def _format_srt_timestamp(seconds: float) -> str:
@@ -459,8 +470,10 @@ def _dump_srt_output(srt_path: Path, segments: list[dict[str, Any]]) -> None:
             lines.append("")
             idx += 1
 
-    with srt_path.open("w", encoding="utf-8") as f:
+    tmp_path = srt_path.with_name(srt_path.name + ".tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
         f.write("\n".join(lines).rstrip() + "\n")
+    os.replace(tmp_path, srt_path)
 
 
 def _word_to_dict(word: Any) -> dict[str, Any]:
@@ -624,6 +637,15 @@ def transcribe_file(config: TranscribeConfig) -> Path:
                     initial_prompt=config.initial_prompt,
                     quality_beam_size=config.quality_beam_size,
                 )
+                # RU: faster-whisper декодирует лениво, внутри генератора: вся
+                #     работа (и весь риск OOM) — здесь, а не при вызове выше.
+                #     Раньше генератор потреблялся вне цикла, и лесенка ловила
+                #     только OOM при подготовке.
+                # EN: faster-whisper decodes lazily, inside the generator: all
+                #     the work — and all the OOM risk — happens here, not in the
+                #     call above. The generator used to be drained outside this
+                #     loop, so the ladder only ever caught set-up OOMs.
+                segments_list = list(segments)
                 break
             except RuntimeError as exc:
                 if not (resolved_device == "cuda" and _is_cuda_oom(exc)):
@@ -643,7 +665,6 @@ def transcribe_file(config: TranscribeConfig) -> Path:
                 compute_type = "float32"
                 model = _load_model(config.model_name, resolved_device, compute_type)
 
-        segments_list = list(segments)
         segment_dicts: list[dict[str, Any]] = []
         for seg in segments_list:
             raw_words = getattr(seg, "words", None)

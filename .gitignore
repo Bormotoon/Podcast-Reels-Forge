@@ -113,3 +113,6 @@ llama-server.log
 
 # Detached channel-run log
 run_channel.log
+
+# Single-run lock (start_forge.py)
+.forge.lock

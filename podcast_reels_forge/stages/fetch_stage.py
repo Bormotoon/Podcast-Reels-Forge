@@ -21,6 +21,7 @@ instruction rather than a traceback.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -93,6 +94,20 @@ MEDIA_SUFFIXES = frozenset({
 
 #: yt-dlp leaves these behind mid-download; they must not count as "already here".
 PARTIAL_SUFFIXES = frozenset({".part", ".ytdl", ".temp"})
+
+#: RU: Отдельные дорожки до склейки: `… [id].f137.mp4` (видео без звука) и
+#:     `… [id].f140.m4a`. Если загрузку прервали до склейки, они остаются на
+#:     диске и выглядят как готовые файлы.
+#: EN: Per-format pieces before merging: `… [id].f137.mp4` (video, no audio)
+#:     and `… [id].f140.m4a`. An interrupted download leaves them on disk
+#:     looking like finished files.
+_FRAGMENT_STEM_RE = re.compile(r"\.f\d+(?:-\d+)?$")
+
+
+def is_download_fragment(path: Path) -> bool:
+    """RU: Кусок незавершённой загрузки yt-dlp. EN: A piece of an unfinished yt-dlp download."""
+
+    return path.suffix.lower() in PARTIAL_SUFFIXES or bool(_FRAGMENT_STEM_RE.search(path.stem))
 
 
 @dataclass(frozen=True)
@@ -171,7 +186,8 @@ def find_local_copy(download_dir: Path, video_id: str) -> Path | None:
     for path in sorted(download_dir.iterdir()):
         if not path.is_file() or marker not in path.name:
             continue
-        if path.suffix.lower() in PARTIAL_SUFFIXES:
+        if is_download_fragment(path):
+            # A merge that never happened: let yt-dlp resume it.
             continue
         if path.suffix.lower() not in MEDIA_SUFFIXES:
             continue
