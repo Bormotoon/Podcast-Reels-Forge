@@ -6,13 +6,15 @@ from both the pipeline orchestrator and stage scripts.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import socket
 import subprocess
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Final
+from typing import IO, Any, Final
 from urllib.parse import urlparse
 
 LOGGER = logging.getLogger("Forge")
@@ -100,6 +102,8 @@ def _build_llama_server_cmd(
     extra_args: list[str] | None,
     cache_type_k: str | None = "q8_0",
     cache_type_v: str | None = "q8_0",
+    cache_ram_mb: int | None = None,
+    ctx_checkpoints: int | None = None,
 ) -> list[str]:
     cmd = [
         "llama-server",
@@ -145,9 +149,150 @@ def _build_llama_server_cmd(
     # EN: Always pass --parallel explicitly — without it llama-server defaults to
     #     auto (=4), wasting ~3-4 GB of VRAM on extra KV-cache slots.
     cmd += ["--parallel", str(parallel)]
+    # RU: Кэш промптов живёт в ОПЕРАТИВНОЙ памяти хоста, и по умолчанию ему
+    #     разрешено 8192 МиБ. Именно он, а не веса, набрал 6 ГБ и стал нашим
+    #     вкладом в OOM: модель при n_gpu_layers=999 целиком на GPU, а хост
+    #     держал 32 контекстных чекпоинта по ~160 МБ. Флаг есть не во всех
+    #     сборках, поэтому передаём только если он поддерживается — иначе
+    #     llama-server не запустится вовсе.
+    # EN: The prompt cache lives in host RAM and is allowed 8192 MiB by default.
+    #     That, not the weights, grew to 6 GB and became our share of the OOM:
+    #     with n_gpu_layers=999 the model is entirely on the GPU while the host
+    #     held 32 context checkpoints of ~160 MB each. The flag is missing from
+    #     older builds, so it is passed only when supported — otherwise
+    #     llama-server would refuse to start at all.
+    if cache_ram_mb is not None and _server_supports("--cache-ram"):
+        cmd += ["--cache-ram", str(cache_ram_mb)]
+    if ctx_checkpoints is not None and _server_supports("--ctx-checkpoints"):
+        cmd += ["--ctx-checkpoints", str(ctx_checkpoints)]
     if extra_args:
         cmd.extend(extra_args)
     return cmd
+
+
+#: RU: Куда писать вывод llama-server. Раньше он уходил в /dev/null, и это
+#:     скрывало ровно тот отчёт, по которому видно, сколько слоёв реально уехало
+#:     на GPU и сколько буферов осталось в RAM. Диагностировать «сервер занял
+#:     6 ГБ хостовой памяти при полном оффлоаде» было нечем.
+#: EN: Where llama-server's output goes. It used to be discarded, which hid the
+#:     one report showing how many layers actually reached the GPU and how much
+#:     buffer stayed in RAM. There was no way to diagnose "the server took 6 GB
+#:     of host memory under a supposedly full offload".
+DEFAULT_SERVER_LOG: Final = "llama-server.log"
+
+
+def _open_server_log(raw: object, cmd: list[str]) -> IO[bytes] | None:
+    """RU: Открывает лог llama-server на дозапись; None — писать в /dev/null.
+
+    EN: Open the llama-server log for appending; None means "discard".
+
+    A log that cannot be opened must not stop the pipeline — the server itself is
+    what matters, so we fall back to discarding as before.
+    """
+
+    path_text = str(raw or "").strip()
+    if not path_text:
+        return None
+    try:
+        path = Path(path_text)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = path.open("ab")
+    except OSError as exc:
+        LOGGER.warning("Cannot write llama-server log to %s: %s", path_text, exc)
+        return None
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    handle.write(f"\n===== {stamp} {' '.join(cmd)} =====\n".encode())
+    handle.flush()
+    return handle
+
+
+def available_ram_mb() -> int | None:
+    """RU: Сколько памяти реально доступно сейчас, в МиБ.
+
+    EN: How much memory is genuinely available right now, in MiB.
+
+    Reads ``MemAvailable``, not ``MemFree``: the kernel's own estimate of what a
+    new allocation can get, page cache it is willing to drop included. Returns
+    None where /proc is unavailable.
+    """
+
+    try:
+        text = Path("/proc/meminfo").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("MemAvailable:"):
+            parts = line.split()
+            if len(parts) >= 2 and parts[1].isdigit():
+                return int(parts[1]) // 1024
+    return None
+
+
+def resolve_cache_ram_mb(
+    raw: object,
+    *,
+    reserve_mb: int,
+    min_mb: int,
+    max_mb: int,
+) -> int | None:
+    """RU: Размер кэша промптов: число, None или расчёт от свободной памяти.
+
+    EN: The prompt-cache size: a number, None, or derived from free memory.
+
+    ``auto`` takes what is free right now minus a reserve, which is the only way
+    to be both generous and safe: the cache is worth real time on repeated
+    prefixes, but a number fixed in advance cannot know whether a VM was shut
+    down for this run or a browser has since eaten the difference.
+
+    The reserve is what everything else on the machine is allowed to grow into
+    without pushing the host into an OOM. Note this is decided once, when the
+    server starts — it is a budget, not a live guard.
+    """
+
+    if raw is None:
+        return None
+    text = str(raw).strip().lower()
+    if text in {"", "null", "none"}:
+        return None
+    if text != "auto":
+        try:
+            return max(0, int(float(text)))
+        except ValueError:
+            LOGGER.warning("Не разобрать cache_ram_mb=%r; кэш не ограничиваю", raw)
+            return None
+
+    available = available_ram_mb()
+    if available is None:
+        LOGGER.warning("Не прочитать MemAvailable; беру нижнюю границу кэша")
+        return min_mb
+    budget = available - reserve_mb
+    resolved = max(min_mb, min(budget, max_mb))
+    LOGGER.info(
+        "Кэш промптов: %d МиБ (доступно %d, резерв %d, потолок %d)",
+        resolved, available, reserve_mb, max_mb,
+    )
+    return resolved
+
+
+@functools.lru_cache(maxsize=8)
+def _server_supports(flag: str) -> bool:
+    """RU: Понимает ли установленный llama-server такой флаг.
+
+    EN: Does the installed llama-server understand this flag.
+
+    Checked rather than assumed: llama.cpp adds and renames options often, and an
+    unknown one makes the server exit instead of start. Cached, so it costs one
+    `--help` per flag per process.
+    """
+
+    try:
+        res = subprocess.run(
+            ["llama-server", "--help"],
+            capture_output=True, text=True, timeout=20, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return flag in (res.stdout or "") + (res.stderr or "")
 
 
 def llama_cpp_start(
@@ -195,10 +340,23 @@ def llama_cpp_start(
         extra_args=[str(x) for x in conf.get("extra_args", []) if str(x).strip()],
         cache_type_k=str(conf.get("cache_type_k", "q8_0")) or None,
         cache_type_v=str(conf.get("cache_type_v", "q8_0")) or None,
+        cache_ram_mb=resolve_cache_ram_mb(
+            conf.get("cache_ram_mb", "auto"),
+            reserve_mb=int(conf.get("cache_ram_reserve_mb", 6144)),
+            min_mb=int(conf.get("cache_ram_min_mb", 512)),
+            max_mb=int(conf.get("cache_ram_max_mb", 8192)),
+        ),
+        ctx_checkpoints=(
+            int(conf["ctx_checkpoints"])
+            if conf.get("ctx_checkpoints") is not None
+            else None
+        ),
     )
 
+    log_handle = _open_server_log(conf.get("log_file", DEFAULT_SERVER_LOG), cmd)
     try:
-        p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        target = log_handle if log_handle is not None else subprocess.DEVNULL
+        p = subprocess.Popen(cmd, stdout=target, stderr=subprocess.STDOUT)
         if wait_tcp(host, port, timeout_s=int(conf.get("startup_timeout", 60))):
             if p.poll() is None:
                 return p

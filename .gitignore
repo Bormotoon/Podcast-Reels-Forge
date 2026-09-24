@@ -104,3 +104,6 @@ models/
 # Local wheels / secrets
 *.whl
 .env
+
+# llama-server diagnostics (layer offload / buffer sizes)
+llama-server.log
