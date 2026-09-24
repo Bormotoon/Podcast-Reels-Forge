@@ -877,3 +877,24 @@ def test_an_empty_but_finished_analysis_is_marked_complete(
     assert moments == []
     marker = json.loads((outdir / "analysis_complete.json").read_text(encoding="utf-8"))
     assert marker == {**marker, "status": "ok", "moments": 0}
+
+
+def test_a_rerun_replays_cached_llm_answers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Resuming after a crash must not pay for the answers it already has."""
+    first, providers, outdir = _run_analysis(
+        monkeypatch, tmp_path, scout=lambda p, _i: _candidates_json(_moment_in_chunk(p)),
+    )
+    calls_before = {name: provider.calls for name, provider in providers.items()}
+    (outdir / "moments.json").unlink()
+
+    second, providers_again, _ = _run_analysis(
+        monkeypatch, tmp_path, scout=lambda p, _i: _candidates_json(_moment_in_chunk(p)),
+    )
+
+    assert [m.to_dict() for m in second] == [m.to_dict() for m in first]
+    assert all(calls_before[name] > 0 for name in calls_before)
+    assert all(provider.calls == 0 for provider in providers_again.values())
+    metrics = json.loads((outdir / "analysis_metrics.json").read_text(encoding="utf-8"))
+    assert metrics["llm_cache_hits"] > 0

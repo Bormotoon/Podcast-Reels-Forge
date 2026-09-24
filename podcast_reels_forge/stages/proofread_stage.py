@@ -28,7 +28,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from podcast_reels_forge.analysis.serializers import atomic_write_json
 from podcast_reels_forge.llm.providers import (
@@ -135,6 +135,33 @@ def build_proofread_batches(
     if current:
         batches.append(current)
     return batches
+
+
+def _overlaps(segment: dict[str, Any], ranges: Sequence[tuple[float, float]]) -> bool:
+    try:
+        start = float(segment.get("start", 0.0))
+        end = float(segment.get("end", 0.0))
+    except (TypeError, ValueError):
+        return False
+    return any(end > low and start < high for low, high in ranges)
+
+
+def _batches_within(
+    segments: list[dict[str, Any]],
+    time_ranges: Sequence[tuple[float, float]] | None,
+    *,
+    max_chars: int,
+) -> list[list[int]]:
+    """Batches over every segment, or only over those inside ``time_ranges``."""
+
+    if time_ranges is None:
+        return build_proofread_batches(segments, max_chars=max_chars)
+    allowed = [i for i, seg in enumerate(segments) if _overlaps(seg, time_ranges)]
+    subset = [segments[i] for i in allowed]
+    return [
+        [allowed[j] for j in batch]
+        for batch in build_proofread_batches(subset, max_chars=max_chars)
+    ]
 
 
 def _normalize_prompt_lang(prompt_lang: str | None, transcript_lang: str | None) -> str:
@@ -329,10 +356,16 @@ async def run_proofread(
     quiet: bool = False,
     verbose: bool = False,
     provider: LLMProvider | None = None,
+    time_ranges: Sequence[tuple[float, float]] | None = None,
 ) -> Path:
     """RU: Запускает вычитку транскрипта и пишет `.proofread.json` + `.srt`.
 
     EN: Run transcript proofreading and write `.proofread.json` + `.srt`.
+
+    ``time_ranges`` limits the work to segments overlapping them (the spans
+    of the selected clips): subtitles and captions only ever show those, and
+    proofreading the rest of the episode is where most of the LLM time went.
+    The output still carries every segment; the others are left as they were.
     """
     # RU: Ленивый импорт: transcribe_stage тянет faster_whisper.
     # EN: Lazy import: transcribe_stage pulls in faster_whisper.
@@ -377,7 +410,7 @@ async def run_proofread(
         )
     try:
         segment_dicts = [seg for seg in segments if isinstance(seg, dict)]
-        batches = build_proofread_batches(segment_dicts, max_chars=max_chars)
+        batches = _batches_within(segment_dicts, time_ranges, max_chars=max_chars)
 
         if not quiet:
             LOGGER.info(
@@ -455,6 +488,8 @@ async def run_proofread(
             "rejected": rejected_total,
             "failed_batches": failed_batches,
             "words_realigned": realigned,
+            "scope": "full" if time_ranges is None else "clips",
+            "time_ranges": [list(r) for r in time_ranges] if time_ranges is not None else None,
         }
 
         out_path = output_path or _proofread_output_path(transcript_path)

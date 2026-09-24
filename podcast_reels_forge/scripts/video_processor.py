@@ -92,8 +92,14 @@ def ffmpeg_cut(
     is_rejected: bool = False,
     rejected_dir: Path | None = None,
     ass_path: Path | None = None,
+    encode_rejected: bool = True,
 ) -> tuple[bool, Path, str | None]:
-    """Cut a segment from video with optional vertical crop."""
+    """Cut a segment from video with optional vertical crop.
+
+    With ``encode_rejected=False`` a clip the face check rejects is not
+    encoded at all: ``(False, out_path, reason)`` comes back and nothing is
+    written.
+    """
 
     filters: list[str] = []
     face_rejection_reason: str | None = None
@@ -159,6 +165,9 @@ def ffmpeg_cut(
             )
             return False, out_path, face_rejection_reason
 
+    if is_rejected and not encode_rejected:
+        return False, out_path, face_rejection_reason
+
     if is_rejected and rejected_dir:
         out_path = rejected_dir / out_path.name
 
@@ -188,8 +197,8 @@ def ffmpeg_cut(
         ]
         if filters:
             cmd += ["-vf", ",".join(filters)]
-        if burning_subtitles and libass_ffmpeg:
-            # The libass-capable build here has no NVENC; encode with libx264.
+        if burning_subtitles and libass_ffmpeg and not (use_nvenc and libass_has_nvenc):
+            # This libass-capable build has no NVENC (or NVENC failed): libx264.
             cmd += ["-c:v", "libx264", "-preset", opts.preset, "-b:v", opts.v_bitrate, "-pix_fmt", "yuv420p"]
         else:
             cmd += build_video_codec_args(
@@ -203,7 +212,13 @@ def ffmpeg_cut(
         cmd += ["-c:a", "aac", "-b:a", opts.a_bitrate, "-movflags", "+faststart", str(out_path)]
         return cmd
 
+    # A build with both libass and NVENC burns subtitles on the GPU; the old
+    # path always fell back to software libx264 when subtitles were on.
+    libass_has_nvenc = libass_ffmpeg is not None and _build_has_nvenc(libass_ffmpeg)
     res = _run_subprocess(_build(opts.use_nvenc))
+    if res.returncode != 0 and burning_subtitles and opts.use_nvenc and libass_has_nvenc:
+        LOG.warning("NVENC subtitle-burn failed for %s; retrying with libx264", out_path.name)
+        res = _run_subprocess(_build(False))
     if res.returncode != 0 and burning_subtitles:
         LOG.error(
             "Subtitle-burn encode failed for %s: %s",
@@ -223,6 +238,12 @@ def ffmpeg_cut(
         )
 
     return res.returncode == 0, out_path, face_rejection_reason
+
+
+def _build_has_nvenc(ffmpeg: str) -> bool:
+    from podcast_reels_forge.utils.ffmpeg import build_has_nvenc
+
+    return build_has_nvenc(ffmpeg)
 
 
 def create_concat_sample(reels: list[Path], out_path: Path) -> bool:
@@ -389,6 +410,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Allow subtitles to wrap onto multiple lines at spaces (default: enabled)",
     )
     ap.add_argument(
+        "--render-rejected",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Also encode clips the quality filters reject into reels/rejected/ (default: list them only)",
+    )
+    ap.add_argument(
         "--keep-nosubs",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -502,8 +529,12 @@ def main(argv: list[str] | None = None) -> None:
 
     def process_moment(
         i_m: tuple[int, dict[str, object]],
-    ) -> tuple[Path | None, list[str]]:
-        """Returns (final_path_or_none, rejection_reasons)."""
+    ) -> tuple[Path | None, list[str], str]:
+        """Returns (final_path_or_none, rejection_reasons, outcome).
+
+        outcome: "ok", "rejected" (encoded into rejected/), "skipped"
+        (rejected and not encoded) or "failed".
+        """
         i, m = i_m
         out_file = reels_dir / f"reel_{i + 1:02d}.mp4"
         start_val = m.get("start", 0)
@@ -535,6 +566,9 @@ def main(argv: list[str] | None = None) -> None:
             rejection_reasons.append(f"duration {duration:.0f}s > {args.filter_max_duration:.0f}s")
 
         rejected_dir = reels_dir / "rejected"
+        if is_rejected and not args.render_rejected:
+            # Nobody publishes these; encoding them only cost GPU time.
+            return None, rejection_reasons, "skipped"
         if is_rejected:
             rejected_dir.mkdir(exist_ok=True)
 
@@ -553,7 +587,10 @@ def main(argv: list[str] | None = None) -> None:
             is_rejected=is_rejected,
             rejected_dir=rejected_dir,
             ass_path=ass_path,
+            encode_rejected=bool(args.render_rejected),
         )
+        if not success and face_reason and not args.render_rejected:
+            return None, [*rejection_reasons, face_reason], "skipped"
         if not success and ass_path is not None:
             LOG.error(
                 "Subtitle burn failed for %s; cutting it without subtitles",
@@ -579,23 +616,46 @@ def main(argv: list[str] | None = None) -> None:
             )
         if face_reason:
             rejection_reasons.append(face_reason)
-        return (final_path if success else None), rejection_reasons
+        if not success:
+            return None, rejection_reasons, "failed"
+        return final_path, rejection_reasons, ("rejected" if "rejected" in final_path.parts else "ok")
 
     _status(f"[cut] {len(moments)} moments", quiet=args.quiet)
     with ThreadPoolExecutor(max_workers=args.threads) as pool:
-        raw_results: Iterable[tuple[Path | None, list[str]]] = pool.map(
+        raw_results: Iterable[tuple[Path | None, list[str], str]] = pool.map(
             process_moment, enumerate(moments)
         )
         if args.verbose:
             raw_results = tqdm(raw_results, total=len(moments))
         results = list(raw_results)
 
-    # results[i] = (final_path | None, rejection_reasons); indices line up with moments.
-    all_cut_paths = [path for path, _ in results]
-    final_reels = [p for p in all_cut_paths if p is not None and "rejected" not in p.parts]
+    # results[i] = (path | None, rejection_reasons, outcome); indices line up with moments.
+    all_cut_paths = [path for path, _, _ in results]
+    final_reels = [path for path, _, outcome in results if path is not None and outcome == "ok"]
     if subtitle_errors:
         LOG.error("Failed to burn subtitles for: %s", ", ".join(sorted(subtitle_errors)))
         sys.exit(1)
+
+    # RU: Список отбракованного — всегда, даже если сами клипы не кодировались.
+    # EN: The list of what was rejected — always, even when nothing was encoded.
+    rejected_rows = [
+        {
+            "index": i + 1,
+            "start": moments[i].get("start"),
+            "end": moments[i].get("end"),
+            "title": moments[i].get("title"),
+            "score": moments[i].get("score"),
+            "reasons": reasons,
+            "encoded": outcome == "rejected",
+        }
+        for i, (_path, reasons, outcome) in enumerate(results)
+        if outcome in {"rejected", "skipped"} and i < len(moments)
+    ]
+    rejected_json = reels_dir / "rejected.json"
+    if rejected_rows:
+        rejected_json.write_text(json.dumps(rejected_rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    else:
+        rejected_json.unlink(missing_ok=True)
 
     if any(p is not None for p in all_cut_paths):
         if final_reels:
@@ -612,8 +672,8 @@ def main(argv: list[str] | None = None) -> None:
             if args.export_gif:
                 _export_gif(mp4, stem_path.with_suffix(".gif"))
 
-        # Write per-clip .txt (Instagram caption) and .md for every clip, including rejected.
-        for i, (maybe_clip_path, rejection_reasons) in enumerate(results):
+        # Write per-clip .txt (Instagram caption) and .md for every encoded clip.
+        for i, (maybe_clip_path, rejection_reasons, _outcome) in enumerate(results):
             if maybe_clip_path is None or i >= len(moments):
                 continue
             clip_path: Path = maybe_clip_path
@@ -634,15 +694,17 @@ def main(argv: list[str] | None = None) -> None:
     #     иначе «done (0 reels)» читается как успех.
     # EN: Rejection and a failed encode are different outcomes and both must be
     #     named: otherwise "done (0 reels)" reads as success.
-    rejected_count = sum(1 for p in all_cut_paths if p is not None and "rejected" in p.parts)
-    failed_count = sum(1 for p in all_cut_paths if p is None)
-    if failed_count:
-        LOG.error("%d of %d clips failed to encode", failed_count, len(all_cut_paths))
+    rejected_count = len(rejected_rows)
+    failed_count = sum(1 for _p, _r, outcome in results if outcome == "failed")
     _status(
         f"[cut] done ({len(final_reels)} reels, "
         f"{rejected_count} rejected, {failed_count} failed)",
         quiet=args.quiet,
     )
+    if failed_count:
+        LOG.error("%d of %d clips failed to encode", failed_count, len(results))
+        # Non-zero, so the pipeline's run report shows the cut as failed.
+        sys.exit(2)
 
 
 if __name__ == "__main__":

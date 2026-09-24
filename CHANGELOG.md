@@ -128,6 +128,32 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `FORGE_*` variables and/or a JSON webhook), on failure or always.
 
 ### Changed
+- **The queue runs stage by stage** (`autonomy.scheduling: stage`, the
+  default): every transcription with one Whisper load, then one llama-server
+  session for every LLM stage, then every cut. Before, both models were
+  reloaded for each episode (~14 GB of weights per llama-server start).
+  `scheduling: episode` keeps the old order. llama-server is no longer started
+  when no LLM stage is selected.
+- **Proofreading returns only the segments it changed** instead of rewriting
+  the whole transcript — the most expensive LLM output of a run. With
+  `proofread.scope: clips` it runs after the analysis and only over the
+  selected clips' spans (what subtitles and captions show); the article
+  forces the full scope.
+- **Stage fingerprints** (`.forge_state.json` per episode): the analysis is
+  redone when the transcript, processing config, prompts or roles change, and
+  the cut when the moments, subtitle transcript, video/subtitle/export
+  settings or quality filters change — the old reels are discarded first.
+  Outputs made before fingerprints existed are adopted, not redone.
+- **LLM answers are cached** per analysis folder (`analysis.llm_cache`): a
+  re-run after a crash replays what it already has; unused entries are
+  pruned. `analysis_metrics.json` reports the hits.
+- Clips the quality filters reject are listed in `reels/rejected.json`
+  instead of being encoded (`quality_filters.render_rejected: true` restores
+  that); a failed encode now fails the cut, so the run report shows it.
+- Subtitle burning uses NVENC when the libass-capable ffmpeg has it.
+- The 320k MP3 listening copy is optional (`audio.listening_copy`), the 16 kHz
+  WAV can be deleted after the analysis (`audio.delete_wav_after_analysis`),
+  and scout/cleanup/judge get their own `n_predict` in `role_overrides`.
 - **Moment analysis: "LLM discovers → Python proves → deterministic selector
   chooses → LLM writes metadata"** (from the moment-selection audit in
   `ANALYSIS_REPORT.md`).

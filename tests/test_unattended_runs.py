@@ -133,7 +133,7 @@ def test_a_file_without_audio_costs_only_its_episode(
     (input_dir / "good.mp4").write_text("x")
     _stub_environment(monkeypatch)
 
-    def companions(source: Path) -> tuple[Path, Path]:
+    def companions(source: Path, *, want_mp3: bool = True) -> tuple[Path, Path]:
         if source.stem == "silent":
             raise SystemExit("Failed to create audio companions for silent.mp4: no audio")
         mp3, wav = source.with_suffix(".mp3"), source.with_suffix(".wav")

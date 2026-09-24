@@ -183,3 +183,40 @@ def test_run_proofread_survives_failed_batches(tmp_path: Path) -> None:
     assert [seg["text"] for seg in data["segments"]] == ["a" * 600, "b" * 600]
     assert data["proofread"]["applied"] == 0
     assert data["proofread"]["failed_batches"] == 2
+
+
+def test_run_proofread_limits_work_to_the_given_time_ranges(tmp_path: Path) -> None:
+    """Clip-scoped proofreading sends only the clip spans to the model."""
+    transcript = {
+        "language": "ru",
+        "segments": [
+            {"start": 0.0, "end": 5.0, "text": "первый сегмент вне клипа", "words": []},
+            {"start": 100.0, "end": 105.0, "text": "второй сегмент в клипе", "words": []},
+            {"start": 300.0, "end": 305.0, "text": "третий сегмент вне клипа", "words": []},
+        ],
+    }
+    transcript_path = tmp_path / "ep.json"
+    transcript_path.write_text(json.dumps(transcript, ensure_ascii=False), encoding="utf-8")
+    provider = FakeProvider([json.dumps({"segments": [{"id": 1, "text": "Второй сегмент в клипе."}]}, ensure_ascii=False)])
+
+    out_path = asyncio.run(run_proofread(
+        transcript_path=transcript_path,
+        provider=provider,
+        quiet=True,
+        time_ranges=[(90.0, 120.0)],
+    ))
+
+    assert len(provider.prompts) == 1
+    assert "второй сегмент" in provider.prompts[0]
+    assert "первый сегмент" not in provider.prompts[0]
+    data = json.loads(out_path.read_text(encoding="utf-8"))
+    assert [s["text"] for s in data["segments"]] == [
+        "первый сегмент вне клипа", "Второй сегмент в клипе.", "третий сегмент вне клипа",
+    ]
+    assert data["proofread"]["scope"] == "clips"
+
+
+def test_proofread_prompts_ask_only_for_changed_segments() -> None:
+    root = Path(__file__).resolve().parent.parent / "prompts"
+    assert "только сегменты, в которых ты что-то исправил" in (root / "ru" / "proofread_default.txt").read_text(encoding="utf-8")
+    assert "only the segments you changed" in (root / "en" / "proofread_default.txt").read_text(encoding="utf-8")

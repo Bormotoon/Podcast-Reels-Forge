@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import gc
 import json
 import os
 import re
 from dataclasses import dataclass
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Final
 
@@ -227,9 +229,54 @@ def _select_compute_type(resolved_device: str, requested: str | None) -> str:
     return _default_compute_type(resolved_device)
 
 
+#: RU: Кэш моделей на время сессии (см. whisper_model_session); None — без кэша.
+#: EN: Model cache for the duration of a session (see whisper_model_session);
+#:     None means no caching.
+_MODEL_SESSION: dict[tuple[str, str, str], WhisperModel] | None = None
+
+
+@contextlib.contextmanager
+def whisper_model_session() -> Iterator[None]:
+    """RU: Держать загруженную модель между эпизодами внутри блока.
+
+    EN: Keep the loaded model across episodes inside the block.
+
+    Loading large-v3 costs tens of seconds and a VRAM churn every time; a
+    stage-major run transcribes the whole queue in one block and pays it
+    once. The model is released (and CUDA memory returned) on exit, before
+    the LLM server needs the GPU.
+    """
+
+    global _MODEL_SESSION
+    previous, _MODEL_SESSION = _MODEL_SESSION, {}
+    try:
+        yield
+    finally:
+        _MODEL_SESSION = previous
+        gc.collect()
+        if torch is not None:
+            try:
+                torch.cuda.empty_cache()
+            except (AttributeError, RuntimeError):
+                pass
+
+
 def _load_model(model_name: str, resolved_device: str, compute_type: str) -> WhisperModel:
     """Load the Whisper model with chosen device and compute type."""
-    return WhisperModel(model_name, device=resolved_device, compute_type=compute_type)
+    key = (model_name, resolved_device, compute_type)
+    if _MODEL_SESSION is not None and key in _MODEL_SESSION:
+        return _MODEL_SESSION[key]
+    model = WhisperModel(model_name, device=resolved_device, compute_type=compute_type)
+    if _MODEL_SESSION is not None:
+        _MODEL_SESSION[key] = model
+    return model
+
+
+def _drop_cached_models() -> None:
+    """Forget session-cached models (an OOM ladder needs the VRAM back)."""
+
+    if _MODEL_SESSION:
+        _MODEL_SESSION.clear()
 
 
 # RU: Лестница температур — главный предохранитель от галлюцинаций. Если сегмент
@@ -553,6 +600,7 @@ def transcribe_file(config: TranscribeConfig) -> Path:
     model: WhisperModel | None = None
     try:
         def _cleanup_cuda() -> None:
+            _drop_cached_models()
             gc.collect()
             if resolved_device == "cuda" and torch is not None:
                 try:

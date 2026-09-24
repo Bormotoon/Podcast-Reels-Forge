@@ -300,3 +300,19 @@ def test_oom_during_lazy_decoding_steps_the_batch_down(tmp_path: Path, monkeypat
     assert batches == [16, 8, 4]
     assert out.exists()
     assert not out.with_name(out.name + ".tmp").exists()
+
+
+def test_model_session_loads_once_and_releases(monkeypatch) -> None:
+    from podcast_reels_forge.stages import transcribe_stage
+
+    loads: list[tuple] = []
+    monkeypatch.setattr(transcribe_stage, "WhisperModel", lambda *a, **k: loads.append(a) or object())
+
+    with transcribe_stage.whisper_model_session():
+        first = transcribe_stage._load_model("large-v3", "cuda", "float16")
+        second = transcribe_stage._load_model("large-v3", "cuda", "float16")
+    third = transcribe_stage._load_model("large-v3", "cuda", "float16")
+
+    assert first is second
+    assert third is not first
+    assert len(loads) == 2

@@ -11,11 +11,14 @@ STRICT PROHIBITIONS — this is a transcript of live speech and its content must
 - Do NOT paraphrase or retell. Keep the conversational style, colloquialisms and filler words ("well", "like", "you know") exactly as they are.
 - Do NOT reorder words.
 - Do NOT translate the text into another language.
-- Do NOT merge or split segments: return exactly the same segments with the same ids.
-- If a segment is already correct, return its text unchanged.
+- Do NOT merge or split segments: every segment keeps its own id.
+
+WHAT TO RETURN: only the segments you changed, with their original ids and the
+full corrected text. Do NOT return segments that need no change. If nothing
+needs fixing, return an empty list.
 
 Segments (JSON):
 {segments_json}
 
 Return the answer STRICTLY as JSON, with no explanations or comments:
-{"segments": [{"id": <id>, "text": "<corrected segment text>"}]}
+{"segments": [{"id": <id>, "text": "<full corrected segment text>"}]}

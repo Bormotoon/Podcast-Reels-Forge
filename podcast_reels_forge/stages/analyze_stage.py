@@ -352,6 +352,70 @@ _JSON_RETRY_NOTE = (
 )
 
 
+class CachingProvider:
+    """RU: Дисковый кэш ответов LLM по хэшу запроса.
+
+    EN: On-disk cache of LLM answers keyed by a hash of the request.
+
+    The analysis is the one long LLM stage that dies halfway most often (a
+    stalled server, an OOM, a reboot); with this cache a re-run replays every
+    answer it already has and only pays for the rest. The key covers the
+    model, the schema, the sampling temperature and the exact prompt, so any
+    change to them is a cache miss. Entries not used by a run are pruned at
+    its end (see :meth:`prune`).
+    """
+
+    def __init__(
+        self,
+        inner: LLMProvider,
+        cache_dir: Path,
+        *,
+        namespace: str,
+        used: set[str],
+    ) -> None:
+        self.inner = inner
+        self.cache_dir = cache_dir
+        self.namespace = namespace
+        self.used = used
+        self.hits = 0
+
+    def _key(self, prompt: str, temperature: float) -> str:
+        material = json.dumps([self.namespace, round(float(temperature), 4), prompt], ensure_ascii=False)
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    async def generate(self, prompt: str, *, temperature: float, timeout: int) -> str:
+        key = self._key(prompt, temperature)
+        self.used.add(key)
+        path = self.cache_dir / f"{key}.json"
+        try:
+            cached = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(cached, dict) and isinstance(cached.get("text"), str):
+                self.hits += 1
+                return cached["text"]
+        except (OSError, ValueError):
+            pass
+        text = await self.inner.generate(prompt, temperature=temperature, timeout=timeout)
+        try:
+            atomic_write_json(path, {"text": text})
+        except OSError as exc:
+            LOGGER.debug("llm cache write failed: %s", exc)
+        return text
+
+    async def aclose(self) -> None:
+        await close_provider(self.inner)
+
+    @staticmethod
+    def prune(cache_dir: Path, used: set[str]) -> int:
+        removed = 0
+        if not cache_dir.is_dir():
+            return 0
+        for path in cache_dir.glob("*.json"):
+            if path.stem not in used:
+                path.unlink(missing_ok=True)
+                removed += 1
+        return removed
+
+
 class RetryBudget:
     """RU: Общий на эпизод лимит повторных запросов из-за битого JSON.
 
@@ -1872,6 +1936,19 @@ async def run_staged_analysis(
         json_schema=judge_schema,
         fallback_schema=judge_fallback,
     )
+    llm_cache_enabled = _conf_bool(analysis_conf, "llm_cache", True)
+    llm_cache_dir = outdir / "llm_cache"
+    llm_cache_used: set[str] = set()
+
+    def _cached(provider: LLMProvider, model: str, schema: Mapping[str, Any] | None) -> LLMProvider:
+        if not llm_cache_enabled:
+            return provider
+        namespace = json.dumps([provider_name, model, schema], sort_keys=True, default=str)
+        return CachingProvider(provider, llm_cache_dir, namespace=namespace, used=llm_cache_used)
+
+    scout_provider = _cached(scout_provider, roles.scout, scout_schema)
+    cleanup_refine_provider = _cached(cleanup_refine_provider, roles.cleanup_refine, cleanup_schema)
+    judge_metadata_provider = _cached(judge_metadata_provider, roles.judge_metadata, judge_schema)
     providers: list[LLMProvider] = [scout_provider, cleanup_refine_provider, judge_metadata_provider]
 
     scout_prompt = _ensure_prompt_text("scout", prompt_lang, variant)
@@ -1949,14 +2026,18 @@ async def run_staged_analysis(
         if context_enabled:
             # Each stage's grammar only admits its own shape, so the overview
             # needs its own provider with its own schema.
-            context_provider = _make_stage_provider(
-                provider_name,
-                model=roles.scout,
-                base_url=base_url,
-                stage_conf=scout_conf,
-                api_key=api_key,
-                json_schema=context_schema,
-                fallback_schema=context_fallback,
+            context_provider = _cached(
+                _make_stage_provider(
+                    provider_name,
+                    model=roles.scout,
+                    base_url=base_url,
+                    stage_conf=scout_conf,
+                    api_key=api_key,
+                    json_schema=context_schema,
+                    fallback_schema=context_fallback,
+                ),
+                roles.scout,
+                context_schema,
             )
             providers.append(context_provider)
             episode_context = await build_episode_context(
@@ -2246,9 +2327,14 @@ async def run_staged_analysis(
         "topic_diversity": _topic_diversity(final_moments),
         "quota_fill_rate": _rate(len(final_moments), target_total),
         "json_retries": {"used": budget.used, "refused": budget.refused, "budget": budget.total},
+        "llm_cache_hits": sum(getattr(p, "hits", 0) for p in providers),
         "rejections": rejection_reasons,
     }
     atomic_write_json(outdir / "analysis_metrics.json", metrics)
+    if llm_cache_enabled:
+        # Answers this run did not ask for belong to prompts that no longer
+        # exist; keeping them would only grow the folder forever.
+        CachingProvider.prune(llm_cache_dir, llm_cache_used)
     # Written last: its presence means the analysis ran to the end, so an
     # empty moments.json is a real result ("nothing worth cutting") rather
     # than the placeholder a crash leaves behind.
