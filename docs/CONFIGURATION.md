@@ -10,6 +10,82 @@ paths:
   output_dir: "output"
 ```
 
+## Host memory / Освобождение памяти хоста
+
+RU: Пайплайн держит на хосте несколько гигабайт (llama-server плюс питон с
+torch). Если рядом живут виртуалки, этого хватает, чтобы упереться в OOM —
+причём ядро убивает не пайплайн, а процесс с наибольшим `oom_score_adj`
+(у snap-сборки VS Code он равен 300, то есть она сама вызывается на роль жертвы).
+
+EN: The pipeline holds several gigabytes on the host. With VMs alongside, that is
+enough to reach the OOM killer — which kills not the pipeline but whatever has
+the highest `oom_score_adj` (a snap-packaged VS Code sets its own to 300).
+
+```yaml
+host_memory:
+  enabled: false
+  domains: []              # баллонить (пусто = все запущенные, кроме stop_domains)
+  stop_domains: []         # выключать на время прогона и поднимать после
+  shutdown_timeout_s: 180
+  headroom_mb: 1536        # запас гостю сверх занятого им
+  min_mb: 1024             # ниже не опускаться никогда
+  state_file: ".forge-host-memory.json"
+  connect: "qemu:///system"
+```
+
+| Ключ | Что делает |
+|---|---|
+| `domains` | У кого забирать неиспользуемую память баллоном, на живую. Размер считается от того, что гость сам сообщает занятым, а не от числа, вписанного полгода назад. |
+| `stop_domains` | Кого выключать целиком. Возврат — обычный старт домена: чистая загрузка гостя, а не продолжение с того же места. |
+| `headroom_mb` | Сколько оставить гостю сверх занятого. Сжимать впритык — верный способ получить OOM уже внутри ВМ. |
+
+### Почему баллон, а не пауза / Why ballooning, not pausing
+
+RU: `virsh suspend` не освобождает ни байта — останавливает vCPU, но qemu
+продолжает держать всю память гостя. `managedsave` libvirt не даст выполнить для
+домена с назначенным PCI-устройством.
+
+EN: `virsh suspend` frees nothing — it stops the vCPUs while qemu keeps every
+page mapped. `managedsave` is refused by libvirt for a domain with an assigned
+PCI device.
+
+### Ограничение: проброшенный PCI / The passthrough limit
+
+RU: **На ВМ с проброшенным PCI-устройством баллон не освобождает ничего.** Вся
+память такого гостя залочена в RAM (`VmLck` равен её размеру), потому что IOMMU
+нужен постоянный маппинг для DMA. Баллон при этом честно сдвигается и гость
+сообщает о свободных страницах, а RSS у qemu не падает ни на байт: память
+отнимается у гостя и не достаётся никому. Такие домены определяются по `VmLck` и
+пропускаются; забрать у них память может только `stop_domains`.
+
+EN: **Ballooning frees nothing on a VM with a passed-through PCI device.** Its
+whole guest memory is locked into RAM (`VmLck` equals its size) because the IOMMU
+needs a permanent DMA mapping. The balloon does move and the guest does report
+free pages, yet qemu's RSS does not drop by a byte — the memory is taken from the
+guest and handed to nobody. Such domains are detected via `VmLck` and skipped;
+only `stop_domains` can reclaim their memory.
+
+### Возврат / Restoring
+
+RU: Исходные размеры пишутся на диск (с fsync) ДО первого изменения. Обычный
+выход, исключение, Ctrl+C и `kill` возвращают память сразу; после SIGKILL или OOM
+её вернёт следующий запуск либо отдельная команда. Неудавшийся возврат сохраняет
+запись, а не удаляет её, — иначе ВМ осталась бы сжатой, и никто бы об этом не
+знал.
+
+EN: Original sizes are fsynced to disk BEFORE the first change. A normal exit, an
+exception, Ctrl+C and `kill` restore immediately; after a SIGKILL or an OOM the
+next run or the standalone command does it. A failed restore keeps its record
+rather than dropping it — otherwise a VM would stay shrunken with nothing
+tracking it.
+
+```bash
+python3 -m podcast_reels_forge.scripts.host_memory --status    # раскладка, ничего не менять
+python3 -m podcast_reels_forge.scripts.host_memory --restore   # вернуть всё вручную
+python3 start_forge.py --free-ram                              # включить на один запуск
+python3 start_forge.py --no-free-ram                           # не трогать ВМ на один запуск
+```
+
 ## Transcription / Транскрипция
 
 ```yaml

@@ -10,6 +10,7 @@ import argparse
 import logging
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -109,6 +110,21 @@ def main() -> None:
         action="store_true",
         help="Print the pipeline stages in order and exit",
     )
+    ram = ap.add_mutually_exclusive_group()
+    ram.add_argument(
+        "--free-ram",
+        action="store_true",
+        help=(
+            "Забрать у виртуалок неиспользуемую память на время прогона и вернуть "
+            "в конце (переопределяет host_memory.enabled)"
+        ),
+    )
+    ram.add_argument(
+        "--no-free-ram",
+        action="store_true",
+        help="Не трогать память виртуалок, даже если host_memory.enabled: true",
+    )
+
     args = ap.parse_args()
 
     if args.list_stages:
@@ -149,16 +165,49 @@ def main() -> None:
     verbose = bool(args.verbose or cli_conf.get("verbose", False))
     _configure_logging(verbose=verbose, quiet=quiet)
 
-    run_pipeline(
-        conf=conf,
-        repo_dir=repo_dir,
-        quiet=quiet,
-        verbose=verbose,
-        skip_existing=not args.no_skip_existing,
-        autotune=bool(args.autotune),
-        progress=not args.no_progress,
-        stages=stages,
+    from podcast_reels_forge.utils.host_memory import (
+        HostMemoryConfig,
+        free_host_memory,
+        install_restore_on_signals,
+        restore_host_memory,
     )
+
+    host_memory = HostMemoryConfig.from_conf(conf.get("host_memory"))
+    if args.no_free_ram:
+        host_memory = replace(host_memory, enabled=False)
+    elif args.free_ram:
+        host_memory = replace(host_memory, enabled=True)
+
+    def give_memory_back() -> None:
+        restore_host_memory(host_memory, repo_dir=repo_dir, quiet=quiet)
+
+    # RU: Возврат обязан произойти при любом исходе. finally закрывает обычный
+    #     выход и исключения, обработчики — Ctrl+C и `kill`. Чего не закроет
+    #     ничто: SIGKILL и OOM — на этот случай размеры лежат на диске, и
+    #     следующий запуск (или --restore) вернёт их сам.
+    # EN: The return must happen whatever the outcome. `finally` covers a normal
+    #     exit and exceptions, the handlers cover Ctrl+C and `kill`. What nothing
+    #     can cover is SIGKILL and the OOM killer — for those the sizes sit on
+    #     disk, and the next run (or --restore) puts them back.
+    install_restore_on_signals(give_memory_back)
+
+    freed_mb = free_host_memory(host_memory, repo_dir=repo_dir, quiet=quiet)
+    if freed_mb and not quiet:
+        print(f"[ram] всего освобождено {freed_mb} МБ", flush=True)
+
+    try:
+        run_pipeline(
+            conf=conf,
+            repo_dir=repo_dir,
+            quiet=quiet,
+            verbose=verbose,
+            skip_existing=not args.no_skip_existing,
+            autotune=bool(args.autotune),
+            progress=not args.no_progress,
+            stages=stages,
+        )
+    finally:
+        give_memory_back()
 
 
 if __name__ == "__main__":

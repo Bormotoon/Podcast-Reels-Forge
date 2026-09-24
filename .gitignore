@@ -107,3 +107,6 @@ models/
 
 # llama-server diagnostics (layer offload / buffer sizes)
 llama-server.log
+
+# Host-memory run state (original VM sizes, kept until they are restored)
+.forge-host-memory.json
