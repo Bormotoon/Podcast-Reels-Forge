@@ -52,6 +52,11 @@ from podcast_reels_forge.config import (
     normalize_model_folder_name,
     resolve_llama_cpp_role_mapping,
 )
+from podcast_reels_forge.sources.episode_metadata import (
+    EpisodeMetadata,
+    info_json_path,
+    load_episode_metadata,
+)
 from podcast_reels_forge.sources.youtube import (
     VideoFilters,
     YouTubeError,
@@ -815,6 +820,8 @@ class EpisodeState:
     #: The transcript subtitles and captions are built from. None: the same
     #: one the analysis used (``transcript_path``).
     subtitle_transcript: Path | None = None
+    #: Title, description, chapters and tags from yt-dlp's .info.json.
+    metadata: EpisodeMetadata | None = None
 
     @property
     def raw_transcript_path(self) -> Path:
@@ -1053,6 +1060,9 @@ class _PipelineRun:
             transcript_path=transcript_path,
             transcript_srt_path=transcript_srt_path,
             diar_path=output_dir / "diarization.json",
+            metadata=load_episode_metadata(
+                Path(item.get("source") or item.get("video") or audio),
+            ),
         )
 
     # -- phases ---------------------------------------------------------------
@@ -1302,6 +1312,7 @@ class _PipelineRun:
             prompts_conf=self.prompts_conf,
             quiet=self.quiet,
             verbose=self.verbose,
+            **self._glossary_kwargs(ep),
         ))
         ep.transcript_path = proofread_path
         status("[proofread] done", quiet=self.quiet)
@@ -1360,11 +1371,19 @@ class _PipelineRun:
             quiet=self.quiet,
             verbose=self.verbose,
             time_ranges=ranges,
+            **self._glossary_kwargs(ep),
         ))
         ep.state.set("proofread", current)
         ep.subtitle_transcript = target
         status("[proofread] done", quiet=self.quiet)
         return DONE
+
+    @staticmethod
+    def _glossary_kwargs(ep: EpisodeState) -> dict[str, Any]:
+        # Only passed when there is one: the run_proofread signature is the
+        # contract, and episodes without an .info.json keep the plain call.
+        terms = ep.metadata.glossary() if ep.metadata is not None else []
+        return {"glossary": terms} if terms else {}
 
     def _adopt_existing_proofread(self, ep: EpisodeState) -> None:
         # RU: Вычитанный транскрипт мог быть сделан прошлым запуском. Даже
@@ -1397,7 +1416,7 @@ class _PipelineRun:
             article_conf=self.article_conf,
             prompts_conf=self.prompts_conf,
             diarization_path=ep.diar_path if ep.diar_path.exists() else None,
-            title=ep.stem,
+            title=(ep.metadata.title if ep.metadata is not None and ep.metadata.title else ep.stem),
             quiet=self.quiet,
             verbose=self.verbose,
         ))
@@ -1419,6 +1438,7 @@ class _PipelineRun:
             __version__,
             file_digest(ep.transcript_path),
             file_digest(diar),
+            file_digest(info_json_path(ep.source)),
             self.p_conf,
             self.prompts_conf,
             self.roles.as_dict(),
@@ -1462,6 +1482,11 @@ class _PipelineRun:
                 quiet=self.quiet,
                 verbose=self.verbose,
                 progress=self.progress,
+                **(
+                    {"episode_metadata": ep.metadata.to_analysis_dict()}
+                    if ep.metadata is not None
+                    else {}
+                ),
             ))
         finally:
             # A failed analysis still leaves valid (empty) outputs behind, so
@@ -1566,6 +1591,7 @@ class _PipelineRun:
             video_args.append("--smart-crop-face")
             video_args += ["--face-samples", str(v_conf.get("face_samples", 7))]
             video_args += ["--face-min-size", str(v_conf.get("face_min_size", 60))]
+            video_args += ["--two-speaker-layout", str(v_conf.get("two_speaker_layout", "split"))]
 
         q_conf = self.p_conf.get("quality_filters", {}) if isinstance(self.p_conf, dict) else {}
         if "min_score" in q_conf:
@@ -1577,6 +1603,10 @@ class _PipelineRun:
         if "face_min_ratio" in q_conf:
             video_args += ["--filter-face-ratio", str(q_conf["face_min_ratio"])]
 
+        if v_conf.get("qa", True) is False:
+            video_args.append("--no-qa")
+        if v_conf.get("qa_blackdetect"):
+            video_args.append("--qa-blackdetect")
         if self.exports_conf.get("webm", False):
             video_args.append("--export-webm")
         if self.exports_conf.get("gif", False):

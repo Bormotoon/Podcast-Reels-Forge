@@ -28,10 +28,12 @@ from podcast_reels_forge.utils.burned_subtitles import (
 )
 from podcast_reels_forge.utils.face_crop import (
     FaceCropSettings,
+    analyze_face_layout,
     build_sample_times,
+    build_split_filter,
     compute_crop_x_for_scaled_height,
-    detect_face_center_ratio,
     face_detection_available,
+    face_detection_unavailable_reason,
 )
 from podcast_reels_forge.utils.ffmpeg import (
     build_video_codec_args,
@@ -39,6 +41,7 @@ from podcast_reels_forge.utils.ffmpeg import (
     ffmpeg_has_nvenc,
     resolve_ffmpeg_with_libass,
 )
+from podcast_reels_forge.utils.media_qa import check_clip, media_duration
 from podcast_reels_forge.utils.reel_markdown import write_reel_instagram_txt, write_reel_markdown
 
 try:
@@ -69,6 +72,8 @@ class FfmpegOptions:
     # NVENC quality knobs: cq is the VBR quality target (lower = better), preset is p1..p7.
     nvenc_cq: int = 21
     nvenc_preset: str = "p5"
+    # "split" stacks two steadily visible speakers; "single" always crops one.
+    two_speaker_layout: str = "split"
 
 
 def _run_subprocess(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -116,7 +121,8 @@ def ffmpeg_cut(
             start_offset = max(0, start - opts.padding)
             end_offset = end + opts.padding
             sample_times = build_sample_times(start_offset, end_offset, face_settings.samples)
-            center_ratio, face_rate = detect_face_center_ratio(video_in, sample_times_s=sample_times, settings=face_settings)
+            layout = analyze_face_layout(video_in, sample_times_s=sample_times, settings=face_settings)
+            face_rate = layout.rate
 
             if opts.filter_face_ratio > 0 and face_rate < opts.filter_face_ratio:
                 LOG.debug("Rejecting clip (face detection rate %.2f < %.2f)", face_rate, opts.filter_face_ratio)
@@ -125,26 +131,22 @@ def ffmpeg_cut(
                     f"face ratio {face_rate:.2f} < {opts.filter_face_ratio:.2f}"
                 )
 
-            if center_ratio is not None:
-                LOG.debug("Face detected at ratio %.2f; applying smart crop", center_ratio)
-                try:
-                    import cv2
-
-                    cap = cv2.VideoCapture(str(video_in))
-                    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-                    src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
-                    cap.release()
-                except Exception:
-                    src_w, src_h = 0, 0
-
-                crop_x = compute_crop_x_for_scaled_height(
-                    src_w=src_w,
-                    src_h=src_h,
-                    target_w=1080,
-                    target_h=1920,
-                    center_ratio=center_ratio,
-                )
-                vf = f"scale=-2:1920,crop=1080:1920:{crop_x}:0"
+            if layout.primary is not None:
+                src_w, src_h = _frame_size(video_in)
+                if layout.kind == "split" and opts.two_speaker_layout == "split" and src_w and src_h:
+                    LOG.debug("Two speakers in frame; stacking them")
+                    vf = build_split_filter(src_w=src_w, src_h=src_h, centers=layout.centers)
+                else:
+                    center_ratio = layout.primary[0]
+                    LOG.debug("Face detected at ratio %.2f; applying smart crop", center_ratio)
+                    crop_x = compute_crop_x_for_scaled_height(
+                        src_w=src_w,
+                        src_h=src_h,
+                        target_w=1080,
+                        target_h=1920,
+                        center_ratio=center_ratio,
+                    )
+                    vf = f"scale=-2:1920,crop=1080:1920:{crop_x}:0"
 
         filters.append(vf)
 
@@ -238,6 +240,18 @@ def ffmpeg_cut(
         )
 
     return res.returncode == 0, out_path, face_rejection_reason
+
+
+def _frame_size(video_in: Path) -> tuple[int, int]:
+    try:
+        import cv2
+
+        cap = cv2.VideoCapture(str(video_in))
+        size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0))
+        cap.release()
+        return size
+    except Exception:
+        return 0, 0
 
 
 def _build_has_nvenc(ffmpeg: str) -> bool:
@@ -369,7 +383,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="When used with --vertical, center crop around detected face (requires opencv)",
     )
     ap.add_argument("--face-samples", type=int, default=7, help="Frames to sample per reel")
-    ap.add_argument("--face-min-size", type=int, default=60, help="Min face size in pixels")
+    ap.add_argument("--face-min-size", type=int, default=60, help="Min face height in pixels; smaller faces are ignored")
+    ap.add_argument(
+        "--two-speaker-layout",
+        choices=("split", "single"),
+        default="split",
+        help="Two people steadily in frame: stack them (split) or crop one (single)",
+    )
     ap.add_argument("--v-bitrate", default="5M", help="Video bitrate")
     ap.add_argument("--a-bitrate", default="192k", help="Audio bitrate")
     ap.add_argument("--preset", default="fast", help="libx264 preset (software fallback)")
@@ -408,6 +428,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Allow subtitles to wrap onto multiple lines at spaces (default: enabled)",
+    )
+    ap.add_argument(
+        "--qa",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Check every rendered clip with ffprobe (streams, duration); broken ones fail",
+    )
+    ap.add_argument(
+        "--qa-blackdetect",
+        action="store_true",
+        help="Also fail clips that are mostly black (decodes each clip once more)",
     )
     ap.add_argument(
         "--render-rejected",
@@ -486,10 +517,19 @@ def main(argv: list[str] | None = None) -> None:
         filter_face_ratio=float(args.filter_face_ratio),
         nvenc_cq=int(args.nvenc_cq),
         nvenc_preset=str(args.nvenc_preset),
+        two_speaker_layout=str(args.two_speaker_layout),
     )
 
-    if opts.smart_crop_face and opts.vertical_crop and not face_detection_available():
-        LOG.warning("--smart-crop-face enabled but opencv is not available; falling back to center crop")
+    if (
+        opts.smart_crop_face
+        and opts.vertical_crop
+        and not face_detection_available(download=True)
+    ):
+        LOG.warning(
+            "--smart-crop-face enabled but face detection is unavailable (%s); "
+            "falling back to center crop",
+            face_detection_unavailable_reason(),
+        )
 
     transcript_segments: list[SubtitleSegment] = []
     if subtitle_settings is not None:
@@ -500,6 +540,7 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
 
     subtitle_errors: list[str] = []
+    source_duration = media_duration(args.input) if args.qa else None
 
     def prepare_clip_subtitles(out_file: Path, start: float, end: float) -> Path | None:
         """Write the clip's .srt/.ass for the exact interval ffmpeg will cut.
@@ -618,7 +659,25 @@ def main(argv: list[str] | None = None) -> None:
             rejection_reasons.append(face_reason)
         if not success:
             return None, rejection_reasons, "failed"
-        return final_path, rejection_reasons, ("rejected" if "rejected" in final_path.parts else "ok")
+        outcome = "rejected" if "rejected" in final_path.parts else "ok"
+        if args.qa and outcome == "ok":
+            clip_start = max(0.0, start_f - opts.padding)
+            clip_end = end_f + opts.padding
+            if source_duration:
+                clip_end = min(clip_end, source_duration)
+            problems = check_clip(
+                final_path,
+                expected_duration=clip_end - clip_start,
+                blackdetect=bool(args.qa_blackdetect),
+            )
+            if problems:
+                LOG.error("%s failed QA: %s", final_path.name, "; ".join(problems))
+                rejected_dir.mkdir(exist_ok=True)
+                moved = rejected_dir / final_path.name
+                if final_path.exists():
+                    final_path.replace(moved)
+                return moved, [*rejection_reasons, *problems], "failed"
+        return final_path, rejection_reasons, outcome
 
     _status(f"[cut] {len(moments)} moments", quiet=args.quiet)
     with ThreadPoolExecutor(max_workers=args.threads) as pool:

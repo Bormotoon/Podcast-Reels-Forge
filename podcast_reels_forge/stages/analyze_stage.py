@@ -1412,6 +1412,43 @@ def build_transcript_digest(index: TranscriptIndex, *, max_chars: int = 4000) ->
     return digest
 
 
+def format_metadata_for_digest(metadata: Mapping[str, Any] | None) -> str:
+    """Title, channel, description and chapters, as a digest preamble."""
+
+    if not metadata:
+        return ""
+    lines: list[str] = []
+    if metadata.get("title"):
+        lines.append(f"Название / Title: {metadata['title']}")
+    if metadata.get("channel"):
+        lines.append(f"Канал / Channel: {metadata['channel']}")
+    description = str(metadata.get("description") or "").strip()
+    if description:
+        lines.append(f"Описание / Description: {description}")
+    chapters = format_chapters(metadata)
+    if chapters:
+        lines.append(chapters)
+    return "\n".join(lines)
+
+
+def format_chapters(metadata: Mapping[str, Any] | None) -> str:
+    """The author's chapters with timestamps, one line."""
+
+    chapters = (metadata or {}).get("chapters")
+    if not isinstance(chapters, list) or not chapters:
+        return ""
+    items = []
+    for chapter in chapters:
+        if not isinstance(chapter, Mapping):
+            continue
+        try:
+            start = float(chapter.get("start", 0.0))
+        except (TypeError, ValueError):
+            continue
+        items.append(f"{fmt_hms(start)} {str(chapter.get('title', '')).strip()}")
+    return ("Главы эпизода / Chapters: " + "; ".join(items)) if items else ""
+
+
 def format_episode_context(payload: Mapping[str, Any]) -> str:
     """Render the episode overview as a prompt section."""
 
@@ -1484,6 +1521,7 @@ async def build_episode_context(
     model: str = "",
     budget: RetryBudget | None = None,
     stats: StageStats | None = None,
+    metadata: Mapping[str, Any] | None = None,
 ) -> str:
     """Summarize the episode once, so the scout can judge moments in context.
 
@@ -1499,6 +1537,10 @@ async def build_episode_context(
     digest = build_transcript_digest(index, max_chars=max_digest_chars)
     if not digest:
         return ""
+    meta_text = format_metadata_for_digest(metadata)
+    if meta_text:
+        # What the author wrote about the episode frames the sampled excerpts.
+        digest = meta_text + "\n\n" + digest
 
     try:
         prompt = _load_prompt(lang=lang, variant=variant, name="context")
@@ -1781,6 +1823,7 @@ async def run_staged_analysis(
     quiet: bool = False,
     verbose: bool = False,
     progress: bool = False,
+    episode_metadata: Mapping[str, Any] | None = None,
 ) -> list[MomentRecord]:
     """Run the full multi-stage analysis pipeline and write artifacts.
 
@@ -2053,9 +2096,16 @@ async def run_staged_analysis(
                 model=roles.scout,
                 budget=budget,
                 stats=stats["context"],
+                metadata=episode_metadata,
             )
             if episode_context:
                 _status("[analyze] episode context ready", quiet=quiet)
+        chapters = format_chapters(episode_metadata)
+        if chapters:
+            # The author's own structure, with timestamps: the scout sees
+            # where each topic starts even if the overview call failed.
+            header = "" if episode_context else "# Контекст эпизода / Episode context\n"
+            episode_context = (episode_context + "\n" if episode_context else header) + chapters
 
         # -- A/B: discovery -------------------------------------------------
         scouted_candidates = await scout_candidates(

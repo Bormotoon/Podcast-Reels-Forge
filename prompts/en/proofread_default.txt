@@ -17,6 +17,8 @@ WHAT TO RETURN: only the segments you changed, with their original ids and the
 full corrected text. Do NOT return segments that need no change. If nothing
 needs fixing, return an empty list.
 
+{glossary}
+
 Segments (JSON):
 {segments_json}
 

@@ -13,6 +13,19 @@ from podcast_reels_forge.scripts.video_processor import (
     create_concat_sample,
 )
 
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_render_qa(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Encodes are mocked here, so there is no file for ffprobe to check."""
+    from podcast_reels_forge.scripts import video_processor
+
+    monkeypatch.setattr(video_processor, "check_clip", lambda *a, **k: [])
+    monkeypatch.setattr(video_processor, "media_duration", lambda *a, **k: None)
+
+
 @patch("podcast_reels_forge.scripts.video_processor._run_subprocess")
 def test_ffmpeg_cut_standard(mock_run: MagicMock) -> None:
     mock_run.return_value = MagicMock(returncode=0)

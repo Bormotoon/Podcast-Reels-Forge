@@ -7,6 +7,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Two speakers are stacked, not cropped between.** When two people are
+  steadily in frame, `video.two_speaker_layout: split` (default) puts one
+  above the other; before, the crop landed on the empty middle between them.
+  Small faces in wide shots are also searched for in each half of the frame,
+  faces under `face_min_size` (posters, screens) are ignored — the setting was
+  read and never used — and the MediaPipe model downloads itself on first use
+  instead of the smart crop silently switching off on a fresh install.
+- **YouTube metadata is used.** The `.info.json` yt-dlp writes (title,
+  description, chapters, tags) now feeds the episode overview, gives the scout
+  the author's chapters with timestamps, gives proofreading a glossary of
+  names and terms as the author spells them, and gives the article its real
+  title. The analysis fingerprint covers it.
+- **Rendered clips are checked** with ffprobe (video and audio streams,
+  expected duration; optionally mostly-black frames with
+  `video.qa_blackdetect`). A broken clip goes to `reels/rejected/` and the cut
+  is reported as failed.
+- `evaluate_prompts` reports each variant's analysis metrics (quote match,
+  survival, duplicates, diversity, quota fill, timing).
 - **YouTube as a source** — a new first stage, `fetch`, pulls a video by link, a
   whole playlist or an entire channel into `input/youtube/`, after which the file
   is indistinguishable from one placed by hand. Because it is an ordinary stage,

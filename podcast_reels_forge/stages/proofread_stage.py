@@ -137,6 +137,29 @@ def build_proofread_batches(
     return batches
 
 
+def render_glossary(template: str, glossary: Sequence[str] | None, *, lang: str) -> str:
+    """Fill ``{glossary}`` with the author's spelling of names and terms.
+
+    Proper names are where ASR errs most, and the episode description usually
+    spells them right. Rendered empty when there is nothing to offer.
+    """
+
+    terms = [str(term).strip() for term in (glossary or []) if str(term).strip()]
+    if not terms:
+        text = ""
+    elif lang == "en":
+        text = (
+            "Names and terms as the episode author spells them (use exactly this "
+            "spelling when the audio clearly means them): " + ", ".join(terms)
+        )
+    else:
+        text = (
+            "Имена и термины в написании автора эпизода (используй именно такое "
+            "написание, когда в речи явно они): " + ", ".join(terms)
+        )
+    return template.replace("{glossary}", text)
+
+
 def _overlaps(segment: dict[str, Any], ranges: Sequence[tuple[float, float]]) -> bool:
     try:
         start = float(segment.get("start", 0.0))
@@ -357,6 +380,7 @@ async def run_proofread(
     verbose: bool = False,
     provider: LLMProvider | None = None,
     time_ranges: Sequence[tuple[float, float]] | None = None,
+    glossary: Sequence[str] | None = None,
 ) -> Path:
     """RU: Запускает вычитку транскрипта и пишет `.proofread.json` + `.srt`.
 
@@ -397,7 +421,7 @@ async def run_proofread(
         str((prompts_conf or {}).get("language", "auto")),
         str(data.get("language") or ""),
     )
-    prompt_template = _load_proofread_prompt(prompt_lang)
+    prompt_template = render_glossary(_load_proofread_prompt(prompt_lang), glossary, lang=prompt_lang)
 
     owns_provider = provider is None
     if provider is None:
