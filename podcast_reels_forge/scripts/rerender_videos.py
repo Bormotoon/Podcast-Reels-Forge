@@ -28,6 +28,7 @@ from podcast_reels_forge.utils.burned_subtitles import (
     ensure_reel_burned_subtitles,
     subtitle_settings_from_conf,
 )
+from podcast_reels_forge.utils.clip_intervals import moment_bounds, padded_intervals
 from podcast_reels_forge.utils.face_crop import (
     FaceCropSettings,
     build_sample_times,
@@ -436,6 +437,9 @@ def main(argv: list[str] | None = None) -> None:
         )
 
         LOG.info("%s: re-render %d reels -> %s", model_dir.name, len(moments), reels_dir)
+        # Same per-clip padding as the main cut: never into a neighbouring reel.
+        intervals = padded_intervals([moment_bounds(m) for m in moments], settings.padding_s)
+        cut_settings = replace(settings, padding_s=0.0)
 
         def work(item: tuple[int, dict[str, Any]]) -> tuple[bool, Path, str]:
             i, m = item
@@ -468,9 +472,9 @@ def main(argv: list[str] | None = None) -> None:
             ok, out_path_used, err = _cut_one(
                 video_in=args.input,
                 out_path=out_path,
-                start=start,
-                end=end,
-                settings=settings,
+                start=intervals[i][0],
+                end=intervals[i][1],
+                settings=cut_settings,
                 is_rejected=is_rejected,
                 rejected_dir=rejected_dir,
             )
@@ -500,6 +504,7 @@ def main(argv: list[str] | None = None) -> None:
                             padding=settings.padding_s,
                             settings=subtitle_settings,
                             verbose=bool(args.verbose),
+                            interval=intervals[i],
                         )
                     except Exception as exc:
                         raise SystemExit(

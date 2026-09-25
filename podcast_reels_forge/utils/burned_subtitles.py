@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from podcast_reels_forge.utils.clip_intervals import moment_bounds, padded_intervals
 from podcast_reels_forge.utils.reel_markdown import reel_index_from_path
 
 LOG = logging.getLogger(__name__)
@@ -194,7 +195,12 @@ def ensure_reel_burned_subtitles(
     padding: float,
     settings: SubtitleRenderSettings,
     verbose: bool = False,
+    interval: tuple[float, float] | None = None,
 ) -> Path | None:
+    """Write a reel's .srt/.ass. ``interval`` is the exact span the reel was
+    cut from (see :func:`padded_intervals`); without it the moment is padded
+    symmetrically by ``padding``."""
+
     if not settings.enabled:
         return None
     if not reel_path.exists():
@@ -218,6 +224,7 @@ def ensure_reel_burned_subtitles(
         settings=settings,
         template_dir=reel_path.parent,
         verbose=verbose,
+        interval=interval,
     )
 
 
@@ -243,6 +250,9 @@ def sync_reel_burned_subtitles(
         return written
 
     transcript_segments = load_transcript_segments(transcript_json_path)
+    # The same per-clip padding the cut used, so re-synced subtitles line up
+    # with the footage of reels that sit close together.
+    intervals = padded_intervals([moment_bounds(m) for m in moments], float(padding))
 
     for reel_path in reel_files:
         index = reel_index_from_path(reel_path)
@@ -259,6 +269,7 @@ def sync_reel_burned_subtitles(
             settings=settings,
             template_dir=reel_path.parent,
             verbose=verbose,
+            interval=intervals[moment_index],
         )
         if srt_path is not None:
             written.append(srt_path)
@@ -274,16 +285,18 @@ def _render_reel_with_subtitles_assets(
     settings: SubtitleRenderSettings,
     template_dir: Path,
     verbose: bool,
+    interval: tuple[float, float] | None = None,
 ) -> Path | None:
     start = _coerce_float(moment.get("start"), default=0.0)
     end = _coerce_float(moment.get("end"), default=0.0)
     if end <= start:
         raise ValueError(f"Invalid boundaries: {start} - {end}")
 
+    clip_start, clip_end = interval or (max(0.0, start - float(padding)), end + float(padding))
     clip_segments = slice_segments_for_clip(
         transcript_segments,
-        clip_start=max(0.0, start - float(padding)),
-        clip_end=end + float(padding),
+        clip_start=clip_start,
+        clip_end=clip_end,
     )
     clip_segments = _prepare_subtitle_segments(clip_segments, settings=settings)
 

@@ -245,6 +245,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `select_*` prompt templates.
 
 ### Fixed
+- **Reel padding no longer spills into the neighbouring reel.** With
+  `reel_padding: 5` two moments less than 10 s apart shared footage and
+  subtitles. Padding towards a neighbour is now capped at half the gap and
+  dropped on a side that already overlaps one; the cut, its subtitles, the QA
+  duration check, subtitle re-syncs and `rerender_videos` use the same
+  interval. A clip with no transcript words in its span is now logged instead
+  of silently losing its subtitles.
+- **The scout's chunks fit the server's context.** An oversized chunk used to
+  get only a warning while llama.cpp cut the start of the prompt;
+  `max_chars_chunk` is now lowered to what one slot (`ctx_size / parallel`)
+  leaves after `n_predict` and the prompt template.
+- The episode digest really includes speaker turns, as its description
+  claimed: with diarization, a sentence that opens a new speaker's turn is
+  picked like one with a number or a question.
+- A weak fuzzy quote match (ratio 0.55–0.75) records where it was found
+  without widening the clip, so lowering `quote_verification.min_final_ratio`
+  no longer lets a clip past the "quote inside the clip" check unlocated.
+- Quota spillover (`clips_per_hour`) fills the remaining slots by MMR as well,
+  instead of by priority alone, so it no longer brings back repeated topics.
+- `analysis_metrics.json` gains `llm_transport`: answers truncated at
+  `n_predict` and transport/JSON retries by cause.
 - **Proofreading no longer desynchronises word timings.** Only
   `segments[].text` was corrected while `words` kept Whisper's raw tokens, so
   karaoke subtitles of every corrected sentence fell back to proportional

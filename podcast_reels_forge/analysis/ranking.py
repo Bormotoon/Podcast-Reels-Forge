@@ -362,14 +362,16 @@ def rank_moments(
 
     if fill_to_total is not None and len(selected) < fill_to_total:
         # Quota spillover: the type mix ran out of matching candidates before
-        # the episode ran out of good moments. Fill the remaining slots by
-        # priority, still under the overlap policy.
-        for record in ordered:
-            if len(selected) >= fill_to_total:
+        # the episode ran out of good moments. Fill the remaining slots the
+        # same MMR way, still under the overlap policy — only the quota is
+        # lifted, not the diversity.
+        while remaining and len(selected) < fill_to_total:
+            eligible = [r for r in remaining if _no_conflict(r)]
+            if not eligible:
                 break
-            if record in selected or not _no_conflict(record):
-                continue
-            _take(record)
+            best = max(eligible, key=_utility)
+            _take(best)
+            remaining.remove(best)
 
     return selected
 

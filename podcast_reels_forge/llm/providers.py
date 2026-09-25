@@ -237,6 +237,14 @@ class LlamaCppProvider:
         self._schema_level = SCHEMA_FULL
         self._session: aiohttp.ClientSession | None = None
         self._session_loop: asyncio.AbstractEventLoop | None = None
+        # Counters for analysis_metrics.json: answers cut off at n_predict and
+        # transport retries by cause.
+        self.responses = 0
+        self.truncated = 0
+        self.retries: dict[str, int] = {}
+
+    def _count_retry(self, reason: str) -> None:
+        self.retries[reason] = self.retries.get(reason, 0) + 1
 
     async def _get_session(self) -> aiohttp.ClientSession:
         loop = asyncio.get_running_loop()
@@ -289,10 +297,24 @@ class LlamaCppProvider:
                 last_exc = exc.cause
                 LOGGER.warning("llama.cpp retryable error (attempt %d): %s", attempt, exc)
                 delay_floor = exc.min_delay_s
-            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+                reason = exc.reason
+            except asyncio.TimeoutError as exc:
+                last_exc = exc
+                LOGGER.warning("llama.cpp timeout (attempt %d): %s", attempt, exc)
+                delay_floor = None
+                reason = "timeout"
+            except aiohttp.ClientResponseError as exc:
+                last_exc = exc
+                LOGGER.warning("llama.cpp HTTP error (attempt %d): %s", attempt, exc)
+                delay_floor = None
+                reason = f"http_{exc.status}"
+            except aiohttp.ClientError as exc:
                 last_exc = exc
                 LOGGER.warning("llama.cpp connection error (attempt %d): %s", attempt, exc)
                 delay_floor = None
+                reason = "connection"
+            if attempt < attempts:
+                self._count_retry(reason)
             if attempt < attempts and delay_floor is not None and delay_floor <= 0:
                 # A schema downgrade retries immediately: nothing is overloaded.
                 continue
@@ -326,7 +348,9 @@ class LlamaCppProvider:
         async with session.post(self._endpoint, json=payload, timeout=timeout_obj) as r:
             if r.status == 503:
                 # Model still loading: back off with a longer floor.
-                raise _Retryable(RuntimeError("503: Model loading"), min_delay_s=5.0)
+                raise _Retryable(
+                    RuntimeError("503: Model loading"), min_delay_s=5.0, reason="http_503",
+                )
 
             if r.status >= 400:
                 text = await r.text()
@@ -349,7 +373,11 @@ class LlamaCppProvider:
                         "simplified" if self._schema_level == SCHEMA_FALLBACK else "permissive",
                         preview,
                     )
-                    raise _Retryable(RuntimeError("400: schema rejected"), min_delay_s=0.0)
+                    raise _Retryable(
+                        RuntimeError("400: schema rejected"),
+                        min_delay_s=0.0,
+                        reason="schema_rejected",
+                    )
 
                 LOGGER.error(
                     "llama.cpp HTTP %d at %s -- body: %s",
@@ -394,7 +422,9 @@ class LlamaCppProvider:
         # extract_first_json_value recovers every complete item, and the
         # pipeline over-generates then filters down anyway. Log at INFO so it
         # is visible under --verbose for tuning but does not read as an error.
+        self.responses += 1
         if data.get("stopped_limit") or data.get("truncated"):
+            self.truncated += 1
             LOGGER.info(
                 "llama.cpp output reached the n_predict=%d token budget and was "
                 "truncated; complete JSON items are still recovered "
@@ -411,13 +441,21 @@ class _Retryable(Exception):
     """Internal signal: this error is safe to retry.
 
     ``min_delay_s`` sets the backoff floor: 0 retries immediately, None uses
-    the configured backoff as is.
+    the configured backoff as is. ``reason`` labels the retry in the
+    provider's counters.
     """
 
-    def __init__(self, cause: Exception, *, min_delay_s: float | None = None) -> None:
+    def __init__(
+        self,
+        cause: Exception,
+        *,
+        min_delay_s: float | None = None,
+        reason: str = "retryable",
+    ) -> None:
         super().__init__(str(cause))
         self.cause = cause
         self.min_delay_s = min_delay_s
+        self.reason = reason
 
 
 # -- Cloud providers (legacy compat paths, wrapped in asyncio.to_thread) --

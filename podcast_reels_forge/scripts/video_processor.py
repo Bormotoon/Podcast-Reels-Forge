@@ -41,6 +41,7 @@ from podcast_reels_forge.utils.ffmpeg import (
     ffmpeg_has_nvenc,
     resolve_ffmpeg_with_libass,
 )
+from podcast_reels_forge.utils.clip_intervals import moment_bounds, padded_intervals
 from podcast_reels_forge.utils.media_qa import check_clip, media_duration
 from podcast_reels_forge.utils.reel_markdown import write_reel_instagram_txt, write_reel_markdown
 
@@ -542,7 +543,14 @@ def main(argv: list[str] | None = None) -> None:
     subtitle_errors: list[str] = []
     source_duration = media_duration(args.input) if args.qa else None
 
-    def prepare_clip_subtitles(out_file: Path, start: float, end: float) -> Path | None:
+    # Padding is resolved per clip up front (see padded_intervals); the cut
+    # itself then gets the final interval and no padding of its own.
+    clip_intervals = padded_intervals(
+        [moment_bounds(m) for m in moments], float(opts.padding),
+    )
+    cut_opts = replace(opts, padding=0.0)
+
+    def prepare_clip_subtitles(out_file: Path, clip_start: float, clip_end: float) -> Path | None:
         """Write the clip's .srt/.ass for the exact interval ffmpeg will cut.
 
         Built before the one and only encode, from the same padded interval,
@@ -553,11 +561,15 @@ def main(argv: list[str] | None = None) -> None:
         try:
             clip_segments = slice_segments_for_clip(
                 transcript_segments,
-                clip_start=max(0.0, start - opts.padding),
-                clip_end=end + opts.padding,
+                clip_start=clip_start,
+                clip_end=clip_end,
             )
             clip_segments = _prepare_subtitle_segments(clip_segments, settings=subtitle_settings)
             if not clip_segments:
+                LOG.warning(
+                    "%s: no transcript words in [%.1f, %.1f]; cutting it without subtitles",
+                    out_file.name, clip_start, clip_end,
+                )
                 return None
             write_srt_file(out_file.with_suffix(".srt"), clip_segments)
             ass_path = out_file.with_suffix(".ass")
@@ -578,13 +590,8 @@ def main(argv: list[str] | None = None) -> None:
         """
         i, m = i_m
         out_file = reels_dir / f"reel_{i + 1:02d}.mp4"
-        start_val = m.get("start", 0)
-        end_val = m.get("end", 0)
-        try:
-            start_f = float(start_val) if start_val is not None else 0.0  # type: ignore[arg-type]
-            end_f = float(end_val) if end_val is not None else 0.0  # type: ignore[arg-type]
-        except (TypeError, ValueError):
-            start_f, end_f = 0.0, 0.0
+        start_f, end_f = moment_bounds(m)
+        clip_start, clip_end = clip_intervals[i]
 
         score_val = m.get("score", 0.0)
         try:
@@ -615,16 +622,16 @@ def main(argv: list[str] | None = None) -> None:
 
         # Rejected clips are kept for review only, so they skip subtitles.
         ass_path = (
-            prepare_clip_subtitles(out_file, start_f, end_f)
+            prepare_clip_subtitles(out_file, clip_start, clip_end)
             if subtitle_settings is not None and not is_rejected
             else None
         )
         success, final_path, face_reason = ffmpeg_cut(
             args.input,
-            start_f,
-            end_f,
+            clip_start,
+            clip_end,
             out_file,
-            opts,
+            cut_opts,
             is_rejected=is_rejected,
             rejected_dir=rejected_dir,
             ass_path=ass_path,
@@ -639,10 +646,10 @@ def main(argv: list[str] | None = None) -> None:
             )
             success, final_path, face_reason = ffmpeg_cut(
                 args.input,
-                start_f,
-                end_f,
+                clip_start,
+                clip_end,
                 out_file,
-                opts,
+                cut_opts,
                 is_rejected=is_rejected,
                 rejected_dir=rejected_dir,
             )
@@ -650,10 +657,10 @@ def main(argv: list[str] | None = None) -> None:
             # Optional clean copy for platforms/edits that want no captions.
             ffmpeg_cut(
                 args.input,
-                start_f,
-                end_f,
+                clip_start,
+                clip_end,
                 final_path.with_name(f"{final_path.stem}.nosubs.mp4"),
-                opts,
+                cut_opts,
             )
         if face_reason:
             rejection_reasons.append(face_reason)
@@ -661,13 +668,10 @@ def main(argv: list[str] | None = None) -> None:
             return None, rejection_reasons, "failed"
         outcome = "rejected" if "rejected" in final_path.parts else "ok"
         if args.qa and outcome == "ok":
-            clip_start = max(0.0, start_f - opts.padding)
-            clip_end = end_f + opts.padding
-            if source_duration:
-                clip_end = min(clip_end, source_duration)
+            qa_end = min(clip_end, source_duration) if source_duration else clip_end
             problems = check_clip(
                 final_path,
-                expected_duration=clip_end - clip_start,
+                expected_duration=qa_end - clip_start,
                 blackdetect=bool(args.qa_blackdetect),
             )
             if problems:

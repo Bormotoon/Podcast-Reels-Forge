@@ -225,6 +225,10 @@ llama_cpp:
     log_interval: 10
     max_retries: 1
   fallback_models: []
+  scout_parallelism: 1      # concurrent scout requests (<= service.parallel)
+  stage_parallelism: 1      # concurrent cleanup/judge batches; default: scout_parallelism
+  retry_base_delay_s: 2.0   # transport retries back off base * 2^n with jitter...
+  retry_max_delay_s: 30.0   # ...capped here (a 503 "model loading" waits longer)
   role_overrides:
     scout:
       timeout: 360
@@ -365,6 +369,35 @@ step, survival after the quote gate/cleanup/judge, exact quote match rate,
 low-confidence rate, mean and p95 boundary shift, duplicate rate, topic
 diversity of the final set, quota fill rate, calls/time/prompt size per LLM
 stage, and the retry budget spent.
+
+RU: Блок `llm_transport`: сколько ответов llama.cpp упёрлось в `n_predict`
+(`truncated_at_n_predict`, `truncated_rate`) и повторы по причинам
+(`retries_by_reason`: `timeout`, `connection`, `http_503`, `http_5xx`,
+`schema_rejected`, `invalid_json`). Растущая доля обрезанных ответов —
+сигнал поднять `n_predict` роли.
+
+EN: The `llm_transport` block: how many llama.cpp answers hit `n_predict`
+(`truncated_at_n_predict`, `truncated_rate`) and retries by cause
+(`retries_by_reason`: `timeout`, `connection`, `http_503`, `http_5xx`,
+`schema_rejected`, `invalid_json`). A growing truncated share is the cue to
+raise that role's `n_predict`.
+
+### Бюджет контекста scout / Scout context budget
+
+RU: Перед анализом оценивается, влезает ли самый большой scout-запрос в слот
+сервера: `ctx_size / parallel` минус `n_predict` роли, шаблон промпта и
+запас под обзор эпизода. Если нет — `max_chars_chunk` автоматически
+уменьшается (в логе `scout budget: max_chars_chunk A -> B`, итог — в
+`analysis_manifest.json` как `chunk_max_chars`), иначе llama.cpp молча
+обрезал бы начало промпта. Кириллица считается дороже латиницы.
+
+EN: Before the analysis the largest scout request is checked against one
+server slot: `ctx_size / parallel` minus the role's `n_predict`, the prompt
+template and a reserve for the episode overview. If it does not fit,
+`max_chars_chunk` is lowered automatically (logged as `scout budget:
+max_chars_chunk A -> B`, recorded as `chunk_max_chars` in
+`analysis_manifest.json`); otherwise llama.cpp would silently cut the start
+of the prompt. Cyrillic is counted as more expensive than Latin text.
 
 ### score и priority / score vs priority
 
@@ -644,6 +677,22 @@ processing:
   reel_max_duration: 60
   reel_padding: 5
 ```
+
+### reel_padding
+
+RU: Секунды, добавляемые к клипу с каждой стороны при нарезке. В сторону
+соседнего клипа padding не больше половины зазора между ними, а если клипы
+уже пересекаются (отбор допускает до `selection.max_overlap_ratio`) — в эту
+сторону его нет вовсе: иначе одни и те же секунды попадали бы в два рилса.
+Субтитры, кодирование, проверка длительности и повторная синхронизация
+субтитров используют один и тот же итоговый интервал.
+
+EN: Seconds added to each side of a clip when it is cut. Towards a
+neighbouring clip the padding is at most half the gap between them, and on a
+side that already overlaps a neighbour (the selection allows up to
+`selection.max_overlap_ratio`) there is none — otherwise the same seconds
+would end up in two reels. Subtitles, the encode, the duration check and
+later subtitle re-syncs all use that one interval.
 
 ### clips_per_hour
 

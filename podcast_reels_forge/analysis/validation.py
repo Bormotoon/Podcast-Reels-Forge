@@ -40,6 +40,10 @@ _MIN_CLIP_SECONDS = 1.0
 # Quote matches at or above this ratio are trusted enough to move the clip
 # boundaries onto the matched span.
 _REFINE_MIN_RATIO = 0.75
+# Below this a fuzzy match says nothing about where the quote is. Between it
+# and _REFINE_MIN_RATIO the span is still recorded, so a lowered
+# min_final_ratio does not let a clip through without a containment check.
+_LOCATE_MIN_RATIO = 0.55
 
 # RU: Пороги по умолчанию. Ниже min_ratio кандидат исключается из пула ещё до
 # judge; ниже min_final_ratio — не допускается в финальный отбор.
@@ -293,7 +297,7 @@ def verify_quote(
                 extra_tokens=span_len - matched,
             )
 
-    if best_match.ratio < _REFINE_MIN_RATIO:
+    if best_match.ratio < _LOCATE_MIN_RATIO:
         # Too weak to say where the quote is; report the ratio only.
         return QuoteMatch(
             ratio=best_match.ratio,
@@ -333,7 +337,12 @@ def apply_quote_verification(
             "quote_start": match.start,
             "quote_end": match.end,
         }
-        if refine_boundaries and match.found and match.start is not None and match.end is not None:
+        if (
+            refine_boundaries
+            and match.ratio >= _REFINE_MIN_RATIO
+            and match.start is not None
+            and match.end is not None
+        ):
             # Widen only: the quote is the payload of the clip, so it must fit
             # inside it, but the surrounding setup is worth keeping too.
             changes["start"] = min(record.start, match.start)

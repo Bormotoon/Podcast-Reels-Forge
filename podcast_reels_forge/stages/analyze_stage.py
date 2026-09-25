@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import bisect
 import hashlib
 import json
 import math
@@ -68,7 +69,7 @@ from podcast_reels_forge.analysis.ranking import (
 )
 from podcast_reels_forge.analysis.scoring import clip_type_target_bounds
 from podcast_reels_forge.analysis.serializers import atomic_write_json
-from podcast_reels_forge.analysis.transcript_index import TranscriptIndex
+from podcast_reels_forge.analysis.transcript_index import TimedSentence, TranscriptIndex
 from podcast_reels_forge.analysis.validation import (
     METHOD_EXACT,
     annotate_speech_rate,
@@ -1336,7 +1337,33 @@ async def judge_candidates(
 _DIGEST_SIGNAL_RE = re.compile(r"\d|[?!？！]|\b(?:смех|laugh|haha|ха-ха)", re.IGNORECASE)
 
 
-def build_transcript_digest(index: TranscriptIndex, *, max_chars: int = 4000) -> str:
+def speaker_turn_times(segments: Sequence[Mapping[str, Any]]) -> list[float]:
+    """Start times of the segments where the speaker changes.
+
+    Empty without diarization: segments then carry no speaker at all.
+    """
+
+    turns: list[float] = []
+    previous = ""
+    for segment in segments:
+        speaker = str(segment.get("speaker", "") or "").strip()
+        if not speaker:
+            continue
+        if previous and speaker != previous:
+            try:
+                turns.append(float(segment.get("start", 0.0)))
+            except (TypeError, ValueError):
+                pass
+        previous = speaker
+    return turns
+
+
+def build_transcript_digest(
+    index: TranscriptIndex,
+    *,
+    max_chars: int = 4000,
+    speaker_turns: Sequence[float] = (),
+) -> str:
     """RU: Многоканальная выжимка эпизода для обзора.
 
     EN: A multi-channel digest of the episode. Half the budget goes to an
@@ -1374,10 +1401,19 @@ def build_transcript_digest(index: TranscriptIndex, *, max_chars: int = 4000) ->
         window *= 1.5
         picked = _even_sample(window)
 
+    # A sentence opening a new speaker's turn: replies, objections and
+    # punchlines start there. Turns come from diarization, when it ran.
+    turn_starts = sorted(float(t) for t in speaker_turns)
+
+    def _opens_turn(sentence: TimedSentence) -> bool:
+        at = bisect.bisect_left(turn_starts, sentence.start - 1.0)
+        return at < len(turn_starts) and turn_starts[at] <= sentence.start + 1.0
+
     signal = [
         position
         for position, sentence in enumerate(sentences)
-        if position not in picked and _DIGEST_SIGNAL_RE.search(sentence.text)
+        if position not in picked
+        and (_DIGEST_SIGNAL_RE.search(sentence.text) or (turn_starts and _opens_turn(sentence)))
     ]
     # Spread the signal picks across the episode rather than taking the first
     # ones: every k-th, until the budget is used.
@@ -1508,6 +1544,7 @@ async def build_episode_context(
     budget: RetryBudget | None = None,
     stats: StageStats | None = None,
     metadata: Mapping[str, Any] | None = None,
+    speaker_turns: Sequence[float] = (),
 ) -> str:
     """Summarize the episode once, so the scout can judge moments in context.
 
@@ -1520,7 +1557,9 @@ async def build_episode_context(
     without the section.
     """
 
-    digest = build_transcript_digest(index, max_chars=max_digest_chars)
+    digest = build_transcript_digest(
+        index, max_chars=max_digest_chars, speaker_turns=speaker_turns,
+    )
     if not digest:
         return ""
     meta_text = format_metadata_for_digest(metadata)
@@ -1686,6 +1725,36 @@ def _rate(numerator: float, denominator: float) -> float | None:
     return round(numerator / denominator, 4) if denominator else None
 
 
+def llm_transport_metrics(
+    providers: Sequence[Any],
+    budget: RetryBudget,
+) -> dict[str, Any]:
+    """Truncation and retry counts over every provider of the run.
+
+    Caching wrappers are looked through to the provider that talked to the
+    server; providers without counters (cloud APIs) contribute nothing.
+    """
+
+    responses = truncated = 0
+    retries: dict[str, int] = {}
+    for provider in providers:
+        inner = provider
+        while hasattr(inner, "inner"):
+            inner = inner.inner
+        responses += int(getattr(inner, "responses", 0) or 0)
+        truncated += int(getattr(inner, "truncated", 0) or 0)
+        for reason, count in (getattr(inner, "retries", None) or {}).items():
+            retries[reason] = retries.get(reason, 0) + int(count)
+    if budget.used:
+        retries["invalid_json"] = retries.get("invalid_json", 0) + budget.used
+    return {
+        "responses": responses,
+        "truncated_at_n_predict": truncated,
+        "truncated_rate": _rate(truncated, responses),
+        "retries_by_reason": retries,
+    }
+
+
 def _topic_diversity(records: Sequence[MomentRecord]) -> float | None:
     """1 - mean pairwise topic similarity of the final set (1 = all distinct)."""
 
@@ -1699,33 +1768,57 @@ def _topic_diversity(records: Sequence[MomentRecord]) -> float | None:
     return round(1.0 - sum(pairs) / len(pairs), 4)
 
 
-def _warn_on_context_budget(
+# Tokens held back in the scout prompt for what is only known after the
+# chunks are built: the episode overview, chapters and the requirements text.
+_SCOUT_PROMPT_RESERVE_TOKENS = 768
+# Below this many input tokens per chunk the scout sees too little to work
+# with; the budget is reported instead of shrinking chunks further.
+_MIN_CHUNK_TOKENS = 1000
+
+
+def fit_scout_chunk_chars(
     chunks: Sequence[Any],
     *,
+    max_chars: int,
     prompt: str,
     llama_cpp_conf: Mapping[str, Any],
     n_predict: int,
-) -> None:
-    """Warn when the biggest scout prompt plus its output may overflow ctx_size.
+) -> int | None:
+    """A smaller ``max_chars`` when the biggest scout prompt would overflow.
 
     ``max_chars_chunk`` is a character budget, but the context is measured in
     tokens, and Cyrillic costs roughly half again as many per character. An
-    overflow makes llama.cpp left-truncate the prompt silently.
+    overflow makes llama.cpp left-truncate the prompt silently, so the input
+    budget is worked out per server slot (``ctx_size / parallel``) minus the
+    output budget (``n_predict``), the prompt template and a reserve for the
+    episode context, and converted back to characters at the rate the
+    transcript itself costs. Returns None when the chunks already fit or no
+    ``ctx_size`` is known.
     """
 
     service = llama_cpp_conf.get("service")
-    ctx_size = _conf_int(service, "ctx_size", 0) if isinstance(service, Mapping) else 0
-    if ctx_size <= 0 or not chunks:
-        return
-    longest = max(len(getattr(chunk, "text", "")) for chunk in chunks)
-    sample = next(chunk for chunk in chunks if len(getattr(chunk, "text", "")) == longest)
-    estimate = estimate_tokens(prompt) + estimate_tokens(getattr(sample, "text", ""))
-    if estimate + n_predict > ctx_size:
+    if not isinstance(service, Mapping) or not chunks:
+        return None
+    ctx_size = _conf_int(service, "ctx_size", 0)
+    if ctx_size <= 0:
+        return None
+    slot_ctx = ctx_size // max(1, _conf_int(service, "parallel", 1))
+    sample = max((str(getattr(chunk, "text", "")) for chunk in chunks), key=len)
+    template_tokens = estimate_tokens(prompt) + _SCOUT_PROMPT_RESERVE_TOKENS
+    if template_tokens + estimate_tokens(sample) + n_predict <= slot_ctx:
+        return None
+
+    input_tokens = slot_ctx - n_predict - template_tokens
+    if input_tokens < _MIN_CHUNK_TOKENS:
         LOGGER.warning(
-            "the largest scout prompt is ~%d tokens; with n_predict=%d it may "
-            "overflow ctx_size=%d — lower max_chars_chunk or n_predict",
-            estimate, n_predict, ctx_size,
+            "scout budget: a %d-token slot minus n_predict=%d leaves ~%d tokens "
+            "for the transcript; lower n_predict or raise ctx_size",
+            slot_ctx, n_predict, max(0, input_tokens),
         )
+        return None
+    chars_per_token = len(sample) / max(1, estimate_tokens(sample))
+    fitted = min(int(max_chars), int(input_tokens * chars_per_token * 0.95))
+    return fitted if fitted < int(max_chars) else None
 
 
 ANALYSIS_COMPLETE_FILE = "analysis_complete.json"
@@ -1995,12 +2088,26 @@ async def run_staged_analysis(
         max_chars=scout_max_chars,
         overlap_seconds=overlap_s,
     )
-    _warn_on_context_budget(
+    fitted_chars = fit_scout_chunk_chars(
         chunks,
+        max_chars=scout_max_chars,
         prompt=scout_prompt,
         llama_cpp_conf=llama_cpp_conf,
         n_predict=_conf_int(scout_conf, "n_predict", 4096),
     )
+    if fitted_chars is not None:
+        LOGGER.info(
+            "scout budget: max_chars_chunk %d -> %d so every chunk plus its "
+            "output fits the server's context",
+            scout_max_chars, fitted_chars,
+        )
+        scout_max_chars = fitted_chars
+        chunks = build_analysis_chunks(
+            segments,
+            chunk_seconds=scout_chunk_seconds,
+            max_chars=scout_max_chars,
+            overlap_seconds=overlap_s,
+        )
     manifest = {
         "transcript": str(transcript_path.resolve()),
         "duration": float(duration),
@@ -2010,6 +2117,7 @@ async def run_staged_analysis(
         "prompt_variant": variant,
         "chunk_count": len(chunks),
         "chunk_overlap_s": overlap_s,
+        "chunk_max_chars": scout_max_chars,
         "timing_version": data.get("timing_version", 1),
         "source_audio": data.get("source_audio") or data.get("audio"),
         "language": data.get("language"),
@@ -2083,6 +2191,7 @@ async def run_staged_analysis(
                 budget=budget,
                 stats=stats["context"],
                 metadata=episode_metadata,
+                speaker_turns=speaker_turn_times(segments) if diar else (),
             )
             if episode_context:
                 _status("[analyze] episode context ready", quiet=quiet)
@@ -2364,6 +2473,7 @@ async def run_staged_analysis(
         "quota_fill_rate": _rate(len(final_moments), target_total),
         "json_retries": {"used": budget.used, "refused": budget.refused, "budget": budget.total},
         "llm_cache_hits": sum(getattr(p, "hits", 0) for p in providers),
+        "llm_transport": llm_transport_metrics(providers, budget),
         "rejections": rejection_reasons,
     }
     atomic_write_json(outdir / "analysis_metrics.json", metrics)
