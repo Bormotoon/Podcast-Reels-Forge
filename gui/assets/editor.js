@@ -123,6 +123,10 @@
         }
     };
 
+    // Built-in looks shared with the burner (generated from
+    // podcast_reels_forge/utils/subtitle_presets.py into subtitle-presets.js).
+    const SHARED = window.FORGE_SUBTITLE_PRESETS || { lookDefaults: {}, presets: {} };
+
     const DEFAULTS = {
       fontPath: "assets/fonts/bignoodletoooblique.ttf",
       fontSizePx: 96, spacingPx: 0, bold: true, italic: false, underline: false, strikeout: false,
@@ -136,9 +140,93 @@
       // MarginV 470 поднимает текст над подписью и строкой со звуком.
       alignment: 2, marginV: 470, marginL: 140, marginR: 140,
       scaleX: 100, scaleY: 100, angle: 0,
-      sampleText: "Разбираемся, почему этот выпуск вызывает споры.", autoAnimate: true,
-      platform: "ig", showUI: true, showMask: true, showOutline: true, maskOpacity: 60
+      // Стиль «Highlight» — активное слово (subtitles.highlight).
+      hlEnabled: false, hlColor: "#FFD60A", hlOp: 1.0, hlBorderStyle: 1,
+      hlOutlineColor: "#000000", hlOutlineOp: 1.0, hlOutline: 8,
+      hlBackColor: "#000000", hlBackOp: 0.5, hlShadow: 0, hlScale: 100,
+      ...SHARED.lookDefaults,
+      sampleText: "Разбираемся, почему этот выпуск вызывает столько споров у зрителей.", autoAnimate: true,
+      platform: "ig", showUI: true, showMask: true, showOutline: true, maskOpacity: 60,
+      activePreset: ""
     };
+
+    // Render settings (config.yaml → subtitles.*) that a full preset sets.
+    // They live in the "render parameters" block (cfgSubs* ids, owned by app.js).
+    const RENDER_FIELDS = {
+      highlight:          { id: 'cfgSubsHighlight', def: 'none' },
+      text_case:          { id: 'cfgSubsCase', def: 'none' },
+      strip_punctuation:  { id: 'cfgSubsPunct', def: 'keep' },
+      line_balance:       { id: 'cfgSubsBalance', def: 'balanced' },
+      max_words_per_cue:  { id: 'cfgSubsMaxWords', def: 0 },
+      max_lines:          { id: 'cfgSubsMaxLines', def: 2 },
+      blur:               { id: 'cfgSubsBlur', def: 0 },
+      fade_in_duration:   { id: 'cfgSubsFadeIn', def: 0.12 },
+      fade_out_duration:  { id: 'cfgSubsFadeOut', def: 0.08 },
+      min_duration_s:     { id: 'cfgSubsMinDur', def: 1.5 },
+    };
+
+    function renderValue(key) {
+      const f = RENDER_FIELDS[key];
+      const el = f && document.getElementById(f.id);
+      if (!el) return f ? f.def : undefined;
+      if (el.type === 'checkbox') return el.checked;
+      if (el.type === 'range' || el.type === 'number') return parseFloat(el.value);
+      return el.value;
+    }
+    function cfgValue(id, def) {
+      const el = document.getElementById(id);
+      if (!el) return def;
+      if (el.type === 'range' || el.type === 'number') return parseFloat(el.value);
+      return el.value;
+    }
+
+    function setRenderField(key, value) {
+      const f = RENDER_FIELDS[key];
+      const el = f && document.getElementById(f.id);
+      if (!el) return;
+      if (el.type === 'checkbox') el.checked = !!value; else el.value = value;
+      // Let app.js store it and refresh the config preview.
+      el.dispatchEvent(new Event(el.type === 'checkbox' ? 'change' : 'input', { bubbles: true }));
+    }
+
+    // One click: the whole look (Default + Highlight styles) and the render
+    // settings that go with it, exactly as subtitles.preset does in the burner.
+    window.applyFullPreset = function(name) {
+      const preset = SHARED.presets[name];
+      if (!preset) return;
+      Object.assign(state, DEFAULTS_LOOK(), preset.look || {});
+      state.activePreset = name;
+      const render = preset.render || {};
+      Object.keys(RENDER_FIELDS).forEach(key => {
+        setRenderField(key, key in render ? render[key] : RENDER_FIELDS[key].def);
+      });
+      const fontEl = document.getElementById('fontPath');
+      if (fontEl) { fontEl.value = state.fontPath; fontEl.dispatchEvent(new Event('input', { bubbles: true })); }
+      sync();
+    };
+
+    function DEFAULTS_LOOK() {
+      const look = {};
+      Object.keys(SHARED.lookDefaults).forEach(k => { look[k] = SHARED.lookDefaults[k]; });
+      return look;
+    }
+
+    function buildPresetGrid() {
+      const grid = document.getElementById('fullPresetGrid');
+      if (!grid) return;
+      const lang = (document.documentElement.lang || 'ru').startsWith('en') ? 'en' : 'ru';
+      grid.innerHTML = '';
+      Object.entries(SHARED.presets).forEach(([name, preset]) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'preset-btn full-preset-btn ripplable';
+        btn.dataset.preset = name;
+        btn.textContent = (preset.title && preset.title[lang]) || name;
+        btn.title = (preset.description && preset.description[lang]) || '';
+        btn.addEventListener('click', () => window.applyFullPreset(name));
+        grid.appendChild(btn);
+      });
+    }
 
     // Пресеты, вдохновлённые самыми вирусными форматами роликов
     const PRESETS = {
@@ -167,23 +255,37 @@
         // Мягкая drop-shadow
         shadow: { borderStyle: 1, outline: 3, outlineColor: "#000000", outlineOp: 1.0, shadow: 7, backColor: "#000000", backOp: 0.75 },
         // Непрозрачная плашка (как авто-субтитры TikTok/YouTube)
-        box: { borderStyle: 3, outline: 0, outlineColor: "#000000", outlineOp: 0.0, backColor: "#000000", backOp: 0.9, shadow: 0 },
+        // BorderStyle 3 paints the box with OutlineColour (libass); Outline is its padding.
+        box: { borderStyle: 3, outline: 12, outlineColor: "#000000", outlineOp: 0.9, backColor: "#000000", backOp: 0.9, shadow: 0 },
         // Плашка + белый контур
-        box_outline: { borderStyle: 3, outline: 2, outlineColor: "#FFFFFF", outlineOp: 1.0, backColor: "#000000", backOp: 0.85, shadow: 0 },
+        // BorderStyle 4: BackColour box around the cue, white outline on the letters.
+        box_outline: { borderStyle: 4, outline: 3, outlineColor: "#FFFFFF", outlineOp: 1.0, backColor: "#000000", backOp: 0.85, shadow: 0 },
         // Неоновое свечение
-        neon: { borderStyle: 1, outline: 4, outlineColor: "#000000", outlineOp: 1.0, shadow: 10, backColor: "#00F2EA", backOp: 0.9 }
+        neon: { borderStyle: 1, outline: 4, outlineColor: "#000000", outlineOp: 1.0, shadow: 10, backColor: "#00F2EA", backOp: 0.9 },
+        // Одна плашка на всю реплику (BorderStyle 4, libass ≥ 0.17): контур = отступ
+        box_cue: { borderStyle: 4, outline: 18, outlineColor: "#000000", outlineOp: 0.0, backColor: "#000000", backOp: 0.75, shadow: 0 },
+        // «Наклейка»: очень толстый контур цвета плашки читается как скруглённая подложка
+        sticker: { borderStyle: 1, outline: 20, outlineColor: "#FFFFFF", outlineOp: 1.0, shadow: 0, primaryColor: "#111111", secondaryColor: "#111111" },
+        // Мягкая тень без контура
+        soft: { borderStyle: 1, outline: 0, outlineOp: 1.0, shadow: 4, backColor: "#000000", backOp: 0.6 }
       },
       geometry: {
         reels: { alignment: 2, marginV: 470 },
         shorts: { alignment: 2, marginV: 360 },
         center: { alignment: 5, marginV: 0 },
         top: { alignment: 8, marginV: 250 },
-        tiktok: { alignment: 2, marginV: 560 }
+        tiktok: { alignment: 2, marginV: 560 },
+        // Нижняя треть кадра — между лицом и интерфейсом
+        lower_third: { alignment: 2, marginV: 640 },
+        // 2/3 снизу (как в MoneyPrinterTurbo): над головами, под верхней панелью
+        upper_third: { alignment: 8, marginV: 560 },
+        // Чуть ниже центра — не закрывает глаза говорящего
+        below_center: { alignment: 8, marginV: 1080 }
       }
     };
 
     const state = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") };
-    let projHandle = null, activeIdx = 0, objectUrl = null;
+    let projHandle = null, activeIdx = 0, cueIdx = 0, currentCueLength = 0, objectUrl = null;
 
     // --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ АНИМАЦИИ ---
     let currentScale = 0.35;
@@ -312,20 +414,228 @@
       }
     }
 
-    // Repaint just the karaoke highlight — the 400ms tick must not rebuild the
+    // ---- Text transforms & line layout: a port of utils/subtitle_layout.py ----
+    // The preview breaks lines the way the burner does, so what you see in the
+    // phone is what lands in the reel.
+    const NO_LINE_END = new Set(("в на по из за к у о об от до со ко а и но ни да нет не то ли бы же вот " +
+      "ну или что как где когда чтобы пока тоже уже ещё еще просто только ведь если либо однако потом " +
+      "тогда сейчас потому раз хотя чтоб будто даже вообще именно конечно пожалуй пожалуйста сразу " +
+      "типа кроме после перед между через около с без для при про над под из-за из-под " +
+      "the a an of to in on at for and or but with from by").split(' '));
+    const SENTENCE_END = /[.!?…]+[»"')\]]*$/;
+    const CLAUSE_END = /[,;:—–]+[»"')\]]*$/;
+    const bareWord = w => w.replace(/^[.,!?…;:«»"'()\[\]—–-]+|[.,!?…;:«»"'()\[\]—–-]+$/g, '').toLowerCase();
+
+    function applyCase(word, mode) {
+      if (mode === 'upper') return word.toUpperCase();
+      if (mode === 'lower') return word.toLowerCase();
+      if (mode === 'title') return word.split('-').map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join('-');
+      return word;
+    }
+    function stripPunct(word, mode) {
+      if (mode === 'periods') {
+        if (word.endsWith('...') || word.endsWith('…')) return word;
+        return word.replace(/(?<![.…])[.,;:]+(?=[»"')\]]*$)/, '');
+      }
+      if (mode === 'all') return word.replace(/[^\p{L}\p{N}\s'’-]|(?<![\p{L}\p{N}])[-'’]|[-'’](?![\p{L}\p{N}])/gu, '');
+      return word;
+    }
+
+    const measureCanvas = document.createElement('canvas').getContext('2d');
+    // libass sizes a face so ascender+descender span Fontsize; CSS sizes the em.
+    // Measure the loaded font's span once per family to convert between them.
+    let assScaleCache = { key: '', value: 1 };
+    function assFontScale() {
+      // Shipped fonts: the exact OS/2 win metrics libass uses (browsers only
+      // expose hhea/typo metrics, which differ e.g. for Montserrat).
+      const known = (SHARED.fontMetrics || {})[String(state.fontPath).replace(/^\.\//, '')];
+      if (known) return 1 / known;
+      const key = `${state.fontPath}|${document.fonts ? document.fonts.status : ''}`;
+      if (assScaleCache.key === key) return assScaleCache.value;
+      measureCanvas.font = `100px AssPreview, sans-serif`;
+      const m = measureCanvas.measureText('Hg');
+      const span = (m.fontBoundingBoxAscent || 0) + (m.fontBoundingBoxDescent || 0);
+      const value = span > 0 ? 100 / span : 1;
+      assScaleCache = { key, value };
+      return value;
+    }
+    function cssFontPx() { return state.fontSizePx * assFontScale(); }
+    function textWidth(text) {
+      measureCanvas.font = `${state.bold ? 'bold ' : ''}${state.italic ? 'italic ' : ''}${cssFontPx()}px AssPreview, sans-serif`;
+      const advance = measureCanvas.measureText(text).width + state.spacingPx * text.length;
+      return advance * state.scaleX / 100;
+    }
+
+    function breakCost(words, i) {
+      const w = words[i];
+      if (SENTENCE_END.test(w)) return -0.6;
+      if (CLAUSE_END.test(w)) return -0.4;
+      if (NO_LINE_END.has(bareWord(w))) return 0.8;
+      const next = words[i + 1];
+      if (next && ['же', 'ли', 'бы'].includes(bareWord(next))) return 0.6;
+      return 0;
+    }
+    function partitionCost(widths, words, breaks, maxW, balance, space) {
+      const bounds = [0, ...breaks, words.length];
+      const lw = [];
+      for (let k = 0; k + 1 < bounds.length; k++) {
+        let sum = 0;
+        for (let i = bounds[k]; i < bounds[k + 1]; i++) sum += widths[i];
+        lw.push(sum + space * Math.max(0, bounds[k + 1] - bounds[k] - 1));
+      }
+      const mean = lw.reduce((a, b) => a + b, 0) / lw.length;
+      let cost = lw.reduce((a, w) => a + Math.abs(w - mean), 0) / Math.max(1, maxW);
+      lw.forEach(w => { if (w > maxW) cost += 10 + 10 * (w - maxW) / maxW; });
+      breaks.forEach(b => { cost += breakCost(words, b - 1); });
+      if (balance === 'bottom_heavy' || balance === 'top_heavy') {
+        for (let k = 0; k + 1 < lw.length; k++) {
+          const excess = balance === 'bottom_heavy' ? lw[k] - lw[k + 1] : lw[k + 1] - lw[k];
+          if (excess > 0) cost += 1.5 * excess / maxW;
+        }
+      }
+      if (bounds.length > 2 && bounds[bounds.length - 1] - bounds[bounds.length - 2] === 1 && words.length > 2) cost += 0.5;
+      return cost;
+    }
+    function* combinations(n, k, start = 1, acc = []) {
+      if (acc.length === k) { yield acc.slice(); return; }
+      for (let i = start; i < n; i++) { acc.push(i); yield* combinations(n, k, i + 1, acc); acc.pop(); }
+    }
+    function wrapWords(words, maxW, maxLines, balance) {
+      if (!words.length) return [];
+      const space = textWidth(' ');
+      const widths = words.map(textWidth);
+      const total = widths.reduce((a, b) => a + b, 0) + space * (words.length - 1);
+      if (total <= maxW || maxLines <= 1 || words.length === 1) return [words.slice()];
+      const apply = breaks => { const b = [0, ...breaks, words.length]; const out = []; for (let k = 0; k + 1 < b.length; k++) out.push(words.slice(b[k], b[k + 1])); return out; };
+      if (balance === 'greedy') {
+        const breaks = []; let line = widths[0];
+        for (let i = 1; i < words.length; i++) {
+          if (line + space + widths[i] > maxW && breaks.length < maxLines - 1) { breaks.push(i); line = widths[i]; }
+          else line += space + widths[i];
+        }
+        return apply(breaks);
+      }
+      let best = null;
+      for (let lines = 2; lines <= Math.min(maxLines, words.length); lines++) {
+        let fit = null;
+        for (const combo of combinations(words.length, lines - 1)) {
+          const c = partitionCost(widths, words, combo, maxW, balance, space);
+          if (!fit || c < fit[0]) fit = [c, combo];
+        }
+        if (!fit) continue;
+        if (!best || fit[0] < best[0]) best = fit;
+        if (fit[0] < 10) break;
+      }
+      return apply(best[1]);
+    }
+
+    // Words of the sample as the burner would show them.
+    function displayWords() {
+      const caseMode = cfgValue('cfgSubsCase', 'none');
+      const punct = cfgValue('cfgSubsPunct', 'keep');
+      return state.sampleText.trim().split(/\s+/).filter(Boolean)
+        .map(w => applyCase(stripPunct(w, punct), caseMode)).filter(Boolean);
+    }
+    // Where to cut a cue in two (port of _best_split_index): near the middle,
+    // at a natural point.
+    function bestSplitIndex(words) {
+      const total = words.reduce((a, w) => a + w.length, 0) || 1;
+      let best = Math.floor(words.length / 2), bestCost = Infinity, left = 0;
+      for (let i = 1; i < words.length; i++) {
+        left += words[i - 1].length;
+        let cost = Math.abs(2 * left - total) / total;
+        const prev = words[i - 1];
+        if (SENTENCE_END.test(prev)) cost -= 0.35;
+        else if (CLAUSE_END.test(prev)) cost -= 0.2;
+        if (NO_LINE_END.has(bareWord(prev))) cost += 0.4;
+        if (cost < bestCost) { best = i; bestCost = cost; }
+      }
+      return best;
+    }
+
+    // The sample split into cues the way the burner splits a transcript:
+    // max_words_per_cue first, then halve any cue that does not fit its lines.
+    function buildCues(maxW, maxLines, balance) {
+      const words = displayWords();
+      const limit = parseInt(cfgValue('cfgSubsMaxWords', 0), 10) || 0;
+      let cues = [];
+      if (limit > 0) {
+        let cur = [];
+        words.forEach(w => {
+          if (cur.length >= limit) { cues.push(cur); cur = []; }
+          cur.push(w);
+          if (SENTENCE_END.test(w)) { cues.push(cur); cur = []; }
+        });
+        if (cur.length) cues.push(cur);
+      } else {
+        cues = [words];
+      }
+      const fits = cue => {
+        const rows = wrapWords(cue, maxW, maxLines, balance);
+        return rows.length <= maxLines && rows.every(r => textWidth(r.join(' ')) <= maxW + 0.5);
+      };
+      const split = (cue, depth) => {
+        if (cue.length <= 1 || depth >= 8 || fits(cue)) return [cue];
+        const cut = bestSplitIndex(cue);
+        return [...split(cue.slice(0, cut), depth + 1), ...split(cue.slice(cut), depth + 1)];
+      };
+      return cues.flatMap(c => split(c, 0)).filter(c => c.length);
+    }
+
+    function highlightMode() {
+      const mode = cfgValue('cfgSubsHighlight', state.autoAnimate ? 'karaoke' : 'none');
+      return mode || 'none';
+    }
+
+    // Repaint just the per-word states — the 400ms tick must not rebuild the
     // DOM, refetch the font and force a full relayout.
-    function paintKaraoke() {
+    function paintHighlight() {
       const words = document.querySelectorAll('#subContainer .ass-word');
-      // RU: Со стоп-кадром показываем середину \kf-свипа: начало строки уже
-      //     «спето» (PrimaryColour), хвост ещё нет (SecondaryColour). Так обе
-      //     заливки видны сразу и обе настраиваются — иначе одна из них молча
-      //     ни на что не влияет.
-      // EN: Frozen preview shows the middle of a \kf sweep: the head of the line
-      //     is already "sung" (PrimaryColour), the tail is not (SecondaryColour).
-      //     Both fills stay visible and tunable — otherwise one of them silently
-      //     does nothing.
-      const cut = state.autoAnimate ? activeIdx : Math.ceil(words.length * 0.6);
-      words.forEach((span, i) => span.classList.toggle('active', i < cut));
+      const mode = highlightMode();
+      // RU: Со стоп-кадром показываем середину реплики: начало уже «спето», хвост
+      //     ещё нет — так видны обе заливки и обе настраиваются.
+      // EN: The frozen preview shows mid-cue: the head is already spoken, the
+      //     tail is not, so both fills stay visible and tunable.
+      const active = state.autoAnimate ? activeIdx : Math.min(words.length - 1, Math.ceil(words.length * 0.6) - 1);
+      words.forEach((span, i) => {
+        span.classList.remove('spoken', 'current', 'hidden', 'pop', 'hl');
+        if (mode === 'none') { span.classList.add('spoken'); return; }
+        if (mode === 'karaoke') { if (i < active) span.classList.add('spoken'); return; }
+        const isCurrent = i === active;
+        const isActive = isCurrent || (mode === 'fill' && i < active);
+        if (mode === 'reveal' && i > active) span.classList.add('hidden');
+        if (isActive) span.classList.add(state.hlEnabled ? 'hl' : 'current');
+        else if (!state.hlEnabled && mode !== 'reveal') span.classList.add('inactive-sec');
+        else span.classList.add('spoken');
+        if (mode === 'pop' && isCurrent && state.autoAnimate) {
+          void span.offsetWidth;  // restart the CSS animation
+          span.classList.add('pop');
+        }
+      });
+    }
+
+    function strokeAndShadow(prefix) {
+      const s = prefix === 'hl'
+        ? { bs: state.hlBorderStyle, oc: state.hlOutlineColor, oo: state.hlOutlineOp, o: state.hlOutline, bc: state.hlBackColor, bo: state.hlBackOp, sh: state.hlShadow }
+        : { bs: state.borderStyle, oc: state.outlineColor, oo: state.outlineOp, o: state.outline, bc: state.backColor, bo: state.backOp, sh: state.shadow };
+      const blur = parseFloat(cfgValue('cfgSubsBlur', 0)) || 0;
+      const oC = toRGBA(s.oc, s.oo), bC = toRGBA(s.bc, s.bo);
+      const out = { stroke: '0', shadow: 'none', bg: 'transparent', pad: '0' };
+      if (s.bs == 1) {
+        const shadows = [];
+        if (s.o > 0) out.stroke = `${s.o * 2}px ${oC}`;
+        // \blur softens the outline into a glow.
+        if (blur > 0 && s.o > 0) shadows.push(`0 0 ${blur * 2}px ${oC}`, `0 0 ${blur * 4}px ${oC}`);
+        if (s.sh > 0) shadows.push(`${s.sh}px ${s.sh}px ${blur}px ${bC}`);
+        out.shadow = shadows.join(', ') || 'none';
+      } else if (s.bs == 3) {
+        out.bg = bC; out.pad = `${Math.max(2, s.o)}px`;
+        // BorderStyle 3 paints the box with OutlineColour; BackColour is the shadow.
+        out.bg = toRGBA(s.oc, s.oo);
+      } else if (s.bs == 4 && s.o > 0 && s.oo > 0) {
+        out.stroke = `${s.o * 2}px ${oC}`;
+      }
+      return out;
     }
 
     function updatePreview() {
@@ -334,11 +644,11 @@
       applyFontFace();
 
       c.style.setProperty('--css-font', "'AssPreview'");
-      c.style.setProperty('--css-font-size', `${state.fontSizePx}px`);
+      c.style.setProperty('--css-font-size', `${cssFontPx()}px`);
       c.style.setProperty('--css-spacing', `${state.spacingPx}px`);
       c.style.setProperty('--css-weight', state.bold ? 'bold' : 'normal');
       c.style.setProperty('--css-style', state.italic ? 'italic' : 'normal');
-      
+
       let decor = [];
       if (state.underline) decor.push('underline');
       if (state.strikeout) decor.push('line-through');
@@ -346,101 +656,157 @@
 
       c.style.setProperty('--css-color-pri', toRGBA(state.primaryColor, state.primaryOp));
       c.style.setProperty('--css-color-sec', toRGBA(state.secondaryColor, state.secondaryOp));
+      c.style.setProperty('--css-color-hl', toRGBA(state.hlColor, state.hlOp));
 
+      // subtitles.vertical_align overrides the style's row, keeping its column.
       let align = parseInt(state.alignment);
-      let mV = state.marginV + "px", mL = state.marginL + "px", mR = state.marginR + "px";
-      
+      const vAlign = cfgValue('cfgSubsVAlign', 'style');
+      const vOffset = parseFloat(cfgValue('cfgSubsVOffset', 0)) || 0;
+      let marginV = state.marginV;
+      const col = (align - 1) % 3;
+      const styleRow = align <= 3 ? 'bottom' : align <= 6 ? 'center' : 'top';
+      if (vAlign !== 'style') {
+        align = { bottom: 1, center: 4, top: 7 }[vAlign] + col;
+        if (vAlign !== styleRow && vAlign !== 'center') marginV = vAlign === 'bottom' ? 470 : 250;
+      }
+      marginV += Math.round(vOffset * 1920);
+
+      // Usable width: frame minus margins, capped (or widened) by max_width_ratio.
+      const ratio = parseFloat(cfgValue('cfgSubsMaxWidth', 0.74)) || 0.74;
+      let mL = state.marginL, mR = state.marginR;
+      const target = ratio * 1080;
+      if (target > 1080 - mL - mR && col === 1) { mL = mR = Math.round((1080 - target) / 2); }
+      const maxW = Math.min(1080 - mL - mR, target);
+
       c.style.setProperty('--css-top', 'auto'); c.style.setProperty('--css-bottom', 'auto');
       c.style.setProperty('--css-left', 'auto'); c.style.setProperty('--css-right', 'auto');
       c.style.setProperty('--css-transform-container', 'none');
 
-      if ([7,8,9].includes(align)) { c.style.setProperty('--css-top', mV); }
-      else if ([4,5,6].includes(align)) { c.style.setProperty('--css-top', '50%'); c.style.setProperty('--css-transform-container', 'translateY(-50%)'); }
-      else { c.style.setProperty('--css-bottom', mV); }
+      if ([7,8,9].includes(align)) { c.style.setProperty('--css-top', marginV + 'px'); }
+      else if ([4,5,6].includes(align)) {
+        c.style.setProperty('--css-top', `calc(50% - ${Math.round(vOffset * 1920)}px)`);
+        c.style.setProperty('--css-transform-container', 'translateY(-50%)');
+      }
+      else { c.style.setProperty('--css-bottom', marginV + 'px'); }
 
-      if ([1,4,7].includes(align)) { 
-        c.style.setProperty('--css-left', mL); c.style.setProperty('--css-align-items', 'flex-start'); c.style.setProperty('--css-text-align', 'left'); c.style.setProperty('--css-justify', 'flex-start');
-      } else if ([3,6,9].includes(align)) { 
-        c.style.setProperty('--css-right', mR); c.style.setProperty('--css-align-items', 'flex-end'); c.style.setProperty('--css-text-align', 'right'); c.style.setProperty('--css-justify', 'flex-end');
-      } else { 
-        c.style.setProperty('--css-left', mL); c.style.setProperty('--css-right', mR); c.style.setProperty('--css-align-items', 'center'); c.style.setProperty('--css-text-align', 'center'); c.style.setProperty('--css-justify', 'center');
+      if ([1,4,7].includes(align)) {
+        c.style.setProperty('--css-left', mL + 'px'); c.style.setProperty('--css-align-items', 'flex-start'); c.style.setProperty('--css-text-align', 'left');
+      } else if ([3,6,9].includes(align)) {
+        c.style.setProperty('--css-right', mR + 'px'); c.style.setProperty('--css-align-items', 'flex-end'); c.style.setProperty('--css-text-align', 'right');
+      } else {
+        c.style.setProperty('--css-left', mL + 'px'); c.style.setProperty('--css-right', mR + 'px'); c.style.setProperty('--css-align-items', 'center'); c.style.setProperty('--css-text-align', 'center');
       }
 
       c.style.setProperty('--css-transform-word', `scale(${state.scaleX/100}, ${state.scaleY/100}) rotate(${-state.angle}deg)`);
+      c.style.setProperty('--css-transform-hl', `scale(${state.scaleX/100 * state.hlScale/100}, ${state.scaleY/100 * state.hlScale/100}) rotate(${-state.angle}deg)`);
 
-      let oC = toRGBA(state.outlineColor, state.outlineOp);
-      let bC = toRGBA(state.backColor, state.backOp);
-      let oPx = state.outline;
-      let sPx = state.shadow;
+      const base = strokeAndShadow('base');
+      c.style.setProperty('--css-text-stroke', base.stroke);
+      c.style.setProperty('--css-text-shadow', base.shadow);
+      // BorderStyle 3: a box per line; 4: one box around the whole cue.
+      const lineBox = state.borderStyle == 3 ? toRGBA(state.outlineColor, state.outlineOp) : 'transparent';
+      c.style.setProperty('--css-box-bg', lineBox);
+      c.style.setProperty('--css-box-pad', state.borderStyle == 3 ? `${Math.max(2, state.outline)}px` : '0');
+      c.style.setProperty('--css-cue-bg', state.borderStyle == 4 ? toRGBA(state.backColor, state.backOp) : 'transparent');
+      c.style.setProperty('--css-cue-pad', state.borderStyle == 4 ? `${state.outline}px` : '0');
+      if (state.borderStyle == 4 && state.outlineOp <= 0) c.style.setProperty('--css-text-stroke', '0');
 
-      c.style.setProperty('--css-box-bg', 'transparent'); c.style.setProperty('--css-box-pad', '0');
-      c.style.setProperty('--css-text-stroke', '0'); c.style.setProperty('--css-text-shadow', 'none');
+      const hl = strokeAndShadow('hl');
+      c.style.setProperty('--css-hl-stroke', hl.stroke);
+      c.style.setProperty('--css-hl-shadow', hl.shadow);
+      c.style.setProperty('--css-hl-bg', hl.bg);
+      c.style.setProperty('--css-hl-pad', hl.pad === '0' ? '0' : `0 ${hl.pad}`);
 
-      if (state.borderStyle == 1) { 
-        let shadows = [];
-        if (oPx > 0) c.style.setProperty('--css-text-stroke', `${oPx*2}px ${oC}`);
-        if (sPx > 0) shadows.push(`${sPx}px ${sPx}px 0 ${bC}`);
-        c.style.setProperty('--css-text-shadow', shadows.join(', ') || 'none');
-      } else { 
-        c.style.setProperty('--css-box-bg', bC);
-        c.style.setProperty('--css-box-pad', `25px 40px`);
-        if (oPx > 0) c.style.setProperty('--css-text-stroke', `${oPx*2}px ${oC}`);
-      }
+      // Lay out the current cue with the burner's cue-split and line-break rules.
+      const wrap = document.getElementById('cfgSubsWrap');
+      const maxLines = (wrap && !wrap.checked) ? 1 : (parseInt(cfgValue('cfgSubsMaxLines', 2), 10) || 2);
+      const balance = cfgValue('cfgSubsBalance', 'balanced');
+      const innerW = maxW - 2 * state.outline;
+      const cues = buildCues(innerW, maxLines, balance);
+      const words = cues.length ? cues[(state.autoAnimate ? cueIdx : 0) % cues.length] : [];
+      currentCueLength = words.length;
+      const rows = wrapWords(words, innerW, maxLines, balance);
 
-      let words = state.sampleText.trim().split(/\s+/).filter(Boolean);
       c.innerHTML = '';
-      let lineDiv = document.createElement('div');
-      lineDiv.className = 'ass-line';
-      words.forEach((w, i) => {
-        // RU: Реальный пробел между словами — как в прожиге (" ".join). Раньше
-        //     слова были соседними flex-элементами без разделителя, и зазор давал
-        //     только column-gap = Spacing, равный 0 по умолчанию: в предпросмотре
-        //     текст слипался в «почемуэтотвыпуск».
-        // EN: A real space between words, matching the burner's " ".join. They
-        //     used to be adjacent flex items whose only separation was
-        //     column-gap = Spacing (0 by default), so the preview glued words
-        //     together into "почемуэтотвыпуск".
-        if (i > 0) lineDiv.appendChild(document.createTextNode(' '));
-        let span = document.createElement('span'); span.className = 'ass-word';
-        span.textContent = w; lineDiv.appendChild(span);
+      const cueDiv = document.createElement('div');
+      cueDiv.className = 'ass-cue';
+      rows.forEach(row => {
+        const lineDiv = document.createElement('div');
+        lineDiv.className = 'ass-line';
+        row.forEach((w, i) => {
+          // RU: Реальный пробел между словами — как в прожиге (" ".join).
+          // EN: A real space between words, matching the burner's " ".join.
+          if (i > 0) lineDiv.appendChild(document.createTextNode(' '));
+          const span = document.createElement('span'); span.className = 'ass-word';
+          span.textContent = w; lineDiv.appendChild(span);
+        });
+        cueDiv.appendChild(lineDiv);
       });
-      c.appendChild(lineDiv);
-      paintKaraoke();
+      c.appendChild(cueDiv);
+      paintHighlight();
+
+      document.querySelectorAll('.full-preset-btn').forEach(b => b.classList.toggle('active', b.dataset.preset === state.activePreset));
 
       const platData = PLATFORMS[state.platform] || PLATFORMS.ig;
-      document.getElementById('assEditorRoot').style.setProperty('--brand-color', platData.color);
+      (document.getElementById('assEditorRoot') || document.documentElement).style.setProperty('--brand-color', platData.color);
       document.getElementById('ambientGlow').style.background = platData.color;
       // Safe-zone caption is localised through the shared i18n bridge (falls back to the RU default).
       const specsKey = 'ed_specs_' + state.platform;
       document.getElementById('specs-text').innerHTML =
         (window.t && window.t(specsKey) !== specsKey) ? window.t(specsKey) : platData.desc;
-      
+
       const uiLayer = document.getElementById('uiLayer');
       uiLayer.innerHTML = state.showUI ? platData.ui : '';
-      
+
       document.getElementById('mask-polygon').setAttribute('points', platData.points);
       document.getElementById('safe-outline').setAttribute('points', platData.points);
-      
+
       document.getElementById('darkness-rect').setAttribute('opacity', state.showMask ? state.maskOpacity / 100 : '0');
       document.getElementById('safe-outline').style.opacity = state.showOutline ? '1' : '0';
-      
+
       document.querySelectorAll('.plat-btn').forEach(b => b.classList.remove('active'));
       const activePlatBtn = document.querySelector(`.plat-btn[data-platform="${state.platform}"]`);
       if (activePlatBtn) activePlatBtn.classList.add('active');
     }
 
+    function fontName() {
+      // The burner maps this file-stem name to the font's real family.
+      return state.fontPath.split('/').pop().replace(/\.[^/.]+$/, "");
+    }
+
+    function styleLine(name, s) {
+      return `Style: ${name},${fontName()},${s.fontSizePx},` +
+             `${toASSColor(s.primaryColor, s.primaryOp)},` +
+             `${toASSColor(s.secondaryColor, s.secondaryOp)},` +
+             `${toASSColor(s.outlineColor, s.outlineOp)},` +
+             `${toASSColor(s.backColor, s.backOp)},` +
+             `${s.bold?-1:0},${s.italic?-1:0},${s.underline?-1:0},${s.strikeout?-1:0},` +
+             `${+(s.scaleX).toFixed(2)},${+(s.scaleY).toFixed(2)},${s.spacingPx},${s.angle},` +
+             `${s.borderStyle},${s.outline},${s.shadow},${s.alignment},` +
+             `${s.marginL},${s.marginR},${s.marginV},1`;
+    }
+
     function getASS() {
-      let fname = state.fontPath.split('/').pop().replace(/\.[^/.]+$/, "");
-      let style = `Style: Default,${fname},${state.fontSizePx},` +
-                  `${toASSColor(state.primaryColor, state.primaryOp)},` +
-                  `${toASSColor(state.secondaryColor, state.secondaryOp)},` +
-                  `${toASSColor(state.outlineColor, state.outlineOp)},` +
-                  `${toASSColor(state.backColor, state.backOp)},` +
-                  `${state.bold?-1:0},${state.italic?-1:0},${state.underline?-1:0},${state.strikeout?-1:0},` +
-                  `${state.scaleX},${state.scaleY},${state.spacingPx},${state.angle},` +
-                  `${state.borderStyle},${state.outline},${state.shadow},${state.alignment},` +
-                  `${state.marginL},${state.marginR},${state.marginV},1`;
-      return `[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n${style}`;
+      const lines = [
+        '[Script Info]', 'ScriptType: v4.00+', 'PlayResX: 1080', 'PlayResY: 1920',
+        'WrapStyle: 0', 'ScaledBorderAndShadow: yes', '',
+        '[V4+ Styles]',
+        'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+        styleLine('Default', state),
+      ];
+      if (state.hlEnabled) {
+        const k = state.hlScale / 100;
+        lines.push(styleLine('Highlight', {
+          ...state,
+          primaryColor: state.hlColor, primaryOp: state.hlOp,
+          secondaryColor: state.hlColor, secondaryOp: state.hlOp,
+          borderStyle: state.hlBorderStyle,
+          outlineColor: state.hlOutlineColor, outlineOp: state.hlOutlineOp, outline: state.hlOutline,
+          backColor: state.hlBackColor, backOp: state.hlBackOp, shadow: state.hlShadow,
+          scaleX: state.scaleX * k, scaleY: state.scaleY * k,
+        }));
+      }
+      return lines.join('\n');
     }
 
     function sync() {
@@ -519,11 +885,32 @@
 
     setInterval(() => {
       if(state.autoAnimate) {
-        let max = state.sampleText.trim().split(/\s+/).filter(Boolean).length;
-        activeIdx = (activeIdx + 1) % (max + 1);
-        paintKaraoke();
+        activeIdx += 1;
+        if (activeIdx > currentCueLength) {
+          // Next cue of the sample (max_words_per_cue splits it into several).
+          activeIdx = 0; cueIdx += 1;
+          updatePreview();
+        } else {
+          paintHighlight();
+        }
       }
     }, 400);
+
+    // Render settings owned by app.js also shape the preview.
+    ['cfgSubsHighlight', 'cfgSubsCase', 'cfgSubsPunct', 'cfgSubsBalance', 'cfgSubsMaxWords',
+     'cfgSubsMaxLines', 'cfgSubsMaxWidth', 'cfgSubsVAlign', 'cfgSubsVOffset', 'cfgSubsBlur',
+     'cfgSubsWrap'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', () => { activeIdx = 0; updatePreview(); });
+    });
+    // Font metrics change the line breaks once the font has actually loaded.
+    if (document.fonts) document.fonts.addEventListener('loadingdone', () => {
+      assScaleCache.key = '';  // the span was measured on the fallback font
+      updatePreview();
+      document.getElementById('assOutput').value = getASS();
+    });
+    buildPresetGrid();
+    window.addEventListener('forge:langchange', () => buildPresetGrid());
 
     document.getElementById('connectBtn').addEventListener('click', async () => {
       try {

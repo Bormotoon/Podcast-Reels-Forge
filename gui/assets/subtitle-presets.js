@@ -495,5 +495,14 @@ window.FORGE_SUBTITLE_PRESETS = {
         "strip_punctuation": "periods"
       }
     }
+  },
+  "fontMetrics": {
+    "assets/fonts/MontserratBlack.ttf": 1.562,
+    "assets/fonts/OswaldBold.ttf": 1.702,
+    "assets/fonts/PressStart2P-Regular.ttf": 1.374,
+    "assets/fonts/RubikMonoOne-Regular.ttf": 1.238,
+    "assets/fonts/RussoOne-Regular.ttf": 1.205,
+    "assets/fonts/UnboundedBlack.ttf": 1.548,
+    "assets/fonts/bignoodletoooblique.ttf": 1.076
   }
 };

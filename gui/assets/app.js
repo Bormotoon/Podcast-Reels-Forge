@@ -202,6 +202,23 @@
         clips_reel_max: 'Reel макс. сек',
         // Subtitles — extras
         sub_voffset: 'Верт. смещение (доля кадра)',
+        sub_highlight: 'Подсветка слова', sub_hl_none: 'Нет — реплика целиком', sub_hl_karaoke: 'Караоке — плавная заливка',
+        sub_hl_word: 'Активное слово', sub_hl_fill: 'Сказанные слова', sub_hl_reveal: 'Печатная машинка', sub_hl_pop: 'Слово «подпрыгивает»',
+        sub_valign: 'Положение по вертикали', sub_valign_style: 'Как в стиле', sub_valign_top: 'Сверху', sub_valign_center: 'По центру', sub_valign_bottom: 'Снизу',
+        sub_case: 'Регистр', sub_case_none: 'Как в транскрипте', sub_case_upper: 'ВСЕ ЗАГЛАВНЫЕ', sub_case_lower: 'все строчные', sub_case_title: 'Каждое Слово С Заглавной',
+        sub_punct: 'Пунктуация', sub_punct_keep: 'Оставить', sub_punct_periods: 'Убрать точки и запятые', sub_punct_all: 'Убрать всю',
+        sub_balance: 'Перенос строк', sub_balance_balanced: 'Ровные строки', sub_balance_bottom: 'Пирамида (нижняя длиннее)', sub_balance_top: 'Верхняя длиннее', sub_balance_greedy: 'Жадно (как libass)',
+        sub_max_words: 'Слов в реплике (0 — без лимита)', sub_max_chars: 'Символов в строке (0 — по шрифту)', sub_blur: 'Размытие краёв / свечение',
+        sub_pause: 'Пауза, делящая реплику (сек)', sub_min_dur: 'Мин. показ реплики (сек)', sub_max_dur: 'Макс. показ реплики (сек)', sub_gap: 'Зазор между репликами (сек)',
+        sub_split_speaker: 'Новая реплика при смене спикера', sub_speaker_colors: 'Цвета спикеров (#RRGGBB через запятую; пусто — выкл.)',
+        sub_censor: 'Цензура (через запятую, «бля*» — все формы)', sub_censor_style: 'Как скрывать',
+        sub_censor_middle: 'Б***ь — крайние буквы', sub_censor_first: 'Б**** — первая буква', sub_censor_whole: '***** — целиком',
+        ed_full_presets: 'Готовые стили', ed_full_presets_note: 'Один клик задаёт шрифт, цвета, контур, стиль активного слова и параметры рендера. Дальше всё можно подправить ниже.',
+        ed_border_opt4: '4: Одна плашка на реплику', ed_p_box_cue: 'Плашка на реплику', ed_p_sticker: 'Стикер', ed_p_soft: 'Только тень',
+        ed_p_lower_third: 'Нижняя треть', ed_p_upper_third: 'Верхняя треть', ed_p_below_center: 'Под центром',
+        ed_hl_title: 'Активное слово', ed_hl_enabled: 'Свой стиль для активного слова',
+        ed_hl_note: 'Для подсветки «Активное слово», «Сказанные слова», «Печатная машинка» и «Подпрыгивает». Выключено — активное слово берёт основную заливку, остальные — вторичную.',
+        ed_hl_color: 'Цвет слова', ed_hl_border: 'Оформление', ed_hl_border1: 'Контур + тень', ed_hl_border3: 'Плашка под словом (цвет контура)', ed_hl_scale: 'Масштаб слова, %',
         sub_editor: 'Визуальный редактор стиля (.ass)', sub_editor_newtab: 'Открыть в новой вкладке',
         sub_editor_note: 'Все настройки субтитров — в одной панели слева от предпросмотра: параметры рендера, шрифт, цвет, контур и положение. Нажмите «Выбрать папку» и «Сохранить файл ASS» — пайплайн берёт стиль из этого файла.',
         sub_size_hint: 'Размер, цвет, контур и положение субтитров задаются ниже — в визуальном редакторе стиля (.ass).',
@@ -229,7 +246,7 @@
         ed_align_bl: '1 — Низ Л', ed_align_bc: '2 — Низ Ц', ed_align_br: '3 — Низ П',
         ed_margin_v: 'Отступ В', ed_margin_l: 'Отступ Л', ed_margin_r: 'Отступ П',
         ed_scale_x: 'Масштаб X', ed_scale_y: 'Масштаб Y', ed_angle: 'Угол (Z)',
-        ed_karaoke: 'Симуляция караоке \\kf', ed_save_ass: 'Сохранить файл ASS', ed_pick_dir: 'Выбрать папку',
+        ed_karaoke: 'Анимировать предпросмотр', ed_save_ass: 'Сохранить файл ASS', ed_pick_dir: 'Выбрать папку',
         ed_v4_config: '[V4+ Styles] Конфигурация', ed_load_media: 'Загрузите медиа',
         ed_p_minimal: 'Минимал', ed_p_impact: 'Импакт', ed_p_green: 'Грин-скрин', ed_p_red: 'Красный', ed_p_white: 'Белый',
         ed_p_soft_shadow: 'Мягкая тень', ed_p_box: 'Блок', ed_p_box_outline: 'Блок + контур', ed_p_neon: 'Неон',
@@ -420,6 +437,23 @@
         clips_reels_count: 'Total Reels (reels_count)', clips_reel_min: 'Reel min sec',
         clips_reel_max: 'Reel max sec',
         sub_voffset: 'Vertical Offset (frame ratio)',
+        sub_highlight: 'Word highlight', sub_hl_none: 'None — whole cue', sub_hl_karaoke: 'Karaoke — smooth fill',
+        sub_hl_word: 'Active word', sub_hl_fill: 'Spoken words', sub_hl_reveal: 'Typewriter', sub_hl_pop: 'Word pops',
+        sub_valign: 'Vertical position', sub_valign_style: 'From the style', sub_valign_top: 'Top', sub_valign_center: 'Center', sub_valign_bottom: 'Bottom',
+        sub_case: 'Letter case', sub_case_none: 'As transcribed', sub_case_upper: 'ALL CAPS', sub_case_lower: 'all lowercase', sub_case_title: 'Title Case',
+        sub_punct: 'Punctuation', sub_punct_keep: 'Keep', sub_punct_periods: 'Drop periods and commas', sub_punct_all: 'Drop all',
+        sub_balance: 'Line breaks', sub_balance_balanced: 'Even lines', sub_balance_bottom: 'Pyramid (longer bottom)', sub_balance_top: 'Longer top', sub_balance_greedy: 'Greedy (libass)',
+        sub_max_words: 'Words per cue (0 — no limit)', sub_max_chars: 'Characters per line (0 — from the font)', sub_blur: 'Edge blur / glow',
+        sub_pause: 'Pause that splits a cue (s)', sub_min_dur: 'Min cue duration (s)', sub_max_dur: 'Max cue duration (s)', sub_gap: 'Gap between cues (s)',
+        sub_split_speaker: 'New cue on speaker change', sub_speaker_colors: 'Speaker colours (#RRGGBB, comma-separated; empty — off)',
+        sub_censor: 'Censor (comma-separated, "fu*" — all forms)', sub_censor_style: 'Masking',
+        sub_censor_middle: 'F**k — keep both ends', sub_censor_first: 'F*** — keep the first', sub_censor_whole: '**** — whole word',
+        ed_full_presets: 'Ready-made styles', ed_full_presets_note: 'One click sets the font, colours, outline, active-word style and render settings. Fine-tune everything below.',
+        ed_border_opt4: '4: One box per cue', ed_p_box_cue: 'Box per cue', ed_p_sticker: 'Sticker', ed_p_soft: 'Shadow only',
+        ed_p_lower_third: 'Lower third', ed_p_upper_third: 'Upper third', ed_p_below_center: 'Below center',
+        ed_hl_title: 'Active word', ed_hl_enabled: 'Own style for the active word',
+        ed_hl_note: 'For the "Active word", "Spoken words", "Typewriter" and "Word pops" highlights. Off — the active word takes the primary fill, the rest the secondary.',
+        ed_hl_color: 'Word colour', ed_hl_border: 'Decoration', ed_hl_border1: 'Outline + shadow', ed_hl_border3: 'Box under the word (outline colour)', ed_hl_scale: 'Word scale, %',
         sub_editor: 'Visual Style Editor (.ass)', sub_editor_newtab: 'Open in New Tab',
         sub_editor_note: 'Every subtitle setting lives in the single panel left of the preview: render parameters, font, color, outline and position. Use "Set Directory" and "Save ASS File" — the pipeline takes the style from that file.',
         sub_size_hint: 'Size, color, outline and position of subtitles are set below — in the visual style editor (.ass).',
@@ -445,7 +479,7 @@
         ed_align_bl: '1 — Bottom L', ed_align_bc: '2 — Bottom C', ed_align_br: '3 — Bottom R',
         ed_margin_v: 'Margin V', ed_margin_l: 'Margin L', ed_margin_r: 'Margin R',
         ed_scale_x: 'Scale X', ed_scale_y: 'Scale Y', ed_angle: 'Angle (Z)',
-        ed_karaoke: 'Karaoke \\kf simulation', ed_save_ass: 'Save ASS file', ed_pick_dir: 'Set directory',
+        ed_karaoke: 'Animate the preview', ed_save_ass: 'Save ASS file', ed_pick_dir: 'Set directory',
         ed_v4_config: '[V4+ Styles] Configuration', ed_load_media: 'Load media',
         ed_p_minimal: 'Minimal', ed_p_impact: 'Impact', ed_p_green: 'Green screen', ed_p_red: 'Red', ed_p_white: 'White',
         ed_p_soft_shadow: 'Soft shadow', ed_p_box: 'Box', ed_p_box_outline: 'Box + outline', ed_p_neon: 'Neon',
@@ -555,6 +589,10 @@
       subsWrap: true, subsMaxLines: 2, subsMaxWidth: 0.74,
       subsVOffset: 0.0,
       subsFadeIn: 0.12, subsFadeOut: 0.08,
+      subsHighlight: 'none', subsVAlign: 'style', subsCase: 'none', subsPunct: 'keep',
+      subsBalance: 'balanced', subsMaxWords: 0, subsMaxChars: 0, subsBlur: 0,
+      subsPause: 0.5, subsMinDur: 1.5, subsMaxDur: 7, subsGap: 0.15,
+      subsSplitSpeaker: true, subsSpeakerColors: '', subsCensor: '', subsCensorStyle: 'middle',
       settingsInputDir: 'input', settingsOutputDir: 'output',
       settingsCache: true, settingsValidateJson: true, settingsProofread: true,
       settingsArticle: true, settingsDiarization: false,
@@ -770,6 +808,12 @@
     document.getElementById('btnCopyLogs')?.addEventListener('click', () => { navigator.clipboard.writeText(logLines.map(l => `[${l.ts}] ${l.msg}`).join('\n')).then(() => addLog(t('log_logs_copied'), 'info')); });
 
     // ---- Config Export ----
+    // "a, b\nc" → a YAML flow list of quoted strings: ["a", "b", "c"].
+    function yamlList(text) {
+      const items = String(text || '').split(/[,\n]/).map(x => x.trim()).filter(Boolean);
+      return '[' + items.map(x => JSON.stringify(x)).join(', ') + ']';
+    }
+
     function generateConfig() {
       const fb = String(state.analyzeFallback || '').split(',').map(s => s.trim()).filter(Boolean);
       const fbYaml = fb.length ? '\n' + fb.map(m => `    - "${m}"`).join('\n') : ' []';
@@ -998,12 +1042,29 @@ subtitles:
   wrap_words: ${state.subsWrap}
   max_lines: ${state.subsMaxLines}
   max_width_ratio: ${state.subsMaxWidth}
-  vertical_align: "bottom"
+  vertical_align: "${state.subsVAlign}"
   vertical_offset: ${state.subsVOffset}
   fade_in_duration: ${state.subsFadeIn}
   fade_out_duration: ${state.subsFadeOut}
   keep_nosubs: false
   karaoke: false
+  # Готовый стиль целиком (utils/subtitle_presets.py); пусто — стиль из файла редактора.
+  preset: ""
+  highlight: "${state.subsHighlight}"
+  text_case: "${state.subsCase}"
+  strip_punctuation: "${state.subsPunct}"
+  line_balance: "${state.subsBalance}"
+  max_chars_per_line: ${state.subsMaxChars}
+  max_words_per_cue: ${state.subsMaxWords}
+  blur: ${state.subsBlur}
+  pause_split_s: ${state.subsPause}
+  min_duration_s: ${state.subsMinDur}
+  max_duration_s: ${state.subsMaxDur}
+  min_gap_s: ${state.subsGap}
+  split_on_speaker: ${state.subsSplitSpeaker}
+  speaker_colors: ${yamlList(state.subsSpeakerColors)}
+  censor_words: ${yamlList(state.subsCensor)}
+  censor_style: "${state.subsCensorStyle}"
   whisper_sync:
     enabled: true
     model: "large-v3"
@@ -1225,7 +1286,7 @@ diarization:
     // "Редактор стилей" on the dashboard → go to the subtitles page.
     document.getElementById('btnOpenStyleEditor')?.addEventListener('click', () => { location.href = 'subtitles.html'; });
     // "Открыть в новой вкладке" on the subtitles page → open the standalone editor.
-    document.getElementById('btnEditorNewTab')?.addEventListener('click', () => window.open('../assets/subtitles/style-editor.html', '_blank'));
+    document.getElementById('btnEditorNewTab')?.addEventListener('click', () => window.open('subtitles.html', '_blank'));
     // The embedded phone preview needs a resize tick once the subtitles page is laid out.
     if (CURRENT_PAGE === 'subtitles') {
       window.addEventListener('load', () => setTimeout(() => window.dispatchEvent(new Event('resize')), 120));

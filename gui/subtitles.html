@@ -90,6 +90,12 @@
       </div>
 
       <div class="sidebar-body">
+      <!-- Ready-made looks (podcast_reels_forge/utils/subtitle_presets.py) -->
+      <section class="section span-2">
+        <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg> <span data-i18n="ed_full_presets">Готовые стили</span></div>
+        <p class="lede" style="margin:0 0 10px;" data-i18n="ed_full_presets_note">Один клик задаёт шрифт, цвета, контур, стиль активного слова и параметры рендера. Дальше всё можно подправить ниже.</p>
+        <div class="full-preset-grid" id="fullPresetGrid"></div>
+      </section>
         
         <section class="section">
           <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg> <span data-i18n="ed_platform">Настройка платформы</span></div>
@@ -162,8 +168,68 @@
             <div class="field"><label><span data-i18n="sub_fade_in">Появление (сек)</span> <span class="value" id="v-cfgSubsFadeIn">0.12</span></label><input type="range" id="cfgSubsFadeIn" min="0" max="1.0" step="0.02" value="0.12"></div>
             <div class="field"><label><span data-i18n="sub_fade_out">Исчезновение (сек)</span> <span class="value" id="v-cfgSubsFadeOut">0.08</span></label><input type="range" id="cfgSubsFadeOut" min="0" max="1.0" step="0.02" value="0.08"></div>
             <div class="field full"><label><span data-i18n="sub_voffset">Верт. смещение (доля кадра)</span> <span class="value" id="v-cfgSubsVOffset">0.00</span></label><input type="range" id="cfgSubsVOffset" min="-1" max="1" step="0.05" value="0"></div>
-          </div>
-        </section>
+            </div>
+            <div class="grid-2">
+              <div class="field"><label data-i18n="sub_highlight">Подсветка слова</label>
+                <select id="cfgSubsHighlight">
+                  <option value="none" data-i18n="sub_hl_none">Нет — реплика целиком</option>
+                  <option value="karaoke" data-i18n="sub_hl_karaoke">Караоке — плавная заливка</option>
+                  <option value="word" data-i18n="sub_hl_word">Активное слово</option>
+                  <option value="fill" data-i18n="sub_hl_fill">Сказанные слова</option>
+                  <option value="reveal" data-i18n="sub_hl_reveal">Печатная машинка</option>
+                  <option value="pop" data-i18n="sub_hl_pop">Слово «подпрыгивает»</option>
+                </select></div>
+              <div class="field"><label data-i18n="sub_valign">Положение по вертикали</label>
+                <select id="cfgSubsVAlign">
+                  <option value="style" data-i18n="sub_valign_style">Как в стиле</option>
+                  <option value="top" data-i18n="sub_valign_top">Сверху</option>
+                  <option value="center" data-i18n="sub_valign_center">По центру</option>
+                  <option value="bottom" data-i18n="sub_valign_bottom">Снизу</option>
+                </select></div>
+              <div class="field"><label data-i18n="sub_case">Регистр</label>
+                <select id="cfgSubsCase">
+                  <option value="none" data-i18n="sub_case_none">Как в транскрипте</option>
+                  <option value="upper" data-i18n="sub_case_upper">ВСЕ ЗАГЛАВНЫЕ</option>
+                  <option value="lower" data-i18n="sub_case_lower">все строчные</option>
+                  <option value="title" data-i18n="sub_case_title">Каждое Слово С Заглавной</option>
+                </select></div>
+              <div class="field"><label data-i18n="sub_punct">Пунктуация</label>
+                <select id="cfgSubsPunct">
+                  <option value="keep" data-i18n="sub_punct_keep">Оставить</option>
+                  <option value="periods" data-i18n="sub_punct_periods">Убрать точки и запятые</option>
+                  <option value="all" data-i18n="sub_punct_all">Убрать всю</option>
+                </select></div>
+              <div class="field"><label data-i18n="sub_balance">Перенос строк</label>
+                <select id="cfgSubsBalance">
+                  <option value="balanced" data-i18n="sub_balance_balanced">Ровные строки</option>
+                  <option value="bottom_heavy" data-i18n="sub_balance_bottom">Пирамида (нижняя длиннее)</option>
+                  <option value="top_heavy" data-i18n="sub_balance_top">Верхняя длиннее</option>
+                  <option value="greedy" data-i18n="sub_balance_greedy">Жадно (как libass)</option>
+                </select></div>
+              <div class="field"><label><span data-i18n="sub_max_words">Слов в реплике (0 — без лимита)</span> <span class="value" id="v-cfgSubsMaxWords">0</span></label><input type="range" id="cfgSubsMaxWords" min="0" max="12" step="1" value="0"></div>
+              <div class="field"><label><span data-i18n="sub_max_chars">Символов в строке (0 — по шрифту)</span> <span class="value" id="v-cfgSubsMaxChars">0</span></label><input type="range" id="cfgSubsMaxChars" min="0" max="60" step="1" value="0"></div>
+              <div class="field"><label><span data-i18n="sub_blur">Размытие краёв / свечение</span> <span class="value" id="v-cfgSubsBlur">0</span></label><input type="range" id="cfgSubsBlur" min="0" max="20" step="0.5" value="0"></div>
+              <div class="field"><label><span data-i18n="sub_pause">Пауза, делящая реплику (сек)</span> <span class="value" id="v-cfgSubsPause">0.5</span></label><input type="range" id="cfgSubsPause" min="0.1" max="2" step="0.05" value="0.5"></div>
+              <div class="field"><label><span data-i18n="sub_min_dur">Мин. показ реплики (сек)</span> <span class="value" id="v-cfgSubsMinDur">1.5</span></label><input type="range" id="cfgSubsMinDur" min="0" max="4" step="0.1" value="1.5"></div>
+              <div class="field"><label><span data-i18n="sub_max_dur">Макс. показ реплики (сек)</span> <span class="value" id="v-cfgSubsMaxDur">7</span></label><input type="range" id="cfgSubsMaxDur" min="1" max="15" step="0.5" value="7"></div>
+              <div class="field"><label><span data-i18n="sub_gap">Зазор между репликами (сек)</span> <span class="value" id="v-cfgSubsGap">0.15</span></label><input type="range" id="cfgSubsGap" min="0" max="1" step="0.05" value="0.15"></div>
+            </div>
+            <label class="m3-switch ripplable-switch">
+              <span style="font-weight:500;font-size:14px;color:var(--md-sys-color-on-background)" data-i18n="sub_split_speaker">Новая реплика при смене спикера</span>
+              <input type="checkbox" id="cfgSubsSplitSpeaker" checked>
+              <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+            </label>
+            <div class="field full"><label data-i18n="sub_speaker_colors">Цвета спикеров (#RRGGBB через запятую; пусто — выкл.)</label><input type="text" id="cfgSubsSpeakerColors" placeholder="#FFFFFF, #FFD60A, #25F4EE"></div>
+            <div class="grid-2">
+              <div class="field"><label data-i18n="sub_censor">Цензура (через запятую, «бля*» — все формы)</label><input type="text" id="cfgSubsCensor" placeholder="бля*, хрен"></div>
+              <div class="field"><label data-i18n="sub_censor_style">Как скрывать</label>
+                <select id="cfgSubsCensorStyle">
+                  <option value="middle" data-i18n="sub_censor_middle">Б***ь — крайние буквы</option>
+                  <option value="first" data-i18n="sub_censor_first">Б**** — первая буква</option>
+                  <option value="whole" data-i18n="sub_censor_whole">***** — целиком</option>
+                </select></div>
+            </div>
+            </section>
 
         <!-- Typography -->
         <section class="section span-2">
@@ -235,6 +301,9 @@
             <button class="preset-btn ripplable" onclick="applyPreset('borders', 'box')" data-i18n="ed_p_box">Блок</button>
             <button class="preset-btn ripplable" onclick="applyPreset('borders', 'box_outline')" data-i18n="ed_p_box_outline">Блок + контур</button>
             <button class="preset-btn ripplable" onclick="applyPreset('borders', 'neon')" data-i18n="ed_p_neon">Неон</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'box_cue')" data-i18n="ed_p_box_cue">Плашка на реплику</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'sticker')" data-i18n="ed_p_sticker">Стикер</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('borders', 'soft')" data-i18n="ed_p_soft">Только тень</button>
           </div>
 
           <div class="field full">
@@ -242,7 +311,8 @@
             <select id="borderStyle">
               <option value="1" data-i18n="ed_border_opt1">1: Контур + тень</option>
               <option value="3" data-i18n="ed_border_opt3">3: Непрозрачный блок</option>
-            </select>
+              <option value="4" data-i18n="ed_border_opt4">4: Одна плашка на реплику</option>
+              </select>
           </div>
           <div class="grid-2">
             <div class="field"><label data-i18n="ed_outline_color">Цвет контура</label><input id="outlineColor" type="color"></div>
@@ -255,6 +325,31 @@
           </div>
         </section>
 
+        <!-- Active word: the "Highlight" ASS style -->
+        <section class="section">
+          <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg> <span data-i18n="ed_hl_title">Активное слово</span></div>
+          <label class="m3-switch ripplable-switch">
+            <span style="font-weight:500;font-size:14px;color:var(--md-sys-color-on-background)" data-i18n="ed_hl_enabled">Свой стиль для активного слова</span>
+            <input type="checkbox" id="hlEnabled">
+            <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+          </label>
+          <p class="lede" style="margin:4px 0 8px;" data-i18n="ed_hl_note">Для подсветки «Активное слово», «Сказанные слова», «Печатная машинка» и «Подпрыгивает». Выключено — активное слово берёт основную заливку, остальные — вторичную.</p>
+          <div class="grid-2">
+            <div class="field"><label data-i18n="ed_hl_color">Цвет слова</label><input id="hlColor" type="color"></div>
+            <div class="field"><label><span data-i18n="ed_opacity">Прозрачность</span> <span class="value" id="v-hlOp"></span></label><input id="hlOp" type="range" min="0" max="1" step="0.05"></div>
+            <div class="field full"><label data-i18n="ed_hl_border">Оформление</label>
+              <select id="hlBorderStyle">
+                <option value="1" data-i18n="ed_hl_border1">Контур + тень</option>
+                <option value="3" data-i18n="ed_hl_border3">Плашка под словом (цвет контура)</option>
+              </select></div>
+            <div class="field"><label data-i18n="ed_outline_color">Цвет контура</label><input id="hlOutlineColor" type="color"></div>
+            <div class="field"><label><span data-i18n="ed_outline_width">Толщина контура</span> <span class="value" id="v-hlOutline"></span></label><input id="hlOutline" type="range" min="0" max="24" step="1"></div>
+            <div class="field"><label data-i18n="ed_shadow_box">Тень/блок</label><input id="hlBackColor" type="color"></div>
+            <div class="field"><label><span data-i18n="ed_opacity">Прозрачность</span> <span class="value" id="v-hlBackOp"></span></label><input id="hlBackOp" type="range" min="0" max="1" step="0.05"></div>
+            <div class="field"><label><span data-i18n="ed_shadow_offset">Смещение тени</span> <span class="value" id="v-hlShadow"></span></label><input id="hlShadow" type="range" min="0" max="20" step="1"></div>
+            <div class="field"><label><span data-i18n="ed_hl_scale">Масштаб слова, %</span> <span class="value" id="v-hlScale"></span></label><input id="hlScale" type="range" min="80" max="150" step="1"></div>
+          </div>
+        </section>
         <!-- Geometry -->
         <section class="section">
           <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg> <span data-i18n="ed_placement">Размещение</span></div>
@@ -264,6 +359,9 @@
             <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'center')" data-i18n="ed_p_center">Центр</button>
             <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'top')" data-i18n="ed_p_top">Верх</button>
             <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'tiktok')">TikTok</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'lower_third')" data-i18n="ed_p_lower_third">Нижняя треть</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'upper_third')" data-i18n="ed_p_upper_third">Верхняя треть</button>
+            <button class="preset-btn ripplable" onclick="applyPreset('geometry', 'below_center')" data-i18n="ed_p_below_center">Под центром</button>
           </div>
 
           <div class="grid-2">
@@ -287,10 +385,10 @@
         <!-- Preview & Output -->
         <section class="section span-2">
           <div class="section-title"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> <span data-i18n="ed_export">Экспорт конфигурации</span></div>
-          <textarea id="sampleText" rows="2" style="margin-bottom:16px;">Разбираемся, почему этот выпуск вызывает споры.</textarea>
+          <textarea id="sampleText" rows="2" style="margin-bottom:16px;">Разбираемся, почему этот выпуск вызывает столько споров у зрителей.</textarea>
 
           <label class="m3-switch ripplable-switch" style="margin-bottom: 16px;">
-            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)" data-i18n="ed_karaoke">Симуляция караоке \kf</span>
+            <span style="font-weight: 500; font-size:14px; color:var(--md-sys-color-on-background)" data-i18n="ed_karaoke">Анимировать предпросмотр</span>
             <input type="checkbox" id="autoAnimate" checked>
             <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
           </label>
@@ -398,6 +496,7 @@
   </div>
 
   <script src="assets/app.js"></script>
+  <script src="assets/subtitle-presets.js"></script>
   <script src="assets/editor.js"></script>
 </body>
 </html>

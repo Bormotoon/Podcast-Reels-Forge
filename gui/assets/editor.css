@@ -294,8 +294,14 @@
        это текстовые узлы внутри .ass-line, и если размер/семейство заданы только
        на .ass-word, пробел рисуется дефолтным 16px-шрифтом (~4px вместо ~24px)
        и слова визуально слипаются. */
+    /* Реплика целиком: BorderStyle 4 рисует одну плашку вокруг всех строк. */
+    .ass-cue {
+      display: flex; flex-direction: column; align-items: var(--css-align-items);
+      background-color: var(--css-cue-bg, transparent); padding: var(--css-cue-pad, 0);
+    }
+    /* Строки разбивает тот же алгоритм, что и прожиг, поэтому браузер их не переносит. */
     .ass-line {
-      display: inline-block; max-width: 100%;
+      display: inline-block; white-space: nowrap;
       font-family: var(--css-font), sans-serif; font-size: var(--css-font-size);
       font-weight: var(--css-weight); font-style: var(--css-style);
       letter-spacing: var(--css-spacing);
@@ -311,7 +317,19 @@
       paint-order: stroke fill;
       transform: var(--css-transform-word); white-space: nowrap; line-height: 1.1; transition: color 0.1s;
     }
-    .ass-word.active { color: var(--css-color-pri); }
+    .ass-word.active, .ass-word.spoken, .ass-word.current { color: var(--css-color-pri); }
+    .ass-word.inactive-sec { color: var(--css-color-sec); }
+    /* Активное слово в стиле Highlight: свой цвет, контур, плашка и масштаб. */
+    .ass-word.hl {
+      color: var(--css-color-hl); -webkit-text-stroke: var(--css-hl-stroke); text-shadow: var(--css-hl-shadow);
+      background-color: var(--css-hl-bg); padding: var(--css-hl-pad); transform: var(--css-transform-hl);
+    }
+    .ass-word.hidden { visibility: hidden; }
+    .ass-word.pop { animation: assWordPop 0.12s ease-out; }
+    @keyframes assWordPop { from { scale: 1.12; } to { scale: 1; } }
+    .full-preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin-bottom: 8px; }
+    .full-preset-grid .preset-btn { width: 100%; }
+    .full-preset-grid .preset-btn.active { outline: 2px solid var(--md-sys-color-primary); }
 
     .overlay-layer { position: absolute; top: 0; left: 0; width: 1080px; height: 1920px; pointer-events: none; z-index: 20; }
     .overlay-layer polygon { transition: all 0.5s var(--ease-standard); }

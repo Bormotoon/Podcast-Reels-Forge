@@ -428,10 +428,34 @@ def ass_header(look: Mapping[str, Any], font_name: str) -> str:
 JS_PATH = Path("gui/assets/subtitle-presets.js")
 
 
+def font_metrics(fonts_dir: Path | None = None) -> dict[str, float]:
+    """``assets/fonts/X.ttf`` → (winAscent + winDescent) / unitsPerEm.
+
+    libass sizes a face by its OS/2 win metrics, while browsers expose only
+    hhea/typo metrics, which differ for fonts like Montserrat (1.56 vs 1.22
+    em). The GUI preview needs this ratio to draw text at the burned size.
+    """
+
+    from fontTools.ttLib import TTFont  # noqa: PLC0415
+
+    root = Path(__file__).resolve().parents[2]
+    fonts_dir = fonts_dir or root / "assets/fonts"
+    metrics: dict[str, float] = {}
+    for path in sorted(fonts_dir.glob("*.[ot]tf")):
+        face = TTFont(path, lazy=True)
+        os2 = face["OS/2"]
+        span = int(os2.usWinAscent) + int(os2.usWinDescent)
+        if span > 0:
+            key = path.relative_to(root).as_posix()
+            metrics[key] = round(span / int(face["head"].unitsPerEm), 4)
+    return metrics
+
+
 def presets_js() -> str:
     payload = {
         "lookDefaults": LOOK_DEFAULTS,
         "presets": PRESETS,
+        "fontMetrics": font_metrics(),
     }
     body = json.dumps(payload, ensure_ascii=False, indent=2)
     return (
