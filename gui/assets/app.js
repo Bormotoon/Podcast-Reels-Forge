@@ -209,7 +209,7 @@
         sub_punct: 'Пунктуация', sub_punct_keep: 'Оставить', sub_punct_periods: 'Убрать точки и запятые', sub_punct_all: 'Убрать всю',
         sub_balance: 'Перенос строк', sub_balance_balanced: 'Ровные строки', sub_balance_bottom: 'Пирамида (нижняя длиннее)', sub_balance_top: 'Верхняя длиннее', sub_balance_greedy: 'Жадно (как libass)',
         sub_max_words: 'Слов в реплике (0 — без лимита)', sub_max_chars: 'Символов в строке (0 — по шрифту)', sub_blur: 'Размытие краёв / свечение',
-        sub_pause: 'Пауза, делящая реплику (сек)', sub_min_dur: 'Мин. показ реплики (сек)', sub_max_dur: 'Макс. показ реплики (сек)', sub_gap: 'Зазор между репликами (сек)',
+        sub_pause: 'Пауза, делящая реплику (сек)', sub_min_dur: 'Мин. показ реплики (сек)', sub_max_dur: 'Макс. показ реплики (сек)', sub_gap: 'Зазор между репликами (сек)', sub_fade_gap: 'Фейд только после паузы от (сек; 0 — всегда)',
         sub_split_speaker: 'Новая реплика при смене спикера', sub_speaker_colors: 'Цвета спикеров (#RRGGBB через запятую; пусто — выкл.)',
         sub_censor: 'Цензура (через запятую, «бля*» — все формы)', sub_censor_style: 'Как скрывать',
         sub_censor_middle: 'Б***ь — крайние буквы', sub_censor_first: 'Б**** — первая буква', sub_censor_whole: '***** — целиком',
@@ -444,7 +444,7 @@
         sub_punct: 'Punctuation', sub_punct_keep: 'Keep', sub_punct_periods: 'Drop periods and commas', sub_punct_all: 'Drop all',
         sub_balance: 'Line breaks', sub_balance_balanced: 'Even lines', sub_balance_bottom: 'Pyramid (longer bottom)', sub_balance_top: 'Longer top', sub_balance_greedy: 'Greedy (libass)',
         sub_max_words: 'Words per cue (0 — no limit)', sub_max_chars: 'Characters per line (0 — from the font)', sub_blur: 'Edge blur / glow',
-        sub_pause: 'Pause that splits a cue (s)', sub_min_dur: 'Min cue duration (s)', sub_max_dur: 'Max cue duration (s)', sub_gap: 'Gap between cues (s)',
+        sub_pause: 'Pause that splits a cue (s)', sub_min_dur: 'Min cue duration (s)', sub_max_dur: 'Max cue duration (s)', sub_gap: 'Gap between cues (s)', sub_fade_gap: 'Fade only around pauses from (s; 0 — always)',
         sub_split_speaker: 'New cue on speaker change', sub_speaker_colors: 'Speaker colours (#RRGGBB, comma-separated; empty — off)',
         sub_censor: 'Censor (comma-separated, "fu*" — all forms)', sub_censor_style: 'Masking',
         sub_censor_middle: 'F**k — keep both ends', sub_censor_first: 'F*** — keep the first', sub_censor_whole: '**** — whole word',
@@ -590,7 +590,7 @@
       subsVOffset: 0.0,
       subsFadeIn: 0.12, subsFadeOut: 0.08,
       subsHighlight: 'none', subsVAlign: 'style', subsCase: 'none', subsPunct: 'keep',
-      subsBalance: 'balanced', subsMaxWords: 0, subsMaxChars: 0, subsBlur: 0,
+      subsBalance: 'bottom_heavy', subsFadeGap: 0.3, subsMaxWords: 0, subsMaxChars: 0, subsBlur: 0,
       subsPause: 0.5, subsMinDur: 1.5, subsMaxDur: 7, subsGap: 0.15,
       subsSplitSpeaker: true, subsSpeakerColors: '', subsCensor: '', subsCensorStyle: 'middle',
       settingsInputDir: 'input', settingsOutputDir: 'output',
@@ -1046,6 +1046,7 @@ subtitles:
   vertical_offset: ${state.subsVOffset}
   fade_in_duration: ${state.subsFadeIn}
   fade_out_duration: ${state.subsFadeOut}
+  fade_min_gap_s: ${state.subsFadeGap}
   keep_nosubs: false
   karaoke: false
   # Готовый стиль целиком (utils/subtitle_presets.py); пусто — стиль из файла редактора.

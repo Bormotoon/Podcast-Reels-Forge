@@ -823,12 +823,13 @@ subtitles:
   vertical_offset: 0.0      # shift in frame heights, away from the anchored edge
   fade_in_duration: 0.12    # \fad in seconds; 0 disables the fade
   fade_out_duration: 0.08
+  fade_min_gap_s: 0.3       # fade only next to a pause at least this long; 0 = every cue
   preset: ""                # a ready-made look, see below; empty = the editor's .ass file
   highlight: "none"         # none | karaoke | word | fill | reveal | pop
   highlight_color: ""       # #RRGGBB for the active word; empty = from the style
   text_case: "none"         # none | upper | lower | title
   strip_punctuation: "keep" # keep | periods | all
-  line_balance: "balanced"  # balanced | bottom_heavy | top_heavy | greedy
+  line_balance: "bottom_heavy"  # bottom_heavy | balanced | top_heavy | greedy
   max_chars_per_line: 0     # 0 = measured from the font and the width
   max_words_per_cue: 0      # 0 = no limit; 1 = one word at a time
   blur: 0                   # \blur edge softening; with an outline it reads as a glow
@@ -919,6 +920,24 @@ Forge chooses the line breaks itself instead of leaving them to libass:
 Usable width is the frame minus the style's `MarginL`/`MarginR`, capped by
 `max_width_ratio`. A ratio wider than the margins widens centred text for
 real, through per-cue margins.
+
+### Why these defaults / Почему такие умолчания
+
+Measured on 127 clips picked from 17 real podcast episodes (1574 cues):
+
+- Reading speed is set by the speech itself (median ~15 characters/s); shorter
+  cues do not slow it down. A word limit only makes cues flash by: with 5
+  words per cue or a single line, 19–23% of cues stay up under 0.8 s, against
+  5% with the default rules. So `max_words_per_cue` is off by default; use it
+  for a deliberate fast-cut style (`hormozi`, `one_word`).
+- `min_duration_s` rarely helps: 93% of cues follow the previous one within
+  0.2 s, so there is no room to hold them longer.
+- The same 93% is why fades apply only around a pause (`fade_min_gap_s`):
+  fading every back-to-back change made the text blink every couple of seconds.
+- `bottom_heavy` changes 8% of line breaks, mostly removing a one-word bottom
+  line, and keeps the wider line low where it hides less of the picture.
+- Word highlighting stays off: it shows word-timing errors that a whole cue
+  hides.
 
 ### Cues and timing / Реплики и тайминг
 

@@ -156,7 +156,7 @@
       highlight:          { id: 'cfgSubsHighlight', def: 'none' },
       text_case:          { id: 'cfgSubsCase', def: 'none' },
       strip_punctuation:  { id: 'cfgSubsPunct', def: 'keep' },
-      line_balance:       { id: 'cfgSubsBalance', def: 'balanced' },
+      line_balance:       { id: 'cfgSubsBalance', def: 'bottom_heavy' },
       max_words_per_cue:  { id: 'cfgSubsMaxWords', def: 0 },
       max_lines:          { id: 'cfgSubsMaxLines', def: 2 },
       blur:               { id: 'cfgSubsBlur', def: 0 },
@@ -720,7 +720,7 @@
       // Lay out the current cue with the burner's cue-split and line-break rules.
       const wrap = document.getElementById('cfgSubsWrap');
       const maxLines = (wrap && !wrap.checked) ? 1 : (parseInt(cfgValue('cfgSubsMaxLines', 2), 10) || 2);
-      const balance = cfgValue('cfgSubsBalance', 'balanced');
+      const balance = cfgValue('cfgSubsBalance', 'bottom_heavy');
       const innerW = maxW - 2 * state.outline;
       const cues = buildCues(innerW, maxLines, balance);
       const words = cues.length ? cues[(state.autoAnimate ? cueIdx : 0) % cues.length] : [];

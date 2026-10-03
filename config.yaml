@@ -567,6 +567,9 @@ subtitles:
   # Плавное появление/исчезновение реплики (тег \fad). 0 — выключить.
   fade_in_duration: 0.12
   fade_out_duration: 0.08
+  # Фейд только у реплик с паузой не короче этой (сек) до/после соседней:
+  # в подкастах 93% реплик идут встык, и фейд на каждой давал мигание. 0 — всегда.
+  fade_min_gap_s: 0.3
   # Готовый стиль целиком: forge, hormozi, mrbeast, karaoke, tiktok, box, sticker,
   # word_box, neon, vibrant, minimal, classic, one_word, retro, bold_pop, headline.
   # Пусто — стиль из файла редактора (ass_style). Явные ключи ниже важнее пресета.
@@ -578,8 +581,9 @@ subtitles:
   # Регистр: none | upper | lower | title. Пунктуация: keep | periods | all.
   text_case: "none"
   strip_punctuation: "keep"
-  # Переносы: balanced | bottom_heavy (пирамида) | top_heavy | greedy (как libass).
-  line_balance: "balanced"
+  # Переносы: bottom_heavy (пирамида: короче сверху, меньше закрывает кадр и без
+  # одного слова в нижней строке — BBC/Netflix) | balanced | top_heavy | greedy.
+  line_balance: "bottom_heavy"
   # 0 — длина строки считается по шрифту и ширине; иначе — символов в строке.
   max_chars_per_line: 0
   # 0 — без лимита; 1 — по одному слову, 2–4 — короткие «хормози»-реплики.

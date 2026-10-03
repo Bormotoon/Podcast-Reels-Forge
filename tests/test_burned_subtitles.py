@@ -662,3 +662,25 @@ def test_video_processor_reads_the_whole_subtitles_section() -> None:
     assert settings.preset == "box"
     assert settings.fade_in_duration == 0.0
     assert _subtitle_settings_from_json("not json").max_lines == bs.DEFAULT_MAX_LINES
+
+
+def test_back_to_back_cues_cut_over_without_fading(tmp_path: Path) -> None:
+    """Fades only around pauses: a cue right after another must not blink."""
+    a = _timed("раз два")                         # 0.0 .. 0.95
+    b = bs.SubtitleSegment(start=1.0, end=1.9, text="три",
+                           words=(bs._TimedSubtitleWord(1.0, 1.9, "три"),))
+    c = bs.SubtitleSegment(start=3.0, end=3.9, text="четыре",
+                           words=(bs._TimedSubtitleWord(3.0, 3.9, "четыре"),))
+    texts = _dialogues(tmp_path, [a, b, c], fade_in_duration=0.1, fade_out_duration=0.1)
+    assert texts[0].startswith("{\\fad(100,0)}")   # after silence in, straight into b
+    assert texts[1].startswith("{\\fad(0,100)}")   # a pause follows b
+    assert texts[2].startswith("{\\fad(100,100)}")
+
+    always = _dialogues(tmp_path, [a, b], fade_in_duration=0.1, fade_out_duration=0.1, fade_min_gap_s=0)
+    assert always[0].startswith("{\\fad(100,100)}")
+
+
+def test_default_line_balance_is_the_pyramid(tmp_path: Path) -> None:
+    settings = bs.subtitle_settings_from_conf(None, repo_dir=tmp_path)
+    assert settings.line_balance == "bottom_heavy"
+    assert settings.fade_min_gap_s == bs.DEFAULT_FADE_MIN_GAP_S

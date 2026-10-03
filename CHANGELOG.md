@@ -198,6 +198,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `FORGE_*` variables and/or a JSON webhook), on failure or always.
 
 ### Changed
+- **Subtitle defaults tuned on real clips** (127 clips from 17 podcast
+  episodes): line breaks default to the `bottom_heavy` pyramid, and fades
+  apply only next to a pause of `fade_min_gap_s` (0.3 s) — 93% of cues are
+  back to back, so fading each one made the text blink. Word limits and
+  shorter minimum durations were measured too and left off: they only make
+  cues flash by.
 - **Face detector: YuNet instead of MediaPipe BlazeFace.** BlazeFace
   short-range (128x128 input) found no real face in wide shots and picked up
   faces in slide photos; YuNet (OpenCV's model, rebuilt in torch for the GPU)
