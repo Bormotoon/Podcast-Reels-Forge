@@ -49,3 +49,25 @@ def test_extends_cycle_is_an_error(tmp_path: Path) -> None:
     _write(tmp_path / "b.yaml", "extends: a.yaml\n")
     with pytest.raises(ValueError, match="too deep"):
         load_config(a)
+
+
+def test_local_overlay_found_next_to_the_extends_root(tmp_path: Path) -> None:
+    _write(tmp_path / "config.yaml", "x: 1\ny: 1\n")
+    _write(tmp_path / "config.local.yaml", "x: 2\n")
+    (tmp_path / "local").mkdir()
+    night = _write(tmp_path / "local" / "night.yaml", "extends: ../config.yaml\ny: 3\n")
+    conf, sources = load_config_with_sources(night)
+    assert conf == {"x": 2, "y": 3}
+    assert sources[-1].name == "config.local.yaml"
+
+
+def test_hf_token_accepts_the_standard_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    from podcast_reels_forge.utils.env import HF_TOKEN_VARS, hf_token
+
+    for name in HF_TOKEN_VARS:
+        monkeypatch.delenv(name, raising=False)
+    assert hf_token() is None
+    monkeypatch.setenv("HUGGING_FACE_ACCESS_TOKEN", "hf_abc")
+    assert hf_token() == "hf_abc"
+    monkeypatch.setenv("PYANNOTE_TOKEN", "own")
+    assert hf_token() == "own"

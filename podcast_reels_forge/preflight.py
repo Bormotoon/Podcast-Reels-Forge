@@ -93,8 +93,13 @@ def run_preflight(
 
     diar = _section(conf, "diarization")
     if "diarize" in active and diar.get("enabled"):
-        if not os.environ.get("PYANNOTE_TOKEN"):
-            result.errors.append("диаризация включена, но PYANNOTE_TOKEN не задан (.env)")
+        from podcast_reels_forge.utils.env import hf_token
+
+        if not hf_token():
+            result.errors.append(
+                "диаризация включена, но нет токена Hugging Face "
+                "(PYANNOTE_TOKEN, HF_TOKEN или HUGGING_FACE_ACCESS_TOKEN в .env)",
+            )
         if not _module_available("pyannote.audio"):
             result.errors.append("диаризация включена, но pyannote.audio не установлен")
 

@@ -14,7 +14,7 @@ def test_diarize_missing_token(tmp_path: Path) -> None:
     input_file = tmp_path / "audio.mp3"
     input_file.write_text("dummy")
     with patch.dict("os.environ", {}, clear=True):
-        with pytest.raises(SystemExit, match="PYANNOTE_TOKEN is not set"):
+        with pytest.raises(SystemExit, match="No Hugging Face token"):
             main(["--input", str(input_file)])
 
 def test_diarize_success(tmp_path: Path) -> None:

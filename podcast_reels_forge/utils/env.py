@@ -84,3 +84,17 @@ def load_dotenv(repo_dir: Path, *, filename: str = ".env") -> dict[str, str]:
         log.debug("Loaded %d variable(s) from %s: %s",
                   len(applied), path, ", ".join(sorted(applied)))
     return applied
+
+
+# The standard Hugging Face names work too: a `.env` usually already holds one.
+HF_TOKEN_VARS = ("PYANNOTE_TOKEN", "HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "HUGGING_FACE_ACCESS_TOKEN")
+
+
+def hf_token() -> str | None:
+    """The token for pyannote's gated models, from the first variable set."""
+
+    for name in HF_TOKEN_VARS:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return None

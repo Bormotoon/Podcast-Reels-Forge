@@ -31,7 +31,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
-import os
 import subprocess
 import tempfile
 from collections.abc import Iterator
@@ -114,10 +113,13 @@ def main(argv: list[str] | None = None) -> None:
     if not args.input.exists():
         raise SystemExit(f"Input file not found: {args.input}")
 
-    token = os.environ.get("PYANNOTE_TOKEN")
+    from podcast_reels_forge.utils.env import hf_token
+
+    token = hf_token()
     if not token:
         raise SystemExit(
-            "PYANNOTE_TOKEN is not set (required when diarization is enabled)",
+            "No Hugging Face token: set PYANNOTE_TOKEN, HF_TOKEN or "
+            "HUGGING_FACE_ACCESS_TOKEN (required when diarization is enabled)",
         )
 
     try:

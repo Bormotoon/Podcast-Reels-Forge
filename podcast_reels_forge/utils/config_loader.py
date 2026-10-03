@@ -71,10 +71,15 @@ def load_config_with_sources(path: Path | str) -> tuple[dict[str, Any], list[Pat
     config_path = Path(path)
     sources: list[Path] = []
     conf = _load_with_extends(config_path, 0, sources)
-    local = config_path.parent / LOCAL_OVERLAY_NAME
-    if local.exists() and local.resolve() not in {s.resolve() for s in sources}:
-        conf = deep_merge(conf, _read_yaml(local))
-        sources.append(local)
+    # Next to the loaded file, else next to the root of its `extends` chain:
+    # a config kept elsewhere that extends config.yaml keeps the host tweaks.
+    loaded = {s.resolve() for s in sources}
+    for folder in (config_path.parent, sources[0].parent):
+        local = folder / LOCAL_OVERLAY_NAME
+        if local.exists() and local.resolve() not in loaded:
+            conf = deep_merge(conf, _read_yaml(local))
+            sources.append(local)
+            break
     return conf, sources
 
 
