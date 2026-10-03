@@ -1677,6 +1677,12 @@ class _PipelineRun:
             if self.subtitle_settings.karaoke:
                 video_args.append("--subtitle-karaoke")
             subs_conf = self.conf.get("subtitles")
+            if isinstance(subs_conf, dict):
+                render_conf = {k: v for k, v in subs_conf.items() if k != "whisper_sync"}
+                video_args += [
+                    "--subtitle-settings-json",
+                    json.dumps(render_conf, ensure_ascii=False, default=str),
+                ]
             if isinstance(subs_conf, dict) and subs_conf.get("keep_nosubs"):
                 video_args.append("--keep-nosubs")
             sync_conf = subs_conf.get("whisper_sync") if isinstance(subs_conf, dict) else None

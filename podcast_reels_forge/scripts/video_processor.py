@@ -28,6 +28,7 @@ from podcast_reels_forge.utils.burned_subtitles import (
     load_transcript_segments,
     retime_segments,
     slice_segments_for_clip,
+    subtitle_settings_from_conf,
     word_key,
     write_srt_file,
     _prepare_subtitle_segments,
@@ -101,6 +102,9 @@ class FfmpegOptions:
     face_device: str = "cuda"
     # Decode and scale reels on the GPU when an ffmpeg build can.
     gpu_decode: bool = True
+    # Directory libass loads subtitle fonts from (the subtitle font's folder).
+    # Without it a font is only found when it happens to be installed.
+    fonts_dir: str = ""
 
 
 def _run_subprocess(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -209,6 +213,9 @@ def ffmpeg_cut(
         # Escape path for FFmpeg filter
         safe_ass_path = str(ass_path.resolve()).replace('\\', '/').replace(':', '\\:')
         ass_filter = f"ass='{safe_ass_path}'"
+        if opts.fonts_dir:
+            safe_fonts_dir = str(Path(opts.fonts_dir).resolve()).replace('\\', '/').replace(':', '\\:')
+            ass_filter += f":fontsdir='{safe_fonts_dir}'"
         # The NVENC-preferred ffmpeg build may lack libass, which fails the 'ass'
         # filter identically under NVENC and software libx264. Resolve a build that
         # actually has libass and use it (software-only) for this pass.
@@ -567,6 +574,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Highlight subtitles word by word (\\kf); off: each cue appears whole",
     )
     ap.add_argument(
+        "--subtitle-settings-json",
+        default="",
+        help="The config's whole `subtitles:` section as JSON (preset, highlight, "
+        "layout, timing...); the --subtitle-* flags above override it",
+    )
+    ap.add_argument(
         "--subtitle-sync-model",
         default="",
         help="Re-check every clip's word timings with this Whisper model before "
@@ -701,6 +714,25 @@ def _load_moments(path: Path) -> list[dict[str, object]]:
     return []
 
 
+def _subtitle_settings_from_json(raw: str) -> SubtitleRenderSettings:
+    """Settings from the pipeline's ``subtitles:`` section (--subtitle-settings-json).
+
+    Only the font, wrapping and karaoke used to reach this process as flags,
+    so every other subtitle setting in config.yaml (lines, width, offset,
+    fades) was silently ignored on the normal cut path.
+    """
+
+    section: object = {}
+    if raw:
+        try:
+            section = json.loads(raw)
+        except ValueError:
+            LOG.warning("Ignoring malformed --subtitle-settings-json")
+    if not isinstance(section, dict):
+        section = {}
+    return subtitle_settings_from_conf({"subtitles": section}, repo_dir=Path.cwd())
+
+
 def main(argv: list[str] | None = None) -> None:
     """Main entry point for video processor."""
 
@@ -722,12 +754,14 @@ def main(argv: list[str] | None = None) -> None:
 
     subtitle_settings = None
     if args.burn_subtitles:
-        subtitle_settings = SubtitleRenderSettings(
+        subtitle_settings = replace(
+            _subtitle_settings_from_json(args.subtitle_settings_json),
             enabled=True,
             font_path=args.subtitle_font.resolve(),
             wrap_words=bool(args.subtitle_wrap_words),
-            karaoke=bool(args.subtitle_karaoke),
         )
+        if args.subtitle_karaoke:
+            subtitle_settings = replace(subtitle_settings, karaoke=True)
         if not subtitle_settings.font_path.exists():
             subtitle_settings = replace(
                 subtitle_settings,
@@ -753,6 +787,7 @@ def main(argv: list[str] | None = None) -> None:
         speaker_switch=str(args.speaker_switch),
         face_device=str(args.face_device),
         gpu_decode=bool(args.gpu_decode),
+        fonts_dir=str(subtitle_settings.font_path.parent) if subtitle_settings is not None else "",
     )
 
     if (
