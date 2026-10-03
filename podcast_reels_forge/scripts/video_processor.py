@@ -16,12 +16,18 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from podcast_reels_forge.utils import subtitle_sync
 from podcast_reels_forge.utils.burned_subtitles import (
     DEFAULT_SUBTITLE_FONT,
+    SUBTITLE_SYNC_FILE,
     SubtitleRenderSettings,
     SubtitleSegment,
+    WordKey,
+    clip_words,
     load_transcript_segments,
+    retime_segments,
     slice_segments_for_clip,
+    word_key,
     write_srt_file,
     _prepare_subtitle_segments,
     _write_ass_file,
@@ -431,6 +437,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Allow subtitles to wrap onto multiple lines at spaces (default: enabled)",
     )
     ap.add_argument(
+        "--subtitle-karaoke",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Highlight subtitles word by word (\\kf); off: each cue appears whole",
+    )
+    ap.add_argument(
+        "--subtitle-sync-model",
+        default="",
+        help="Re-check every clip's word timings with this Whisper model before "
+        "burning subtitles and fix drift (empty: off)",
+    )
+    ap.add_argument("--subtitle-sync-min-match", type=float, default=0.5,
+                    help="Trust the check only when this share of words is found")
+    ap.add_argument("--subtitle-sync-threshold", type=float, default=0.2,
+                    help="Retime when the p95 word-start drift reaches this many seconds")
+    ap.add_argument(
         "--qa",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -463,6 +485,88 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--quiet", action="store_true", help="Suppress non-error output")
     ap.add_argument("--verbose", action="store_true", help="Verbose output (incl. progress)")
     return ap.parse_args(argv)
+
+
+def check_subtitle_sync(
+    transcript_segments: list[SubtitleSegment],
+    clip_intervals: list[tuple[float, float]],
+    *,
+    transcript_json: Path,
+    fallback_audio: Path,
+    reels_dir: Path,
+    model_name: str,
+    min_match_ratio: float,
+    apply_threshold_s: float,
+    quiet: bool,
+) -> list[SubtitleSegment]:
+    """Listen to every clip again and fix the subtitle timings that drifted.
+
+    One Whisper model serves all clips. The result (per-clip verdicts and every
+    word that was retimed) goes to reels/subtitle_sync.json, which also lets a
+    later subtitle re-sync without re-cutting keep the fixed timings.
+    """
+
+    try:
+        data = json.loads(transcript_json.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    language = str(data.get("language") or "") or None
+    source = Path(str(data.get("source_audio") or data.get("audio") or ""))
+    if not source.is_file():
+        source = fallback_audio
+
+    try:
+        model = subtitle_sync.load_model(model_name)
+    except Exception as exc:  # noqa: BLE001 - the check is an extra, not a gate
+        LOG.warning("subtitle sync: could not load Whisper %s (%s); skipping the check", model_name, exc)
+        return transcript_segments
+
+    reports: list[dict[str, object]] = []
+    retimed_rows: list[dict[str, object]] = []
+    retimed: dict[WordKey, tuple[float, float]] = {}
+    for index, (clip_start, clip_end) in enumerate(clip_intervals, 1):
+        reference = clip_words(transcript_segments, clip_start=clip_start, clip_end=clip_end)
+        words, report = subtitle_sync.sync_clip(
+            model,
+            source,
+            [subtitle_sync.TimedWord(w.start, w.end, w.text) for w in reference],
+            clip_start=clip_start,
+            clip_end=clip_end,
+            language=language,
+            min_match_ratio=min_match_ratio,
+            apply_threshold_s=apply_threshold_s,
+        )
+        row = {"reel": f"reel_{index:02d}", **report.as_dict()}
+        reports.append(row)
+        _status(
+            f"[cut] subtitle sync reel_{index:02d}: {report.verdict} "
+            f"(matched {report.matched_words}/{report.reference_words}, "
+            f"p95 drift {report.p95_abs_shift_s:.2f}s, max {report.max_abs_shift_s:.2f}s)",
+            quiet=quiet,
+        )
+        if not report.applied:
+            continue
+        for original, fixed in zip(reference, words):
+            if (fixed.start, fixed.end) != (original.start, original.end):
+                retimed[word_key(original)] = (fixed.start, fixed.end)
+                retimed_rows.append({
+                    "orig_start": round(original.start, 3),
+                    "text": original.text,
+                    "start": fixed.start,
+                    "end": fixed.end,
+                })
+    del model
+
+    reels_dir.mkdir(parents=True, exist_ok=True)
+    (reels_dir / SUBTITLE_SYNC_FILE).write_text(
+        json.dumps(
+            {"model": model_name, "source_audio": str(source), "clips": reports, "retimed_words": retimed_rows},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return retime_segments(transcript_segments, retimed)
 
 
 def _load_moments(path: Path) -> list[dict[str, object]]:
@@ -498,6 +602,7 @@ def main(argv: list[str] | None = None) -> None:
             enabled=True,
             font_path=args.subtitle_font.resolve(),
             wrap_words=bool(args.subtitle_wrap_words),
+            karaoke=bool(args.subtitle_karaoke),
         )
         if not subtitle_settings.font_path.exists():
             subtitle_settings = replace(
@@ -549,6 +654,19 @@ def main(argv: list[str] | None = None) -> None:
         [moment_bounds(m) for m in moments], float(opts.padding),
     )
     cut_opts = replace(opts, padding=0.0)
+
+    if subtitle_settings is not None and args.subtitle_sync_model and transcript_segments:
+        transcript_segments = check_subtitle_sync(
+            transcript_segments,
+            clip_intervals,
+            transcript_json=args.transcript_json,
+            fallback_audio=args.input,
+            reels_dir=reels_dir,
+            model_name=str(args.subtitle_sync_model),
+            min_match_ratio=float(args.subtitle_sync_min_match),
+            apply_threshold_s=float(args.subtitle_sync_threshold),
+            quiet=bool(args.quiet),
+        )
 
     def prepare_clip_subtitles(out_file: Path, clip_start: float, clip_end: float) -> Path | None:
         """Write the clip's .srt/.ass for the exact interval ffmpeg will cut.

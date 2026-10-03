@@ -982,6 +982,12 @@ subtitles:
   fade_in_duration: ${state.subsFadeIn}
   fade_out_duration: ${state.subsFadeOut}
   keep_nosubs: false
+  karaoke: false
+  whisper_sync:
+    enabled: true
+    model: "large-v3"
+    min_match_ratio: 0.5
+    apply_threshold_s: 0.2
 video:
   threads: ${state.cutThreads}
   vertical_crop: ${state.cutVertical}

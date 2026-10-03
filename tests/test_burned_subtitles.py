@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+
+import pytest
 
 import podcast_reels_forge.utils.burned_subtitles as bs
 
-if TYPE_CHECKING:
-    import pytest
-
-    MonkeyPatch = pytest.MonkeyPatch
+MonkeyPatch = pytest.MonkeyPatch
 
 
 def test_slice_segments_for_clip_rebases_and_clips() -> None:
@@ -108,6 +106,7 @@ def test_write_ass_file_creates_valid_ass(tmp_path: Path) -> None:
     settings = bs.SubtitleRenderSettings(
         enabled=True,
         font_path=tmp_path / "font.ttf",
+        karaoke=True,
     )
 
     bs._write_ass_file(ass_path, segments, settings)
@@ -222,15 +221,18 @@ def test_load_transcript_segments_attaches_word_timings(tmp_path: Path) -> None:
 
 
 def test_build_timed_words_uses_real_timings(tmp_path: Path) -> None:
-    """"Да" is short but lasts 3s; interpolation would give it the least time."""
+    """Timings come from the transcript, not from character lengths — except
+    that a 3 s "Да" is Whisper folding the pause before it into the word: the
+    word starts where it plausibly could, so its cue does not show early."""
     segment = bs.load_transcript_segments(_transcript_with_words(tmp_path / "t.json"))[0]
 
     timed = bs._build_timed_words(segment)
-    durations = {w.text: round(w.end - w.start, 3) for w in timed}
+    by_text = {w.text: w for w in timed}
 
-    assert durations["Да"] == 3.0
-    assert durations["очень"] == 0.5
-    assert durations["Да"] > durations["длинное"]
+    assert by_text["Да"].end == 3.0
+    assert by_text["Да"].start == pytest.approx(3.0 - 0.42)
+    assert round(by_text["очень"].end - by_text["очень"].start, 3) == 0.5
+    assert by_text["слово"].end == 6.0
 
 
 def test_build_timed_words_falls_back_without_word_data() -> None:
@@ -289,7 +291,7 @@ def test_ass_karaoke_reflects_real_word_durations(tmp_path: Path) -> None:
             bs._TimedSubtitleWord(3.0, 6.0, "очень"),
         ),
     )
-    settings = bs.subtitle_settings_from_conf(None, repo_dir=tmp_path)
+    settings = bs.subtitle_settings_from_conf({"subtitles": {"karaoke": True}}, repo_dir=tmp_path)
     ass_path = tmp_path / "out.ass"
 
     bs._write_ass_file(ass_path, [segment], settings)
@@ -362,6 +364,7 @@ def test_written_ass_carries_fade_before_karaoke(tmp_path: Path) -> None:
         font_path=tmp_path / "font.ttf",
         fade_in_duration=0.2,
         fade_out_duration=0.1,
+        karaoke=True,
     )
 
     bs._write_ass_file(ass_path, segments, settings)

@@ -851,12 +851,41 @@ processing:
 
 subtitles:
   keep_nosubs: false         # also render a clean reel_XX.nosubs.mp4
+  karaoke: false             # word-by-word \kf highlight; off: each cue appears whole
+  whisper_sync:              # re-check every clip's timing before burning subtitles
+    enabled: true
+    model: "large-v3"
+    min_match_ratio: 0.5     # trust the check only if this share of words is heard
+    apply_threshold_s: 0.2   # retime when p95 drift of word ends reaches this
 
 video:
   two_speaker_layout: split  # split | single
   qa: true                   # ffprobe check of every rendered clip
   qa_blackdetect: false      # also fail mostly-black clips (one more decode)
 ```
+
+RU: `subtitles.whisper_sync`: перед вжиганием каждый клип распознаётся
+заново — ровно тот интервал, что уходит в ролик, из исходного WAV. Слова
+сверяются с транскриптом (точно и по написанию), расхождение меряется по
+концам слов. Если оно заметно (`apply_threshold_s`), субтитры получают
+тайминги второго прохода, несопоставленные слова раскладываются между
+соседними; если услышано слишком мало (`min_match_ratio`), тайминги не
+трогаются. Отчёт по каждому клипу и все подвинутые слова —
+`reels/subtitle_sync.json`; повторная сборка субтитров без перенарезки
+использует его же. Начало слова, в которое Whisper «втянул» паузу перед ним,
+ограничивается правдоподобной длительностью слова — иначе реплика появлялась
+на секунду-две раньше речи.
+
+EN: `subtitles.whisper_sync`: before burning, every clip is recognized again —
+exactly the interval that goes into the reel, from the source WAV. Words are
+matched to the transcript (exactly and by spelling) and drift is measured on
+word ends. When it is noticeable (`apply_threshold_s`) the subtitles take the
+second pass's timings, with unmatched words laid out between their neighbours;
+when too little is heard (`min_match_ratio`) nothing changes. The per-clip
+report and every moved word go to `reels/subtitle_sync.json`, which a later
+subtitle rebuild without re-cutting uses as well. A word start that Whisper
+stretched over the pause before it is capped at a plausible word length —
+otherwise its cue appeared a second or two ahead of the speech.
 
 RU: Фильтры `processing.quality_filters` (`min_score`, `min_duration`,
 `max_duration`) теперь применяются уже при отборе моментов, а не только при

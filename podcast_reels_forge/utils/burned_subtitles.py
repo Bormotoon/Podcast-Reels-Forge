@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from podcast_reels_forge.utils.clip_intervals import moment_bounds, padded_intervals
+from podcast_reels_forge.utils.subtitle_sync import plausible_start
 from podcast_reels_forge.utils.reel_markdown import reel_index_from_path
 
 LOG = logging.getLogger(__name__)
@@ -103,6 +104,9 @@ class SubtitleRenderSettings:
     word_y_space: int = DEFAULT_WORD_Y_SPACE
     fade_in_duration: float = DEFAULT_FADE_IN_S
     fade_out_duration: float = DEFAULT_FADE_OUT_S
+    # Word-by-word \kf highlighting. Off by default: the whole cue appears at
+    # once, so a word-timing error is a small lag, not a visibly wrong word.
+    karaoke: bool = False
 
 
 def subtitle_settings_from_conf(
@@ -184,6 +188,7 @@ def subtitle_settings_from_conf(
             minimum=0.0,
             maximum=1.0,
         ),
+        karaoke=_coerce_bool(subtitles_conf.get("karaoke"), default=False),
     )
 
 
@@ -249,7 +254,10 @@ def sync_reel_burned_subtitles(
     if not reel_files:
         return written
 
-    transcript_segments = load_transcript_segments(transcript_json_path)
+    transcript_segments = retime_segments(
+        load_transcript_segments(transcript_json_path),
+        load_saved_retiming(reels_root),
+    )
     # The same per-clip padding the cut used, so re-synced subtitles line up
     # with the footage of reels that sit close together.
     intervals = padded_intervals([moment_bounds(m) for m in moments], float(padding))
@@ -421,11 +429,24 @@ def _write_ass_file(path: Path, segments: Sequence[SubtitleSegment], settings: S
 
     dialogue_lines: list[str] = []
     for seg in segments:
+        if not settings.karaoke:
+            text = " ".join(seg.text.split())
+            dialogue_lines.append(
+                f"Dialogue: 0,{_fmt_ass_time(seg.start)},{_fmt_ass_time(seg.end)},Default,,0,0,"
+                f"{margin_v},,{_fade_tag(seg, settings)}{text}"
+            )
+            continue
         words = _build_timed_words(seg)
         parts: list[str] = []
+        # \\kf durations run back to back from the cue's start, so a cue that
+        # appears before its first word (merged blocks, min-duration padding)
+        # needs that lead-in as an empty syllable, or every highlight is early.
+        lead_cs = int(round((words[0].start - seg.start) * 100)) if words else 0
+        lead = f"{{\\k{lead_cs}}}" if lead_cs > 0 else ""
         for w in words:
-            dur_cs = int((w.end - w.start) * 100)
-            parts.append(f"{{\\kf{dur_cs}}}{w.text}")
+            dur_cs = int(round((w.end - w.start) * 100))
+            parts.append(f"{lead}{{\\kf{dur_cs}}}{w.text}")
+            lead = ""
 
         dialogue_text = _fade_tag(seg, settings) + " ".join(parts)
         dialogue_lines.append(
@@ -514,6 +535,9 @@ def load_transcript_words(data: Mapping[str, Any]) -> list[_TimedSubtitleWord]:
             end = _coerce_float(raw_word.get("end"), default=-1.0)
             if not text or start < 0 or end <= start:
                 continue
+            # A word right after a pause often starts at the pause in Whisper's
+            # timing, which would show its cue a second or two early.
+            start = plausible_start(start, end, text)
             words.append(_TimedSubtitleWord(start=start, end=end, text=text))
 
     words.sort(key=lambda word: (word.start, word.end))
@@ -609,26 +633,118 @@ def slice_segments_for_clip(
         shifted_end = max(0.0, overlap_end - clip_start)
         if shifted_end - shifted_start < 0.05:
             continue
+        if not seg.words:
+            out.append(
+                SubtitleSegment(
+                    start=round(shifted_start, 3),
+                    end=round(shifted_end, 3),
+                    text=seg.text,
+                ),
+            )
+            continue
         # Word timings are absolute in the episode; move them onto the clip's
-        # own timeline and drop any that fall outside it.
-        shifted_words = tuple(
+        # own timeline. A word belongs to the clip when its midpoint does, so
+        # one clipped at the boundary is shown once, not in both reels.
+        clip_len = float(clip_end) - float(clip_start)
+        kept = [
             _TimedSubtitleWord(
                 start=round(max(0.0, word.start - clip_start), 3),
-                end=round(max(0.0, word.end - clip_start), 3),
+                end=round(min(clip_len, word.end - clip_start), 3),
                 text=word.text,
             )
             for word in seg.words
-            if word.end > overlap_start and word.start < overlap_end
-        )
+            if clip_start <= (word.start + word.end) / 2.0 <= clip_end
+        ]
+        kept = [word for word in kept if word.end > word.start]
+        if not kept:
+            continue
+        # The text is rebuilt from the words that are actually in the clip.
+        # A sentence cut by the clip boundary used to keep its full text with
+        # only part of its word timings; the mismatch sent the karaoke to
+        # interpolation, which spread the whole sentence over the part of it
+        # that fits — seconds of drift by the end of the cue.
         out.append(
             SubtitleSegment(
-                start=round(shifted_start, 3),
-                end=round(shifted_end, 3),
-                text=seg.text,
-                words=tuple(word for word in shifted_words if word.end > word.start),
+                start=kept[0].start,
+                end=kept[-1].end,
+                text=" ".join(word.text for word in kept),
+                words=tuple(kept),
             ),
         )
     return out
+
+
+WordKey = tuple[float, str]
+
+
+def word_key(word: _TimedSubtitleWord) -> WordKey:
+    return (round(float(word.start), 3), word.text)
+
+
+def clip_words(
+    segments: Sequence[SubtitleSegment],
+    *,
+    clip_start: float,
+    clip_end: float,
+) -> list[_TimedSubtitleWord]:
+    """Transcript words (episode timeline) that belong to a clip's interval."""
+
+    return [
+        word
+        for seg in segments
+        for word in seg.words
+        if clip_start <= (word.start + word.end) / 2.0 <= clip_end
+    ]
+
+
+def retime_segments(
+    segments: Sequence[SubtitleSegment],
+    retimed: Mapping[WordKey, tuple[float, float]],
+) -> list[SubtitleSegment]:
+    """Segments with some word timings replaced (see utils/subtitle_sync.py)."""
+
+    if not retimed:
+        return list(segments)
+    out: list[SubtitleSegment] = []
+    for seg in segments:
+        if not seg.words or not any(word_key(w) in retimed for w in seg.words):
+            out.append(seg)
+            continue
+        words = tuple(
+            _TimedSubtitleWord(*retimed[word_key(w)], w.text) if word_key(w) in retimed else w
+            for w in seg.words
+        )
+        out.append(
+            SubtitleSegment(
+                start=min(seg.start, words[0].start),
+                end=max(seg.end, words[-1].end),
+                text=seg.text,
+                words=words,
+            ),
+        )
+    return out
+
+
+SUBTITLE_SYNC_FILE = "subtitle_sync.json"
+
+
+def load_saved_retiming(reels_dir: Path) -> dict[WordKey, tuple[float, float]]:
+    """Word timings a cut's Whisper check replaced, so a later subtitle
+    re-sync (without re-cutting) keeps them."""
+
+    path = reels_dir / SUBTITLE_SYNC_FILE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    retimed: dict[WordKey, tuple[float, float]] = {}
+    for row in data.get("retimed_words", []) if isinstance(data, dict) else []:
+        try:
+            key = (round(float(row["orig_start"]), 3), str(row["text"]))
+            retimed[key] = (float(row["start"]), float(row["end"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return retimed
 
 
 def write_srt_file(path: Path, segments: Sequence[SubtitleSegment]) -> Path:
@@ -784,8 +900,18 @@ def _merge_consecutive_segments(
     return merged
 
 
+_MIN_TRIMMED_DURATION_S = 0.3
+
+
 def _remove_overlaps(segments: list[SubtitleSegment]) -> list[SubtitleSegment]:
-    """Remove overlapping blocks by pushing later blocks forward."""
+    """Resolve overlapping blocks without moving speech later.
+
+    The earlier block is cut short: its overlap is usually min-duration
+    padding, not speech. Only when that would leave it too short to read does
+    the later block start a little late — and then only its start moves, never
+    its end. Pushing whole blocks forward used to accumulate across a run of
+    short cues into seconds of lag.
+    """
     if not segments:
         return []
 
@@ -796,14 +922,22 @@ def _remove_overlaps(segments: list[SubtitleSegment]) -> list[SubtitleSegment]:
             continue
         prev = result[-1]
         if seg.start < prev.end:
-            new_start = prev.end + 0.05
-            duration = seg.end - seg.start
-            seg = SubtitleSegment(
-                start=round(new_start, 3),
-                end=round(new_start + duration, 3),
-                text=seg.text,
-                words=seg.words,
-            )
+            trimmed_end = seg.start - 0.05
+            if trimmed_end - prev.start >= _MIN_TRIMMED_DURATION_S:
+                result[-1] = SubtitleSegment(
+                    start=prev.start,
+                    end=round(trimmed_end, 3),
+                    text=prev.text,
+                    words=prev.words,
+                )
+            else:
+                new_start = prev.end + 0.05
+                seg = SubtitleSegment(
+                    start=round(new_start, 3),
+                    end=round(max(seg.end, new_start + _MIN_TRIMMED_DURATION_S), 3),
+                    text=seg.text,
+                    words=seg.words,
+                )
         result.append(seg)
     return result
 

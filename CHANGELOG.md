@@ -7,6 +7,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Subtitle timing is re-checked per clip** (`subtitles.whisper_sync`,
+  default on): the clip's own audio is recognized again with word timestamps,
+  matched to the transcript and, when it drifted, the subtitles take the new
+  timings. Report in `reels/subtitle_sync.json`.
+- `subtitles.karaoke` (default `false`): cues appear whole instead of being
+  highlighted word by word.
 - **Two speakers are stacked, not cropped between.** When two people are
   steadily in frame, `video.two_speaker_layout: split` (default) puts one
   above the other; before, the crop landed on the empty middle between them.
@@ -245,6 +251,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `select_*` prompt templates.
 
 ### Fixed
+- **Burned subtitles drifted by seconds.** A sentence cut by the clip boundary
+  kept its full text but only the word timings inside the clip; the mismatch
+  sent it to character-proportional interpolation, which squeezed the whole
+  sentence into the part that fits. The text is now rebuilt from the words
+  actually in the clip. Also: overlapping cues trim the earlier one instead of
+  pushing later cues (and their speech) back, a word start Whisper stretched
+  over the preceding pause is capped at a plausible word length, and karaoke
+  highlighting waits for the first word.
 - **Reel padding no longer spills into the neighbouring reel.** With
   `reel_padding: 5` two moments less than 10 s apart shared footage and
   subtitles. Padding towards a neighbour is now capped at half the gap and

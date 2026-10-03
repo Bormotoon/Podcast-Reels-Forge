@@ -1659,9 +1659,20 @@ class _PipelineRun:
             video_args += ["--subtitle-font", str(self.subtitle_settings.font_path)]
             if not self.subtitle_settings.wrap_words:
                 video_args.append("--no-subtitle-wrap-words")
+            if self.subtitle_settings.karaoke:
+                video_args.append("--subtitle-karaoke")
             subs_conf = self.conf.get("subtitles")
             if isinstance(subs_conf, dict) and subs_conf.get("keep_nosubs"):
                 video_args.append("--keep-nosubs")
+            sync_conf = subs_conf.get("whisper_sync") if isinstance(subs_conf, dict) else None
+            if not isinstance(sync_conf, dict):
+                sync_conf = {}
+            if sync_conf.get("enabled", True):
+                video_args += [
+                    "--subtitle-sync-model", str(sync_conf.get("model") or "large-v3"),
+                    "--subtitle-sync-min-match", str(sync_conf.get("min_match_ratio", 0.5)),
+                    "--subtitle-sync-threshold", str(sync_conf.get("apply_threshold_s", 0.2)),
+                ]
         if self.quiet:
             video_args.append("--quiet")
         if self.verbose:
