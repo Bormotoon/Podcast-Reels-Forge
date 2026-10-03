@@ -559,13 +559,44 @@ subtitles:
   # (рекомендация BBC для 9:16) отмерены при 0.65, поэтому 0.74 → ~28.
   # 0.74 = 1080 - 2*140px полей, которые обходят правую панель кнопок.
   max_width_ratio: 0.74
-  vertical_align: "bottom"
+  # style — ряд из .ass-стиля (редактор/пресет); top / center / bottom — поверх него.
+  vertical_align: "style"
   # Сдвиг субтитров в долях высоты кадра поверх MarginV из .ass-стиля.
   # 0.0 = положение целиком задаёт редактор стиля.
   vertical_offset: 0.0
   # Плавное появление/исчезновение реплики (тег \fad). 0 — выключить.
   fade_in_duration: 0.12
   fade_out_duration: 0.08
+  # Готовый стиль целиком: forge, hormozi, mrbeast, karaoke, tiktok, box, sticker,
+  # word_box, neon, vibrant, minimal, classic, one_word, retro, bold_pop, headline.
+  # Пусто — стиль из файла редактора (ass_style). Явные ключи ниже важнее пресета.
+  preset: ""
+  # Подсветка слова: none | karaoke | word | fill | reveal | pop.
+  highlight: "none"
+  # Цвет активного слова (#RRGGBB) поверх стиля Highlight; пусто — из стиля.
+  highlight_color: ""
+  # Регистр: none | upper | lower | title. Пунктуация: keep | periods | all.
+  text_case: "none"
+  strip_punctuation: "keep"
+  # Переносы: balanced | bottom_heavy (пирамида) | top_heavy | greedy (как libass).
+  line_balance: "balanced"
+  # 0 — длина строки считается по шрифту и ширине; иначе — символов в строке.
+  max_chars_per_line: 0
+  # 0 — без лимита; 1 — по одному слову, 2–4 — короткие «хормози»-реплики.
+  max_words_per_cue: 0
+  # Размытие краёв (\blur): с контуром даёт свечение.
+  blur: 0
+  # Пауза (сек), которая всегда завершает реплику, и тайминги показа.
+  pause_split_s: 0.5
+  min_duration_s: 1.5
+  max_duration_s: 7.0
+  min_gap_s: 0.15
+  # Смена спикера начинает новую реплику; цвета спикеров — по порядку появления.
+  split_on_speaker: true
+  speaker_colors: []
+  # Цензура: слова через запятую, «бля*» закрывает все формы. Стиль: middle | first | whole.
+  censor_words: []
+  censor_style: "middle"
   # Легаси: не влияют на рендер, положение и интервалы задаёт .ass-стиль
   # (MarginV / Spacing в редакторе). Оставлены только для старых конфигов.
   # word_x_space: 6

@@ -404,10 +404,13 @@ Flags for the standalone transcriber `transcribe_input_audio.py`:
   - `font`: Path to the subtitle font file. Default: `assets/fonts/bignoodletoooblique.ttf`.
   - `ass_style`: Path to the `.ass` style file. Default: `assets/subtitles/forge_subtitles.ass`. If the file is missing, a built-in fallback style is used.
   - `wrap_words`: Toggle word wrapping for captions. When disabled, the caption stays on one line.
-  - `max_width_ratio`: Share of the frame the text may span — this drives line length. Defaults to `0.74` (the frame minus the 140px insets that clear the right-hand action rail), i.e. ~28 characters per line.
-  - `vertical_offset`: Shifts a cue by a fraction of the frame height on top of the `MarginV` baked into the `.ass` style. `0.0` leaves placement entirely to the style editor.
+  - `max_width_ratio`: Share of the frame the text may span. Defaults to `0.74` (the frame minus the 140px insets that clear the right-hand action rail). Forge breaks lines itself: text is measured with the real font in frame pixels, lines are balanced and never end on a preposition (`line_balance`: even, pyramid, greedy).
+  - `preset`: A complete ready-made look — `forge`, `hormozi`, `mrbeast`, `karaoke`, `tiktok`, `box`, `sticker`, `word_box`, `neon`, `vibrant`, `minimal`, `classic`, `one_word`, `retro`, `bold_pop`, `headline` (Cyrillic fonts ship in `assets/fonts`). Empty — the editor's style file.
+  - `highlight`: Word highlight — `none`, `karaoke`, `word` (active word), `fill` (spoken words), `reveal` (typewriter), `pop`.
+  - `text_case`, `strip_punctuation`, `censor_words`, `max_words_per_cue`, `speaker_colors` and cue timing — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md#subtitles--субтитры).
+  - `vertical_align`: `style` (the style's row), `top`, `center`, `bottom`. `vertical_offset`: shift by a share of the frame height away from the anchored edge.
   - `fade_in_duration` / `fade_out_duration`: Fade a cue in and out (the ASS `\fad` tag). `0` disables it. If the two together outlast the cue, both are scaled down proportionally.
-  - `font_size_px`: Only applies when no `.ass` file is present; otherwise the size comes from the style.
+  - `font_size_px`: Base size for the built-in looks (tuned at 96, they scale with it); with an editor file the size comes from the file.
   - The default style is the viral karaoke caption look: a heavy condensed face, a thick black outline instead of a drop shadow, and a `\kf` sweep from white (not yet spoken) to amber `#FFD60A` (already spoken), anchored bottom-centre above the platform chrome.
   - The easiest way to tune the style is the visual [GUI](#graphical-interface-gui) (Subtitles tab). The "Save ASS File" button writes the style straight into `assets/subtitles/forge_subtitles.ass`, which the pipeline reads.
   - `word_x_space` / `word_y_space` are legacy no-ops: spacing comes from the `.ass` style (`Spacing` in the editor).
@@ -451,8 +454,9 @@ config.yaml" and drop the file into the project root. The embedded subtitle edit
 (Subtitles tab) saves the style to `assets/subtitles/forge_subtitles.ass` — exactly
 what the render stage reads. Form state is kept in the browser's `localStorage`.
 
-> A standalone style editor is still available at
-> [`assets/subtitles/style-editor.html`](assets/subtitles/style-editor.html).
+> The Subtitles tab has 16 one-click ready-made styles, a separate active-word style and a
+> preview that splits cues and breaks lines with the same algorithm as the burn. The old
+> `assets/subtitles/style-editor.html` address redirects here.
 
 ---
 

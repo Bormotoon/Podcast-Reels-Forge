@@ -782,39 +782,141 @@ subtitles:
   enabled: true
   font: "assets/fonts/bignoodletoooblique.ttf"
   ass_style: "assets/subtitles/forge_subtitles.ass"
-  font_size_px: 96        # fallback only — used when no .ass style file exists
+  font_size_px: 96          # base size: the built-in looks are tuned at 96 and scale with it
   wrap_words: true
   max_lines: 2
-  max_width_ratio: 0.65   # share of the frame width; drives chars per line
-  vertical_offset: 0.0    # shift in frame heights, applied on top of the style MarginV
-  fade_in_duration: 0.18  # \fad in seconds; 0 disables the fade
-  fade_out_duration: 0.12
+  max_width_ratio: 0.74     # share of the frame width the text may span
+  vertical_align: "style"   # style | top | center | bottom
+  vertical_offset: 0.0      # shift in frame heights, away from the anchored edge
+  fade_in_duration: 0.12    # \fad in seconds; 0 disables the fade
+  fade_out_duration: 0.08
+  preset: ""                # a ready-made look, see below; empty = the editor's .ass file
+  highlight: "none"         # none | karaoke | word | fill | reveal | pop
+  highlight_color: ""       # #RRGGBB for the active word; empty = from the style
+  text_case: "none"         # none | upper | lower | title
+  strip_punctuation: "keep" # keep | periods | all
+  line_balance: "balanced"  # balanced | bottom_heavy | top_heavy | greedy
+  max_chars_per_line: 0     # 0 = measured from the font and the width
+  max_words_per_cue: 0      # 0 = no limit; 1 = one word at a time
+  blur: 0                   # \blur edge softening; with an outline it reads as a glow
+  pause_split_s: 0.5        # a pause this long always ends a cue
+  min_duration_s: 1.5
+  max_duration_s: 7.0
+  min_gap_s: 0.15
+  split_on_speaker: true    # a change of speaker starts a new cue
+  speaker_colors: []        # e.g. ["#FFFFFF", "#FFD60A"], by order of appearance in a reel
+  censor_words: []          # e.g. ["бля*", "хрен"]; a trailing * matches every form
+  censor_style: "middle"    # middle (Б***ь) | first (Б****) | whole (*****)
 ```
 
-What each knob actually does:
+### Where the look comes from / Откуда берётся стиль
 
-- `max_width_ratio` sets the line length. The BBC guideline of 25 chars/line for
-  9:16 assumes text spanning 0.65 of the frame, so the value scales from there:
-  0.65 keeps 25 chars, 0.9 gives ~35.
-- `vertical_offset` nudges the cue away from the edge it is anchored to, as a
-  fraction of frame height, on top of the `MarginV` baked into the `.ass` style.
-  `0.0` leaves the position entirely to the style editor.
-- `fade_in_duration` / `fade_out_duration` emit an ASS `\fad` tag. If the two
-  together exceed a cue's length they are scaled down proportionally so the cue
-  still reaches full opacity.
-- `font_size_px` only applies when no `.ass` style file is found; otherwise the
-  size comes from the style editor.
+1. `preset`, when set: one of the built-in looks below.
+2. Otherwise the style editor's file (`ass_style`, by default
+   `assets/subtitles/forge_subtitles.ass`). Edit it in the GUI, Subtitles tab.
+3. Otherwise the `forge` look.
 
-`word_x_space` / `word_y_space` are legacy no-ops: word and letter spacing come
-from the `.ass` style (`Spacing` in the editor). They are still parsed so old
-configs keep loading, but they no longer appear in the GUI or in exported config.
+A file can define two styles: `Default` for the text and an optional
+`Highlight` for the active word (the editor's "Active word" section writes it).
+
+### Ready-made looks / Готовые стили (`preset`)
+
+| Preset | Look | Highlight |
+|---|---|---|
+| `forge` | Amber BigNoodle, heavy black outline (the default) | none |
+| `hormozi` | White Montserrat Black caps, yellow active word, 2–4 words on screen | word |
+| `mrbeast` | Yellow Russo One, orange word pops, extra-thick outline | pop |
+| `karaoke` | Words fill with blue as they are spoken | karaoke |
+| `tiktok` | White text, thin outline, cyan active word | word |
+| `box` | White Oswald on one padded translucent box per cue | none |
+| `sticker` | Black text on a white rounded sticker | none |
+| `word_box` | The active word sits on an orange box | word |
+| `neon` | Yellow with an orange glow; the active word glows white-red | word |
+| `vibrant` | Upcoming words faded, spoken ones solid with a magenta shadow | fill |
+| `minimal` | Calm Oswald, thin outline, soft shadow, slow fades | none |
+| `classic` | Broadcast style, bottom-heavy lines | none |
+| `one_word` | One big word at a time in the middle of the frame | none |
+| `retro` | Pixel font on a navy box, words type in | reveal |
+| `bold_pop` | Wide Unbounded caps, the green word pops | pop |
+| `headline` | Yellow Rubik Mono One; spoken words turn white | fill |
+
+A preset also brings its render settings (highlight mode, case, words per
+cue...). Those are defaults: any key set explicitly under `subtitles:` wins.
+Its font applies when `font` is not set. The fonts ship in `assets/fonts`
+(SIL OFL, all with Cyrillic; see `assets/fonts/licenses/`). The looks are
+modelled on pycaps templates, ai-video-captions styles, VideoCaptioner's
+padded box and the TikTok/Reels native captions. They are defined once in
+`podcast_reels_forge/utils/subtitle_presets.py`; the GUI copy
+`gui/assets/subtitle-presets.js` is generated from it with
+`python3 -m podcast_reels_forge.utils.subtitle_presets`.
+
+### Highlight modes / Подсветка слова (`highlight`)
+
+- `none`: the cue appears whole.
+- `karaoke`: a `\kf` sweep from SecondaryColour (not yet spoken) to
+  PrimaryColour (spoken). `karaoke: true` is the legacy switch for this.
+- `word`: only the active word is highlighted.
+- `fill`: the active word and every word before it.
+- `reveal`: words appear as they are spoken (typewriter).
+- `pop`: like `word`, and the active word briefly scales up.
+
+With a `Highlight` style the active word takes it (colour, outline, a box
+under the word, scale) and the other words keep `Default`. Without one the
+active word gets PrimaryColour and the rest SecondaryColour, the same reading
+as karaoke. Per-word modes write one ASS event per word with identical layout,
+so the text never jumps. They show word-timing errors more than `none` does.
+
+### Line breaks / Переносы
+
+Forge chooses the line breaks itself instead of leaving them to libass:
+
+- Text is measured in frame pixels with the real font, sized the way libass
+  sizes it (by the OS/2 win metrics), including ScaleX, spacing and outline.
+- A cue uses the fewest lines that fit: one line when it fits, never more than
+  `max_lines`.
+- Among those splits it picks the most even one (`balanced`), a pyramid with
+  the longer line at the bottom (`bottom_heavy`, the BBC/Netflix
+  preference), the reverse (`top_heavy`), or libass-style greedy filling
+  (`greedy`). Breaks after a sentence end or a comma are preferred, and a
+  line never ends on a preposition or conjunction («в», «и», «что»...).
+- Characters per line come from the font's average glyph width and the usable
+  width (or `max_chars_per_line`), and every cue is checked to really fit
+  `max_lines` lines; one that does not is split at a natural point.
+
+Usable width is the frame minus the style's `MarginL`/`MarginR`, capped by
+`max_width_ratio`. A ratio wider than the margins widens centred text for
+real, through per-cue margins.
+
+### Cues and timing / Реплики и тайминг
+
+A cue ends at a pause of `pause_split_s`, at a change of speaker
+(`split_on_speaker`), when it reaches `max_duration_s` or the length limit,
+and after `max_words_per_cue` words. Cues shorter than `min_duration_s` are
+held on screen longer when the next one leaves room, with at least `min_gap_s`
+between them.
+
+### Position / Положение
+
+`vertical_align: style` keeps the row from the `.ass` style. `top`, `center`
+and `bottom` override the row and keep the style's left/centre/right column;
+moving a centred style to an edge starts from that edge's safe zone (MarginV
+470 at the bottom, 250 at the top). `vertical_offset` pushes the text away from
+the anchored edge by a share of the frame height (`center`: up).
+
+### Text / Текст
+
+`text_case`, `strip_punctuation` (`periods` drops trailing `. , ; :` but keeps
+`? ! …`, as pycaps does) and `censor_words` change only the burned text; the
+`.srt` next to each reel keeps the transcript wording.
+
+`word_x_space` / `word_y_space` are legacy no-ops: spacing comes from the
+`.ass` style (`Spacing` in the editor). They are still parsed so old configs
+keep loading.
 
 Subtitles are rendered as **ASS** (Advanced SubStation Alpha) and burned in with
-ffmpeg's `ass` filter. The visual style lives in the `.ass` file referenced by
-`ass_style`; edit it through the GUI (Subtitles tab) or the standalone
-`assets/subtitles/style-editor.html`.
-
-The subtitle pipeline prefers `sentences` from the transcript JSON when available, then falls back to segment slicing.
+ffmpeg's `ass` filter, which loads fonts from the subtitle font's folder
+(`fontsdir`). The subtitle pipeline prefers `sentences` from the transcript JSON
+when available, then falls back to segment slicing.
 
 ## Diarization / Диаризация
 

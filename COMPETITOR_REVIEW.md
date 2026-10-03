@@ -184,3 +184,22 @@
 3. Сравнение финалистов (2.2) и фильтр с рубрикой в промпте (2.4).
 4. Кандидаты по сигналам (2.3) и «самые пересматриваемые» (1.4).
 5. Динамическое кадрирование (2.5) и аудиограмма (2.6).
+
+## 6. Оформление и раскладка субтитров (2026-10-03)
+
+Отдельно изучен код субтитров у проектов, где они главная функция. Сделано по итогам — см. раздел Subtitles в [docs/CONFIGURATION.md](docs/CONFIGURATION.md#subtitles--субтитры).
+
+| Проект | Что там | Что взяли |
+|---|---|---|
+| [francozanardi/pycaps](https://github.com/francozanardi/pycaps) | 11 шаблонов: CSS-вид + раскладка (ширина, строки, положение) + разбивка + анимации | идея пресета «вид + параметры рендера»; looks `word_box`, `neon`, `vibrant`, `minimal`, `retro`, `one_word`; удаление точек с сохранением `?!…` |
+| [nicolaigaina/ai-video-captions](https://github.com/nicolaigaina/ai-video-captions) | 6 стилей (Hormozi, MrBeast, Karaoke, Bounce…), событие ASS на каждое слово | режимы `word`/`pop` через событие на слово; looks `hormozi`, `mrbeast`, `karaoke`; `ScaledBorderAndShadow` |
+| [tmoroney/auto-subs](https://github.com/tmoroney/auto-subs) | реплики режутся по спикеру, паузе ≥0.5 с, концу предложения, длительности; строки балансируются к целевой ширине с приоритетом пунктуации; регистр, удаление пунктуации, цензура | разрыв по смене спикера, балансировка строк, `text_case`, `censor_words` |
+| [jianfch/stable-ts](https://github.com/jianfch/stable-ts) | регруппировка: предложения → пауза 0.5 с → запятая, если обе части длинные → длина | пауза как граница реплики (`pause_split_s`) |
+| [yochem/cap](https://github.com/yochem/cap) | веса точек разрыва по правилам BBC (не рвать местоимение+глагол, предлог+фраза) | штрафы за перенос после предлога/союза |
+| [harry0703/MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) | позиции bottom/top/center/«2/3»/custom %, перенос по ширине, измеренной шрифтом (PIL), пружинная анимация | `vertical_align`, пресеты размещения, измерение шрифтом |
+| [WEIFENG2333/VideoCaptioner](https://github.com/WEIFENG2333/VideoCaptioner) | ASS-пресеты и режим «скруглённая плашка» с отступами | плашка на реплику (`box`, BorderStyle 4) |
+| [remotion-dev/template-tiktok](https://github.com/remotion-dev/template-tiktok) | страницы по 1.2 с, подсветка активного слова | ничего нового сверх перечисленного |
+
+Проверено на libass 0.17 (ffmpeg 8.1): `\rHighlight` на одном слове даёт плашку под словом; `\alpha&HFF&` прячет слова без сдвига раскладки, но обнуляет и плашку BorderStyle 4; BorderStyle 3 рисует плашку цветом OutlineColour; размер шрифта libass считает по OS/2 winAscent+winDescent (у Montserrat это 1.56 em против 1.22 в hhea, которые видит браузер).
+
+Не взяли: эмодзи в субтитрах (libass рисует их плохо), выделение ключевых слов через LLM (pycaps `tagger_rules`) и звуковые эффекты на словах — можно позже.

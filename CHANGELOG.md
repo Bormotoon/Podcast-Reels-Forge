@@ -7,6 +7,29 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Ready-made subtitle styles** (`subtitles.preset`, and one click in the
+  GUI): `forge`, `hormozi`, `mrbeast`, `karaoke`, `tiktok`, `box`, `sticker`,
+  `word_box`, `neon`, `vibrant`, `minimal`, `classic`, `one_word`, `retro`,
+  `bold_pop`, `headline`, modelled on pycaps templates, ai-video-captions,
+  VideoCaptioner and the native TikTok/Reels looks. Six OFL fonts with
+  Cyrillic ship for them in `assets/fonts`.
+- **Word highlight modes** (`subtitles.highlight`): `karaoke`, `word`,
+  `fill`, `reveal` (typewriter) and `pop`, styled by an optional
+  `Highlight` ASS style (colour, box under the word, scale) that the GUI's
+  new "Active word" section writes.
+- **Forge breaks subtitle lines itself.** Text is measured in frame pixels
+  with the real font, sized as libass sizes it; a cue uses the fewest lines
+  that fit, balanced (`line_balance`: `balanced`, `bottom_heavy`,
+  `top_heavy`, `greedy`) at natural points and never ending on a
+  preposition. Characters per line come from the font instead of a fixed 25,
+  and every cue is checked to really fit `max_lines`.
+- **More subtitle settings:** `text_case`, `strip_punctuation`,
+  `censor_words` / `censor_style`, `max_chars_per_line`,
+  `max_words_per_cue` (down to one word on screen), `blur` (glow),
+  `pause_split_s`, `min_duration_s`, `max_duration_s`, `min_gap_s`,
+  `split_on_speaker` (a new speaker starts a new cue), `speaker_colors`,
+  `highlight_color`; `vertical_align` now works (`style` | `top` |
+  `center` | `bottom`).
 - **The vertical frame follows whoever is talking** for the whole clip
   (`utils/face_track.py`). Faces are tracked 5 times a second within each
   shot (shot cuts are detected on the same decode); with several people in
@@ -274,6 +297,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `select_*` prompt templates.
 
 ### Fixed
+- The normal cut path ignored most of `subtitles:`: `video_processor` only
+  got the font, wrapping and karaoke as flags, so `max_lines`,
+  `max_width_ratio`, `vertical_offset` and the fades in config.yaml did
+  nothing. The whole section is now passed through.
+- `subtitles.ass_style` was parsed but never read; the burner always looked
+  in the default location.
+- The `ass` filter now gets `fontsdir`, so the subtitle font no longer has to
+  be installed system-wide, and an editor-written font name (the file stem)
+  is mapped to the font's real family.
+- The GUI's "Box" outline presets used BackColour, but libass paints a
+  BorderStyle 3 box with OutlineColour, so they burned no box at all.
+- The GUI preview sized text by the browser's hhea metrics while libass uses
+  the OS/2 win metrics (Montserrat came out 28% too big).
 - **Burned subtitles drifted by seconds.** A sentence cut by the clip boundary
   kept its full text but only the word timings inside the clip; the mismatch
   sent it to character-proportional interpolation, which squeezed the whole
