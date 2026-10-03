@@ -980,6 +980,12 @@ processing:
   reel_min_duration: ${state.procReelMinDur}
   reel_max_duration: ${state.procReelMaxDur}
   reel_padding: ${state.cutPadding}
+  clip_edges:
+    lead_in_s: 0.6
+    tail_s: 0.3
+    guard_s: 0.1
+    max_extend_s: 4.0
+    max_trim_s: 1.5
 exports:
   webm: ${state.cutWebm}
   gif: ${state.cutGif}

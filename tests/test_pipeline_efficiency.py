@@ -113,7 +113,7 @@ def env(monkeypatch: pytest.MonkeyPatch) -> _Env:
         reels = Path(args[args.index("--outdir") + 1]) / "reels"
         reels.mkdir(parents=True, exist_ok=True)
         (reels / "reel_01.mp4").write_text("v")
-        if "--transcript-json" in args:
+        if "--burn-subtitles" in args:
             record.events.append("subs:" + Path(args[args.index("--transcript-json") + 1]).name)
 
     monkeypatch.setattr(pipeline, "run_module", run_module)

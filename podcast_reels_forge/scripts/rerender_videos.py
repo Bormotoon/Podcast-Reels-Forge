@@ -28,7 +28,12 @@ from podcast_reels_forge.utils.burned_subtitles import (
     ensure_reel_burned_subtitles,
     subtitle_settings_from_conf,
 )
-from podcast_reels_forge.utils.clip_intervals import moment_bounds, padded_intervals
+from podcast_reels_forge.utils.clip_intervals import (
+    ClipEdges,
+    load_speech_index,
+    moment_bounds,
+    padded_intervals,
+)
 from podcast_reels_forge.utils.face_crop import (
     FaceCropSettings,
     build_sample_times,
@@ -303,7 +308,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=Path("config.yaml"),
         help="Path to config.yaml for subtitle defaults (default: config.yaml)",
     )
-    ap.add_argument("--padding", type=float, default=5.0, help="Padding seconds before/after")
+    ap.add_argument(
+        "--padding", type=float, default=5.0,
+        help="Padding seconds before/after a moment the transcript has no word timings for",
+    )
+    ClipEdges.add_arguments(ap)
 
     ap.add_argument("--width", type=int, default=1080)
     ap.add_argument("--height", type=int, default=1920)
@@ -437,8 +446,14 @@ def main(argv: list[str] | None = None) -> None:
         )
 
         LOG.info("%s: re-render %d reels -> %s", model_dir.name, len(moments), reels_dir)
-        # Same per-clip padding as the main cut: never into a neighbouring reel.
-        intervals = padded_intervals([moment_bounds(m) for m in moments], settings.padding_s)
+        # Same per-clip interval as the main cut: fitted to the speech, never
+        # into a neighbouring reel.
+        intervals = padded_intervals(
+            [moment_bounds(m) for m in moments],
+            settings.padding_s,
+            index=load_speech_index(transcript_json_path),
+            edges=ClipEdges.from_args(args),
+        )
         cut_settings = replace(settings, padding_s=0.0)
 
         def work(item: tuple[int, dict[str, Any]]) -> tuple[bool, Path, str]:

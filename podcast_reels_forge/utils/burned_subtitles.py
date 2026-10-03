@@ -10,7 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from podcast_reels_forge.utils.clip_intervals import moment_bounds, padded_intervals
+from podcast_reels_forge.utils.clip_intervals import (
+    ClipEdges,
+    load_speech_index,
+    moment_bounds,
+    padded_intervals,
+)
 from podcast_reels_forge.utils.subtitle_sync import plausible_start
 from podcast_reels_forge.utils.reel_markdown import reel_index_from_path
 
@@ -241,6 +246,7 @@ def sync_reel_burned_subtitles(
     padding: float,
     settings: SubtitleRenderSettings,
     verbose: bool = False,
+    edges: ClipEdges | None = None,
 ) -> list[Path]:
     written: list[Path] = []
     if not settings.enabled or not reels_root.exists():
@@ -258,9 +264,14 @@ def sync_reel_burned_subtitles(
         load_transcript_segments(transcript_json_path),
         load_saved_retiming(reels_root),
     )
-    # The same per-clip padding the cut used, so re-synced subtitles line up
+    # The same per-clip interval the cut used, so re-synced subtitles line up
     # with the footage of reels that sit close together.
-    intervals = padded_intervals([moment_bounds(m) for m in moments], float(padding))
+    intervals = padded_intervals(
+        [moment_bounds(m) for m in moments],
+        float(padding),
+        index=load_speech_index(transcript_json_path) if edges is not None else None,
+        edges=edges,
+    )
 
     for reel_path in reel_files:
         index = reel_index_from_path(reel_path)

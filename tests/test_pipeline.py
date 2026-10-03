@@ -457,6 +457,7 @@ def test_run_pipeline_syncs_reel_markdowns_for_existing_outputs(
         padding: float,
         settings: object,
         verbose: bool = False,
+        edges: object = None,
     ) -> list[Path]:
         subtitle_sync_calls.append((reels_root, transcript_json_path))
         return []
@@ -786,6 +787,7 @@ def test_run_pipeline_resyncs_cached_reels_from_proofread_transcript(
         padding: float,
         settings: object,
         verbose: bool = False,
+        edges: object = None,
     ) -> list[Path]:
         sync_calls.append(transcript_json_path)
         return []

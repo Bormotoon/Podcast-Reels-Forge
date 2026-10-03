@@ -87,6 +87,7 @@ from podcast_reels_forge.utils.burned_subtitles import (
     subtitle_settings_from_conf,
     sync_reel_burned_subtitles,
 )
+from podcast_reels_forge.utils.clip_intervals import ClipEdges
 from podcast_reels_forge.utils.ffmpeg import ffmpeg_bin
 from podcast_reels_forge.utils.fingerprint import (
     StageState,
@@ -1592,13 +1593,19 @@ class _PipelineRun:
             "cut",
             __version__,
             file_digest(ep.moments_path),
-            file_digest(self._subtitle_transcript(ep)) if self.subtitle_settings.enabled else "",
+            # Word timings place the clip edges, so the transcript always counts.
+            file_digest(self._subtitle_transcript(ep)),
             file_identity(ep.video),
             self.v_conf,
             subtitles if isinstance(subtitles, dict) else {},
             self.exports_conf,
-            subset(self.p_conf, ("quality_filters", "reel_padding")) if isinstance(self.p_conf, dict) else {},
+            subset(self.p_conf, ("quality_filters", "reel_padding", "clip_edges"))
+            if isinstance(self.p_conf, dict) else {},
         )
+
+    def _clip_edges(self) -> ClipEdges:
+        conf = self.p_conf.get("clip_edges") if isinstance(self.p_conf, dict) else None
+        return ClipEdges.from_config(conf)
 
     def _discard_reels(self, ep: EpisodeState) -> None:
         reels_dir = ep.analysis_folder / "reels"
@@ -1620,6 +1627,10 @@ class _PipelineRun:
             "--a-bitrate", str(v_conf.get("audio_bitrate", "192k")),
             "--preset", str(v_conf.get("preset", "fast")),
             "--padding", str(padding),
+            # Word timings: clips start just before the opening sentence and
+            # end just after the closing one (reel_padding is the fallback).
+            "--transcript-json", str(self._subtitle_transcript(ep)),
+            *self._clip_edges().cli_args(),
         ]
         if "use_nvenc" in v_conf and not bool(v_conf.get("use_nvenc")):
             video_args.append("--no-nvenc")
@@ -1660,7 +1671,6 @@ class _PipelineRun:
             video_args.append("--export-audio")
         if self.subtitle_settings.enabled:
             video_args.append("--burn-subtitles")
-            video_args += ["--transcript-json", str(self._subtitle_transcript(ep))]
             video_args += ["--subtitle-font", str(self.subtitle_settings.font_path)]
             if not self.subtitle_settings.wrap_words:
                 video_args.append("--no-subtitle-wrap-words")
@@ -1710,6 +1720,7 @@ class _PipelineRun:
                 reels_dir,
                 transcript_json_path=self._subtitle_transcript(ep),
                 padding=int(self.p_conf.get("reel_padding", 5)),
+                edges=self._clip_edges(),
                 settings=self.subtitle_settings,
                 verbose=self.verbose and not self.quiet,
             )

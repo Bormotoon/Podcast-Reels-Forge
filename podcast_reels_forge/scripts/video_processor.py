@@ -51,7 +51,12 @@ from podcast_reels_forge.utils.ffmpeg import (
     resolve_ffmpeg_with_libass,
     resolve_gpu_render_ffmpeg,
 )
-from podcast_reels_forge.utils.clip_intervals import moment_bounds, padded_intervals
+from podcast_reels_forge.utils.clip_intervals import (
+    ClipEdges,
+    load_speech_index,
+    moment_bounds,
+    padded_intervals,
+)
 from podcast_reels_forge.utils.media_qa import check_clip, media_duration
 from podcast_reels_forge.utils.reel_markdown import write_reel_instagram_txt, write_reel_markdown
 
@@ -523,7 +528,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     ap.add_argument("--nvenc-cq", type=int, default=21, help="NVENC VBR quality target, lower=better (default: 21)")
     ap.add_argument("--nvenc-preset", default="p5", help="NVENC preset p1(fast)..p7(quality) (default: p5)")
-    ap.add_argument("--padding", type=float, default=0, help="Extra seconds around moment")
+    ap.add_argument(
+        "--padding", type=float, default=0,
+        help="Extra seconds around a moment the transcript has no word timings for",
+    )
+    ClipEdges.add_arguments(ap)
     ap.add_argument("--export-webm", action="store_true", help="Export reels as .webm")
     ap.add_argument("--export-gif", action="store_true", help="Export reels as .gif")
     ap.add_argument(
@@ -768,10 +777,14 @@ def main(argv: list[str] | None = None) -> None:
     subtitle_errors: list[str] = []
     source_duration = media_duration(args.input) if args.qa else None
 
-    # Padding is resolved per clip up front (see padded_intervals); the cut
+    # Edges are resolved per clip up front (see padded_intervals): fitted to
+    # the speech when the transcript has word timings, else padded. The cut
     # itself then gets the final interval and no padding of its own.
     clip_intervals = padded_intervals(
-        [moment_bounds(m) for m in moments], float(opts.padding),
+        [moment_bounds(m) for m in moments],
+        float(opts.padding),
+        index=load_speech_index(args.transcript_json),
+        edges=ClipEdges.from_args(args),
     )
     cut_opts = replace(opts, padding=0.0)
 

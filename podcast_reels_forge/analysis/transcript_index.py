@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 _WORD_RE = re.compile(r"[^\W_]+", flags=re.UNICODE)
+# A word that closes a sentence: .!?… possibly followed by closing quotes.
+_SENTENCE_END_RE = re.compile(r"[.!?…][\"»”’)\]]*$")
 
 
 def normalize_for_compare(text: str) -> str:
@@ -79,8 +81,38 @@ class TranscriptIndex:
             sentences, key=lambda s: (s.start, s.end),
         )
         self._word_starts = [w.start for w in self.words]
-        self._sentence_starts = [s.start for s in self.sentences]
-        self._sentence_ends = sorted(s.end for s in self.sentences)
+        self.sentence_start_words = self._find_sentence_start_words()
+        # The transcript's sentences are often groups of several; the words'
+        # own punctuation marks the real sentence edges inside them.
+        self._sentence_starts = sorted(
+            {s.start for s in self.sentences}
+            | {self.words[i].start for i in self.sentence_start_words},
+        )
+        self._sentence_ends = sorted(
+            {s.end for s in self.sentences}
+            | {self.words[i - 1].end for i in self.sentence_start_words if i > 0},
+        )
+
+    def _find_sentence_start_words(self) -> list[int]:
+        """Indices of the words that open a sentence.
+
+        A word opens a sentence when the previous one ends with .!?… or when
+        a transcript sentence starts on it (covering unpunctuated text).
+        """
+
+        if not self.words:
+            return []
+        starts = {0}
+        starts.update(
+            i + 1
+            for i, word in enumerate(self.words[:-1])
+            if _SENTENCE_END_RE.search(word.text)
+        )
+        for sentence in self.sentences:
+            position = bisect.bisect_left(self._word_starts, sentence.start - 1e-6)
+            if position < len(self.words):
+                starts.add(position)
+        return sorted(starts)
 
     @classmethod
     def from_transcript(cls, data: Mapping[str, Any]) -> "TranscriptIndex":
