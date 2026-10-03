@@ -532,7 +532,8 @@ exports:
 
 subtitles:
   enabled: true
-  font: "assets/fonts/bignoodletoooblique.ttf"
+  # Шрифт; без ключа — BigNoodle или шрифт выбранного пресета (preset ниже).
+  # font: "assets/fonts/bignoodletoooblique.ttf"
   ass_style: "assets/subtitles/forge_subtitles.ass"
   # ~9% of the 1080px-wide frame — a readable viral-caption size. Matches the
   # style-editor default. The old 36 was ~3% of width → unreadably small.
@@ -554,7 +555,7 @@ subtitles:
     min_match_ratio: 0.5
     # Подгонять, когда p95 расхождения начала слов не меньше этого (секунды).
     apply_threshold_s: 0.2
-  max_lines: 2
+  # max_lines: 2
   # Доля кадра под текст. Задаёт длину строки: базовые 25 символов/строку
   # (рекомендация BBC для 9:16) отмерены при 0.65, поэтому 0.74 → ~28.
   # 0.74 = 1080 - 2*140px полей, которые обходят правую панель кнопок.
@@ -565,34 +566,38 @@ subtitles:
   # 0.0 = положение целиком задаёт редактор стиля.
   vertical_offset: 0.0
   # Плавное появление/исчезновение реплики (тег \fad). 0 — выключить.
-  fade_in_duration: 0.12
-  fade_out_duration: 0.08
+  # fade_in_duration: 0.12
+  # fade_out_duration: 0.08
   # Фейд только у реплик с паузой не короче этой (сек) до/после соседней:
   # в подкастах 93% реплик идут встык, и фейд на каждой давал мигание. 0 — всегда.
   fade_min_gap_s: 0.3
+  # Ключи, которые задают пресеты (highlight, text_case, strip_punctuation,
+  # line_balance, max_lines, max_words_per_cue, blur, fade_*_duration,
+  # min_duration_s), здесь закомментированы: значения ниже — умолчания кода, а
+  # раскомментированный ключ перебивает пресет.
   # Готовый стиль целиком: forge, hormozi, mrbeast, karaoke, tiktok, box, sticker,
   # word_box, neon, vibrant, minimal, classic, one_word, retro, bold_pop, headline.
   # Пусто — стиль из файла редактора (ass_style). Явные ключи ниже важнее пресета.
   preset: ""
   # Подсветка слова: none | karaoke | word | fill | reveal | pop.
-  highlight: "none"
+  # highlight: "none"
   # Цвет активного слова (#RRGGBB) поверх стиля Highlight; пусто — из стиля.
   highlight_color: ""
   # Регистр: none | upper | lower | title. Пунктуация: keep | periods | all.
-  text_case: "none"
-  strip_punctuation: "keep"
+  # text_case: "none"
+  # strip_punctuation: "keep"
   # Переносы: bottom_heavy (пирамида: короче сверху, меньше закрывает кадр и без
   # одного слова в нижней строке — BBC/Netflix) | balanced | top_heavy | greedy.
-  line_balance: "bottom_heavy"
+  # line_balance: "bottom_heavy"
   # 0 — длина строки считается по шрифту и ширине; иначе — символов в строке.
   max_chars_per_line: 0
   # 0 — без лимита; 1 — по одному слову, 2–4 — короткие «хормози»-реплики.
-  max_words_per_cue: 0
+  # max_words_per_cue: 0
   # Размытие краёв (\blur): с контуром даёт свечение.
-  blur: 0
+  # blur: 0
   # Пауза (сек), которая всегда завершает реплику, и тайминги показа.
   pause_split_s: 0.5
-  min_duration_s: 1.5
+  # min_duration_s: 1.5
   max_duration_s: 7.0
   min_gap_s: 0.15
   # Смена спикера начинает новую реплику; цвета спикеров — по порядку появления.

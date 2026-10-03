@@ -204,6 +204,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   back to back, so fading each one made the text blink. Word limits and
   shorter minimum durations were measured too and left off: they only make
   cues flash by.
+- config.yaml leaves the subtitle keys a preset controls (and `font`)
+  commented out at their default values, so `subtitles.preset` brings its
+  highlight mode, letter case, words per cue and font instead of being
+  overridden by explicit defaults.
 - **Face detector: YuNet instead of MediaPipe BlazeFace.** BlazeFace
   short-range (128x128 input) found no real face in wide shots and picked up
   faces in slide photos; YuNet (OpenCV's model, rebuilt in torch for the GPU)
