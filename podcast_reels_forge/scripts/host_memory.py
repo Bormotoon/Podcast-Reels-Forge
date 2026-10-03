@@ -21,7 +21,7 @@ import argparse
 import sys
 from pathlib import Path
 
-import yaml
+from podcast_reels_forge.utils.config_loader import load_config
 
 from podcast_reels_forge.utils.host_memory import (
     LOCKED_SHARE_THRESHOLD,
@@ -40,8 +40,7 @@ REPO_DIR = Path(__file__).resolve().parents[2]
 
 def _load_config(config_path: Path) -> HostMemoryConfig:
     try:
-        with config_path.open(encoding="utf-8") as handle:
-            conf = yaml.safe_load(handle) or {}
+        conf = load_config(config_path)
     except OSError:
         conf = {}
     return HostMemoryConfig.from_conf(

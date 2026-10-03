@@ -2,6 +2,39 @@
 
 `config.yaml` is the single source of truth for the local-only pipeline.
 
+## Host overrides / Настройки хоста
+
+RU: `config.yaml` — общие умолчания, он лежит в git и целиком перезаписывается
+экспортом из GUI. То, что относится к одной машине, кладите в
+**`config.local.yaml`** рядом с ним (файл в `.gitignore`): он подмешивается
+поверх при каждом запуске и экспорт из GUI переживает. Вложенные словари
+сливаются по ключам, остальные значения (и списки) заменяются.
+
+```yaml
+# config.local.yaml
+llama_cpp:
+  service:
+    cache_ram_mb: 1024
+processing:
+  clips_per_hour: 20
+```
+
+Второй конфиг на базе основного — через `extends`: файл задаёт только отличия.
+
+```yaml
+# config.pos.yaml  →  python3 start_forge.py --config config.pos.yaml
+extends: config.yaml
+paths:
+  input_dir: "input_pos"
+```
+
+Порядок: база по `extends` → сам файл → `config.local.yaml`. Какие файлы
+сложились, пишется в лог при старте.
+
+EN: keep machine-specific settings in a gitignored `config.local.yaml` next to
+`config.yaml`; it is merged on top at every start and survives GUI exports. A
+config can also be a partial overlay of another with `extends: config.yaml`.
+
 ## Paths / Пути
 
 ```yaml

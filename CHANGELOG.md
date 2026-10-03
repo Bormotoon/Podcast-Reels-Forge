@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Host overrides outside git:** a gitignored `config.local.yaml` next to
+  `config.yaml` is merged over it at every start (and survives GUI
+  exports), and a config can extend another (`extends: config.yaml`) and
+  hold only its differences. Machine-specific settings no longer sit as
+  uncommitted edits in `config.yaml`.
 - **Ready-made subtitle styles** (`subtitles.preset`, and one click in the
   GUI): `forge`, `hormozi`, `mrbeast`, `karaoke`, `tiktok`, `box`, `sticker`,
   `word_box`, `neon`, `vibrant`, `minimal`, `classic`, `one_word`, `retro`,

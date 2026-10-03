@@ -116,3 +116,6 @@ run_channel.log
 
 # Single-run lock (start_forge.py)
 .forge.lock
+
+# Host-local config overlay (merged over config.yaml, see utils/config_loader.py)
+config.local.yaml

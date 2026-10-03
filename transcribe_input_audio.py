@@ -109,15 +109,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     ensure_venv()
 
-    import yaml
+    from podcast_reels_forge.utils.config_loader import load_config
 
     args = parse_args(argv)
     config_path = Path(args.config)
     if not config_path.exists():
         raise SystemExit(f"Config file not found: {config_path}")
 
-    with config_path.open(encoding="utf-8") as f:
-        conf: dict[str, Any] = yaml.safe_load(f) or {}
+    conf: dict[str, Any] = load_config(config_path)
 
     cli_conf = conf.get("cli", {}) if isinstance(conf, dict) else {}
     quiet = bool(args.quiet or cli_conf.get("quiet", False))

@@ -226,15 +226,18 @@ def main() -> None:
     repo_dir = Path(__file__).resolve().parent
     load_dotenv(repo_dir)
 
-    import yaml
+    from podcast_reels_forge.utils.config_loader import load_config_with_sources
 
     config_path = Path(args.config)
     if not config_path.exists():
         log.error("Config file not found: %s", args.config)
         sys.exit(1)
 
-    with config_path.open(encoding="utf-8") as f:
-        conf: dict[str, Any] = yaml.safe_load(f) or {}
+    # config.yaml + `extends` base + gitignored config.local.yaml (host tweaks).
+    conf: dict[str, Any]
+    conf, config_sources = load_config_with_sources(config_path)
+    if len(config_sources) > 1:
+        log.info("Config: %s", " + ".join(str(s) for s in config_sources))
 
     cli_conf = conf.get("cli", {}) if isinstance(conf, dict) else {}
     quiet = bool(args.quiet or cli_conf.get("quiet", False))

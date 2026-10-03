@@ -235,11 +235,9 @@ def _load_config(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
 
-    import yaml
+    from podcast_reels_forge.utils.config_loader import load_config
 
-    with path.open(encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
-    return data if isinstance(data, dict) else {}
+    return load_config(path)
 
 
 def _resolve_transcript_json(model_dir: Path, input_video: Path, explicit: Path | None) -> Path | None:
