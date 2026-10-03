@@ -98,7 +98,14 @@
         cut_vertical_desc: 'Обрезка горизонтального видео до 9:16',
         cut_smart: 'Умный кроп (трекинг лица)',
         cut_smart_desc: 'Следить за лицом спикера в кадре',
-        cut_face_samples: 'Сэмплы лица', cut_face_min: 'Мин. размер лица (px)',
+        cut_face_min: 'Мин. размер лица (px)',
+        cut_active_speaker: 'Показывать говорящего',
+        cut_active_speaker_desc: 'Когда в кадре несколько людей, кто говорит, определяется по губам и звуку (Light-ASD, GPU)',
+        cut_face_follow: 'Плавное слежение',
+        cut_face_follow_desc: 'Камера мягко доводится, когда человек сместился; иначе один кадр на реплику',
+        cut_layout: 'Несколько людей в кадре', cut_layout_speaker: 'Показывать говорящего',
+        cut_layout_split: 'Двоих друг над другом',
+        cut_switch: 'Смена говорящего', cut_switch_cut: 'Склейка', cut_switch_pan: 'Проезд, если рядом',
         cut_export: 'Форматы экспорта',
         cut_webm: 'Экспорт WebM', cut_webm_desc: 'Дополнительный формат WebM',
         cut_gif: 'Экспорт GIF', cut_gif_desc: 'Анимированный GIF-превью',
@@ -318,7 +325,14 @@
         cut_vertical_desc: 'Crop horizontal video to 9:16',
         cut_smart: 'Smart Crop (Face Tracking)',
         cut_smart_desc: 'Follow speaker\'s face in the frame',
-        cut_face_samples: 'Face Samples', cut_face_min: 'Face Min Size (px)',
+        cut_face_min: 'Face Min Size (px)',
+        cut_active_speaker: 'Show the speaker',
+        cut_active_speaker_desc: 'With several people in frame, tell who talks by lips and sound (Light-ASD, GPU)',
+        cut_face_follow: 'Smooth follow',
+        cut_face_follow_desc: 'The camera eases over when the person moves; off: one framing per turn',
+        cut_layout: 'Several people in frame', cut_layout_speaker: 'Show the speaker',
+        cut_layout_split: 'Stack two of them',
+        cut_switch: 'New speaker', cut_switch_cut: 'Cut', cut_switch_pan: 'Pan when close',
         cut_export: 'Export Formats',
         cut_webm: 'Export WebM', cut_webm_desc: 'Additional WebM format output',
         cut_gif: 'Export GIF', cut_gif_desc: 'Animated GIF preview',
@@ -525,7 +539,8 @@
       cutNvenc: true, cutVBitrate: '8M', cutABitrate: '192k', cutPreset: 'fast',
       cutNvencCq: 21, cutNvencPreset: 'p5', cutMinScore: 7, cutMinDur: 15,
       cutMaxDur: 180, cutFaceRatio: 0.3, cutVertical: true, cutSmartCrop: true,
-      cutFaceSamples: 9, cutFaceMinSize: 72, cutWebm: false, cutGif: false,
+      cutFaceMinSize: 40, cutActiveSpeaker: true, cutFaceFollow: true,
+      cutSpeakerLayout: 'speaker', cutSpeakerSwitch: 'cut', cutWebm: false, cutGif: false,
       cutAudio: false, cutThreads: 4, cutPadding: 5,
       // Clip selection / output mix (processing.clips + reels_*)
       procClipsPerHour: 10,
@@ -998,9 +1013,13 @@ video:
   use_nvenc: ${state.cutNvenc}
   nvenc_cq: ${state.cutNvencCq}
   nvenc_preset: "${state.cutNvencPreset}"
-  face_samples: ${state.cutFaceSamples}
   face_min_size: ${state.cutFaceMinSize}
-  two_speaker_layout: split
+  face_follow: ${state.cutFaceFollow}
+  active_speaker: ${state.cutActiveSpeaker}
+  two_speaker_layout: ${state.cutSpeakerLayout}
+  speaker_switch: ${state.cutSpeakerSwitch}
+  face_device: cuda
+  gpu_decode: true
   qa: true
   qa_blackdetect: false
 diarization:

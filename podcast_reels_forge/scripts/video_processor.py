@@ -11,6 +11,7 @@ import json
 import logging
 import subprocess
 import sys
+import threading
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
@@ -33,19 +34,22 @@ from podcast_reels_forge.utils.burned_subtitles import (
     _write_ass_file,
 )
 from podcast_reels_forge.utils.face_crop import (
-    FaceCropSettings,
-    analyze_face_layout,
-    build_sample_times,
-    build_split_filter,
-    compute_crop_x_for_scaled_height,
     face_detection_available,
     face_detection_unavailable_reason,
+)
+from podcast_reels_forge.utils.face_track import (
+    FramingPlan,
+    TrackingSettings,
+    analyze_clip,
+    build_framing_filter,
+    center_plan,
 )
 from podcast_reels_forge.utils.ffmpeg import (
     build_video_codec_args,
     ffmpeg_bin,
     ffmpeg_has_nvenc,
     resolve_ffmpeg_with_libass,
+    resolve_gpu_render_ffmpeg,
 )
 from podcast_reels_forge.utils.clip_intervals import moment_bounds, padded_intervals
 from podcast_reels_forge.utils.media_qa import check_clip, media_duration
@@ -79,8 +83,19 @@ class FfmpegOptions:
     # NVENC quality knobs: cq is the VBR quality target (lower = better), preset is p1..p7.
     nvenc_cq: int = 21
     nvenc_preset: str = "p5"
-    # "split" stacks two steadily visible speakers; "single" always crops one.
-    two_speaker_layout: str = "split"
+    # "speaker": show whoever talks; "split": stack two steadily visible
+    # people ("single" is the old name of "speaker").
+    two_speaker_layout: str = "speaker"
+    # Follow the face within a turn (False: one framing per turn).
+    face_follow: bool = True
+    # Pick the talking face with Light-ASD when several people are in frame.
+    active_speaker: bool = True
+    # New speaker: "cut" or "pan".
+    speaker_switch: str = "cut"
+    # Torch device for face tracking ("cuda": GPU only, no CPU fallback).
+    face_device: str = "cuda"
+    # Decode and scale reels on the GPU when an ffmpeg build can.
+    gpu_decode: bool = True
 
 
 def _run_subprocess(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -93,6 +108,50 @@ def _run_subprocess(cmd: list[str]) -> subprocess.CompletedProcess[str]:
 def _status(msg: str, *, quiet: bool) -> None:
     if not quiet:
         LOG.info(msg)
+
+
+_PLAN_LOCK = threading.Lock()
+_PLANS: dict[tuple[str, float, float], FramingPlan | None] = {}
+
+
+def tracking_settings(opts: FfmpegOptions) -> TrackingSettings:
+    layout = "split" if opts.two_speaker_layout == "split" else "speaker"
+    return TrackingSettings(
+        min_face_size=int(opts.face_min_size),
+        follow=bool(opts.face_follow),
+        active_speaker=bool(opts.active_speaker),
+        layout=layout,
+        switch=opts.speaker_switch if opts.speaker_switch in {"cut", "pan"} else "cut",
+        device=opts.face_device,
+    )
+
+
+def framing_plan(video_in: Path, start: float, end: float, opts: FfmpegOptions) -> FramingPlan | None:
+    """The clip's framing, computed once per interval (a clip is encoded up to
+    three times: with subtitles, without them as a fallback, and a clean copy)."""
+
+    key = (str(video_in), round(start, 3), round(end, 3))
+    with _PLAN_LOCK:
+        if key in _PLANS:
+            return _PLANS[key]
+    try:
+        plan = analyze_clip(video_in, start, end, tracking_settings(opts))
+    except Exception as exc:  # noqa: BLE001 - framing must never lose the clip
+        LOG.warning("face tracking failed for %.1f-%.1f (%s); centre crop", start, end, exc)
+        plan = None
+    with _PLAN_LOCK:
+        _PLANS[key] = plan
+    return plan
+
+
+def _write_framing_report(out_path: Path, plan: FramingPlan | None, kind: str) -> None:
+    try:
+        folder = out_path.parent / "framing"
+        folder.mkdir(parents=True, exist_ok=True)
+        body = {"framing": kind, **(plan.as_dict() if plan is not None else {})}
+        (folder / f"{out_path.stem}.json").write_text(json.dumps(body, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as exc:
+        LOG.debug("could not write the framing report for %s: %s", out_path.name, exc)
 
 
 def ffmpeg_cut(
@@ -108,61 +167,43 @@ def ffmpeg_cut(
 ) -> tuple[bool, Path, str | None]:
     """Cut a segment from video with optional vertical crop.
 
+    The vertical frame follows whoever is talking (see ``face_track``); the
+    reel is decoded, scaled and encoded on the GPU when an ffmpeg build can
+    (``resolve_gpu_render_ffmpeg``), else by the previous CPU filters.
+
     With ``encode_rejected=False`` a clip the face check rejects is not
     encoded at all: ``(False, out_path, reason)`` comes back and nothing is
     written.
     """
 
-    filters: list[str] = []
     face_rejection_reason: str | None = None
+    plan: FramingPlan | None = None
+    framing = "none"
+    start_offset = max(0, start - opts.padding)
+    end_offset = end + opts.padding
     if opts.vertical_crop:
-        # Default: center crop to 9:16.
-        vf = "scale=w=1080:h=1920:force_original_aspect_ratio=increase,crop=1080:1920"
-
-        # Optional: smart crop around face.
+        src_w, src_h = _frame_size(video_in)
         if opts.smart_crop_face and face_detection_available():
-            face_settings = FaceCropSettings(
-                samples=int(opts.face_samples),
-                min_face_size=int(opts.face_min_size),
-            )
-            start_offset = max(0, start - opts.padding)
-            end_offset = end + opts.padding
-            sample_times = build_sample_times(start_offset, end_offset, face_settings.samples)
-            layout = analyze_face_layout(video_in, sample_times_s=sample_times, settings=face_settings)
-            face_rate = layout.rate
-
-            if opts.filter_face_ratio > 0 and face_rate < opts.filter_face_ratio:
+            plan = framing_plan(video_in, start_offset, end_offset, opts)
+            face_rate = plan.rate if plan is not None else 0.0
+            if plan is not None and opts.filter_face_ratio > 0 and face_rate < opts.filter_face_ratio:
                 LOG.debug("Rejecting clip (face detection rate %.2f < %.2f)", face_rate, opts.filter_face_ratio)
                 is_rejected = True
                 face_rejection_reason = (
                     f"face ratio {face_rate:.2f} < {opts.filter_face_ratio:.2f}"
                 )
-
-            if layout.primary is not None:
-                src_w, src_h = _frame_size(video_in)
-                if layout.kind == "split" and opts.two_speaker_layout == "split" and src_w and src_h:
-                    LOG.debug("Two speakers in frame; stacking them")
-                    vf = build_split_filter(src_w=src_w, src_h=src_h, centers=layout.centers)
-                else:
-                    center_ratio = layout.primary[0]
-                    LOG.debug("Face detected at ratio %.2f; applying smart crop", center_ratio)
-                    crop_x = compute_crop_x_for_scaled_height(
-                        src_w=src_w,
-                        src_h=src_h,
-                        target_w=1080,
-                        target_h=1920,
-                        center_ratio=center_ratio,
-                    )
-                    vf = f"scale=-2:1920,crop=1080:1920:{crop_x}:0"
-
-        filters.append(vf)
+            framing = "tracked" if plan is not None else "center"
+        if plan is None and src_w and src_h:
+            plan = center_plan(src_w, src_h, end_offset - start_offset)
+            framing = framing if framing != "none" else "center"
 
     burning_subtitles = ass_path is not None and ass_path.exists()
     libass_ffmpeg: str | None = None
+    ass_filter = ""
     if ass_path is not None and burning_subtitles:
         # Escape path for FFmpeg filter
         safe_ass_path = str(ass_path.resolve()).replace('\\', '/').replace(':', '\\:')
-        filters.append(f"ass='{safe_ass_path}'")
+        ass_filter = f"ass='{safe_ass_path}'"
         # The NVENC-preferred ffmpeg build may lack libass, which fails the 'ass'
         # filter identically under NVENC and software libx264. Resolve a build that
         # actually has libass and use it (software-only) for this pass.
@@ -189,14 +230,39 @@ def ffmpeg_cut(
     #     "No such file or directory" and the clip is lost — it lands neither in
     #     reels/ nor in rejected/.
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    if opts.vertical_crop and opts.smart_crop_face and not out_path.stem.endswith(".nosubs"):
+        _write_framing_report(out_path, plan, framing)
 
-    start_offset = max(0, start - opts.padding)
-    end_offset = end + opts.padding
+    gpu_ffmpeg = (
+        resolve_gpu_render_ffmpeg(burning_subtitles)
+        if opts.use_nvenc and opts.gpu_decode
+        else None
+    )
 
-    def _build(use_nvenc: bool) -> list[str]:
-        cmd = [
-            libass_ffmpeg if (burning_subtitles and libass_ffmpeg) else ffmpeg_bin(),
-            "-y",
+    def _filters(gpu: bool) -> list[str]:
+        filters: list[str] = []
+        if opts.vertical_crop:
+            if plan is not None:
+                filters.append(build_framing_filter(plan, gpu=gpu and not plan.split_shots))
+            else:
+                filters.append("scale=w=1080:h=1920:force_original_aspect_ratio=increase,crop=1080:1920")
+        if ass_filter:
+            filters.append(ass_filter)
+        return filters
+
+    def _build(use_nvenc: bool, gpu: bool = False) -> list[str]:
+        if gpu and gpu_ffmpeg:
+            binary = gpu_ffmpeg
+        elif burning_subtitles and libass_ffmpeg:
+            binary = libass_ffmpeg
+        else:
+            binary = ffmpeg_bin()
+        cmd = [binary, "-y"]
+        if gpu and gpu_ffmpeg:
+            # NVDEC into system memory: the window is cut on the CPU (a pointer
+            # move), then uploaded and scaled by scale_cuda.
+            cmd += ["-hwaccel", "cuda"]
+        cmd += [
             "-ss",
             str(start_offset),
             "-to",
@@ -204,9 +270,18 @@ def ffmpeg_cut(
             "-i",
             str(video_in),
         ]
+        filters = _filters(gpu and gpu_ffmpeg is not None)
         if filters:
             cmd += ["-vf", ",".join(filters)]
-        if burning_subtitles and libass_ffmpeg and not (use_nvenc and libass_has_nvenc):
+        if gpu and gpu_ffmpeg:
+            cmd += build_video_codec_args(
+                use_nvenc=True,
+                v_bitrate=opts.v_bitrate,
+                preset=opts.preset,
+                nvenc_cq=opts.nvenc_cq,
+                nvenc_preset=opts.nvenc_preset,
+            )
+        elif burning_subtitles and libass_ffmpeg and not (use_nvenc and libass_has_nvenc):
             # This libass-capable build has no NVENC (or NVENC failed): libx264.
             cmd += ["-c:v", "libx264", "-preset", opts.preset, "-b:v", opts.v_bitrate, "-pix_fmt", "yuv420p"]
         else:
@@ -224,7 +299,17 @@ def ffmpeg_cut(
     # A build with both libass and NVENC burns subtitles on the GPU; the old
     # path always fell back to software libx264 when subtitles were on.
     libass_has_nvenc = libass_ffmpeg is not None and _build_has_nvenc(libass_ffmpeg)
-    res = _run_subprocess(_build(opts.use_nvenc))
+    res = None
+    if gpu_ffmpeg:
+        res = _run_subprocess(_build(True, gpu=True))
+        if res.returncode != 0:
+            LOG.warning(
+                "GPU render failed for %s (%s); falling back to the CPU filters",
+                out_path.name,
+                (res.stderr or "").strip()[-300:],
+            )
+    if res is None or res.returncode != 0:
+        res = _run_subprocess(_build(opts.use_nvenc))
     if res.returncode != 0 and burning_subtitles and opts.use_nvenc and libass_has_nvenc:
         LOG.warning("NVENC subtitle-burn failed for %s; retrying with libx264", out_path.name)
         res = _run_subprocess(_build(False))
@@ -389,13 +474,43 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=False,
         help="When used with --vertical, center crop around detected face (requires opencv)",
     )
-    ap.add_argument("--face-samples", type=int, default=7, help="Frames to sample per reel")
-    ap.add_argument("--face-min-size", type=int, default=60, help="Min face height in pixels; smaller faces are ignored")
+    ap.add_argument("--face-samples", type=int, default=7, help="Legacy, ignored: faces are tracked at 5 fps")
+    ap.add_argument("--face-min-size", type=int, default=40, help="Min face height in pixels; smaller faces are ignored")
     ap.add_argument(
         "--two-speaker-layout",
-        choices=("split", "single"),
-        default="split",
-        help="Two people steadily in frame: stack them (split) or crop one (single)",
+        choices=("speaker", "split", "single"),
+        default="speaker",
+        help="Several people in frame: show whoever talks (speaker) or stack two "
+        "steadily visible people (split); 'single' is the old name of 'speaker'",
+    )
+    ap.add_argument(
+        "--face-follow",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Follow the face smoothly within a turn (off: one framing per turn)",
+    )
+    ap.add_argument(
+        "--active-speaker",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Tell the talking face by lips and sound (Light-ASD) when several people are in frame",
+    )
+    ap.add_argument(
+        "--speaker-switch",
+        choices=("cut", "pan"),
+        default="cut",
+        help="New speaker: hard cut, or a short pan when they sit close",
+    )
+    ap.add_argument(
+        "--face-device",
+        default="cuda",
+        help="Torch device for face tracking; 'cuda' never falls back to the CPU",
+    )
+    ap.add_argument(
+        "--gpu-decode",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Decode and scale reels on the GPU (NVDEC + scale_cuda) when an ffmpeg build can",
     )
     ap.add_argument("--v-bitrate", default="5M", help="Video bitrate")
     ap.add_argument("--a-bitrate", default="192k", help="Audio bitrate")
@@ -624,6 +739,11 @@ def main(argv: list[str] | None = None) -> None:
         nvenc_cq=int(args.nvenc_cq),
         nvenc_preset=str(args.nvenc_preset),
         two_speaker_layout=str(args.two_speaker_layout),
+        face_follow=bool(args.face_follow),
+        active_speaker=bool(args.active_speaker),
+        speaker_switch=str(args.speaker_switch),
+        face_device=str(args.face_device),
+        gpu_decode=bool(args.gpu_decode),
     )
 
     if (

@@ -171,12 +171,44 @@
               </label>
             </div>
             <div class="field" style="margin-bottom: 16px;">
-              <label><span data-i18n="cut_face_samples">Сэмплы лица</span> <span class="value" id="v-cfgCutFaceSamples">9</span></label>
-              <input type="range" id="cfgCutFaceSamples" min="1" max="20" step="1" value="9">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="cut_active_speaker">Показывать говорящего</div>
+                  <div class="m3-switch-desc" data-i18n="cut_active_speaker_desc">Когда в кадре несколько людей, кто говорит, определяется по губам и звуку (Light-ASD, GPU)</div>
+                </div>
+                <input type="checkbox" id="cfgCutActiveSpeaker" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+              <label class="m3-switch">
+                <div>
+                  <div class="m3-switch-text" data-i18n="cut_face_follow">Плавное слежение</div>
+                  <div class="m3-switch-desc" data-i18n="cut_face_follow_desc">Камера мягко доводится, когда человек сместился; иначе один кадр на реплику</div>
+                </div>
+                <input type="checkbox" id="cfgCutFaceFollow" checked>
+                <div class="m3-switch-track"><div class="m3-switch-thumb"></div></div>
+              </label>
+            </div>
+            <div class="grid-2" style="margin-bottom: 16px;">
+              <div class="field">
+                <label data-i18n="cut_layout">Несколько людей в кадре</label>
+                <select id="cfgCutSpeakerLayout">
+                  <option value="speaker" selected data-i18n="cut_layout_speaker">Показывать говорящего</option>
+                  <option value="split" data-i18n="cut_layout_split">Двоих друг над другом</option>
+                </select>
+              </div>
+              <div class="field">
+                <label data-i18n="cut_switch">Смена говорящего</label>
+                <select id="cfgCutSpeakerSwitch">
+                  <option value="cut" selected data-i18n="cut_switch_cut">Склейка</option>
+                  <option value="pan" data-i18n="cut_switch_pan">Проезд, если рядом</option>
+                </select>
+              </div>
             </div>
             <div class="field">
-              <label><span data-i18n="cut_face_min">Мин. размер лица (px)</span> <span class="value" id="v-cfgCutFaceMinSize">72</span></label>
-              <input type="range" id="cfgCutFaceMinSize" min="20" max="200" step="4" value="72">
+              <label><span data-i18n="cut_face_min">Мин. размер лица (px)</span> <span class="value" id="v-cfgCutFaceMinSize">40</span></label>
+              <input type="range" id="cfgCutFaceMinSize" min="20" max="200" step="4" value="40">
             </div>
           </div>
 

@@ -731,11 +731,49 @@ video:
   audio_bitrate: "192k"
   preset: "fast"
   use_nvenc: true
-  face_samples: 9
-  face_min_size: 72
+  face_min_size: 40          # px of the source; wide shots have 60-90 px faces
+  two_speaker_layout: speaker  # speaker | split ("single" = old name of speaker)
+  active_speaker: true       # tell the talking face by lips + sound (Light-ASD)
+  face_follow: true          # glide after the person within a turn
+  speaker_switch: cut        # cut | pan (pan only when the next speaker sits close)
+  face_device: cuda          # analysis runs on the GPU only, never falls back to CPU
+  gpu_decode: true           # NVDEC + scale_cuda + NVENC for the reel itself
 ```
 
-Face crop now uses multiple samples and median smoothing before FFmpeg renders the final crop.
+RU: вертикальный кадр весь клип следит за тем, кто говорит
+(`podcast_reels_forge/utils/face_track.py`):
+
+1. Один проход по клипу на GPU: ffmpeg декодирует на NVDEC и отдаёт кадры
+   25 к/с в NV12, дальше всё в torch на видеокарте. Лица 5 раз в секунду ищет
+   YuNet (та же сеть и постобработка, что `cv2.FaceDetectorYN`, собранная в
+   torch из ONNX-весов): он видит и лица ~60 px на общих планах, где прежний
+   BlazeFace не находил никого. Склейки планов — мера `scdet` по миниатюре
+   каждого кадра.
+2. Лица связываются в треки внутри плана. Треки, которых мало (прохожие,
+   лица на слайдах), и неподвижные «лица» (фото на экране, портреты: живая
+   голова всегда чуть движется) не показываются.
+3. Если в плане двое и больше, говорящего определяет Light-ASD (CVPR 2023,
+   MIT): по 25 к/с кропам губ и MFCC звука. Кого показывать, решает Витерби
+   со штрафом за переключение: «ага» собеседника кадр не дёргает, реплика
+   длиннее секунды — переключает (склейкой, чуть раньше начала фразы).
+4. Внутри реплики камера как на штативе: стоит, пока лицо в мёртвой зоне
+   (12% ширины кадра), и плавно (ease-in-out, не быстрее ~0.35 ширины в
+   секунду) доводится туда, где человек остановился; в последнюю секунду
+   перед сменой говорящего не двигается.
+5. Путь камеры — кусочная функция `t` в выражении `crop`, рендер одним
+   проходом ffmpeg: окно вырезается из исходного кадра, масштабируется
+   `scale_cuda`, кодируется NVENC.
+
+Отчёт по каждому клипу — `reels/framing/reel_XX.json`: треки, кто когда
+показан и с какой уверенностью, склейки, путь камеры. Без CUDA клип получает
+центральный кроп (preflight об этом предупреждает). `face_samples` больше не
+используется.
+
+EN: the vertical frame follows whoever is talking for the whole clip. Faces
+come from YuNet on the GPU, the speaker from Light-ASD (lips + audio), turns
+from Viterbi with a switch penalty, and the camera holds inside a dead zone and
+eases to where the person settles. The per-clip report is
+`reels/framing/reel_XX.json`. `face_samples` is no longer used.
 
 ## Subtitles / Субтитры
 
@@ -859,7 +897,7 @@ subtitles:
     apply_threshold_s: 0.2   # retime when p95 drift of word ends reaches this
 
 video:
-  two_speaker_layout: split  # split | single
+  two_speaker_layout: speaker  # speaker | split
   qa: true                   # ffprobe check of every rendered clip
   qa_blackdetect: false      # also fail mostly-black clips (one more decode)
 ```

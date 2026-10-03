@@ -37,7 +37,6 @@ dependencies = [
   "aiohttp>=3.9.0,<4",
   "PyYAML>=6.0.1,<7",
   "opencv-python-headless>=4.8.0,<5",
-  "mediapipe>=0.10.9,<1",
   "platformdirs>=4.0.0,<5",
 ]
 

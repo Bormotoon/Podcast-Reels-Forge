@@ -129,6 +129,75 @@ def resolve_ffmpeg_with_libass() -> str | None:
     return None
 
 
+@functools.lru_cache(maxsize=32)
+def build_has_filter(ffmpeg: str, name: str) -> bool:
+    """Whether this ffmpeg build has the filter ``name`` (cached)."""
+    try:
+        out = subprocess.run(
+            [ffmpeg, "-hide_banner", "-h", f"filter={name}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    combined = (out.stdout or "") + (out.stderr or "")
+    return "Unknown filter" not in combined and f"Filter {name}" in combined
+
+
+@functools.lru_cache(maxsize=8)
+def build_has_cuda_decode(ffmpeg: str) -> bool:
+    """Whether this ffmpeg build can decode on the GPU (``-hwaccel cuda``)."""
+    try:
+        out = subprocess.run(
+            [ffmpeg, "-hide_banner", "-hwaccels"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "cuda" in (out.stdout or "").split()
+
+
+@functools.lru_cache(maxsize=2)
+def resolve_gpu_render_ffmpeg(need_libass: bool) -> str | None:
+    """RU: ffmpeg, который рендерит рилс целиком на GPU (декод, масштаб, NVENC).
+
+    EN: An ffmpeg that renders a reel on the GPU end to end: NVDEC decoding,
+    ``scale_cuda`` scaling and NVENC encoding (plus libass when subtitles are
+    burned in). The CPU then only cuts the window out of the decoded frame
+    and draws the subtitles. None when no installed build can do all of it.
+
+    On this host /usr/local/bin/ffmpeg has NVDEC/NVENC but neither
+    ``scale_cuda`` nor libass, while /usr/bin/ffmpeg has all of them.
+    """
+    override = os.environ.get("FORGE_FFMPEG", "").strip()
+    raw = ([override] if override else []) + list(_CANDIDATES)
+    on_path = shutil.which("ffmpeg")
+    if on_path:
+        raw.append(on_path)
+    seen: set[str] = set()
+    for cand in raw:
+        if not cand or cand in seen:
+            continue
+        seen.add(cand)
+        resolved = cand if (os.path.isabs(cand) and os.path.exists(cand)) else shutil.which(cand)
+        if not resolved:
+            continue
+        if (
+            _has_nvenc(resolved)
+            and build_has_cuda_decode(resolved)
+            and build_has_filter(resolved, "scale_cuda")
+            and build_has_filter(resolved, "hwupload_cuda")
+            and (not need_libass or _has_libass(resolved))
+        ):
+            return resolved
+    return None
+
+
 def build_video_codec_args(
     *,
     use_nvenc: bool,

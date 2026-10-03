@@ -1629,9 +1629,14 @@ class _PipelineRun:
             video_args.append("--vertical")
         if v_conf.get("smart_crop_face", True):
             video_args.append("--smart-crop-face")
-            video_args += ["--face-samples", str(v_conf.get("face_samples", 7))]
-            video_args += ["--face-min-size", str(v_conf.get("face_min_size", 60))]
-            video_args += ["--two-speaker-layout", str(v_conf.get("two_speaker_layout", "split"))]
+            video_args += ["--face-min-size", str(v_conf.get("face_min_size", 40))]
+            video_args += ["--two-speaker-layout", str(v_conf.get("two_speaker_layout", "speaker"))]
+            video_args.append("--face-follow" if v_conf.get("face_follow", True) else "--no-face-follow")
+            video_args.append("--active-speaker" if v_conf.get("active_speaker", True) else "--no-active-speaker")
+            video_args += ["--speaker-switch", str(v_conf.get("speaker_switch", "cut"))]
+            video_args += ["--face-device", str(v_conf.get("face_device", "cuda"))]
+        if not v_conf.get("gpu_decode", True):
+            video_args.append("--no-gpu-decode")
 
         q_conf = self.p_conf.get("quality_filters", {}) if isinstance(self.p_conf, dict) else {}
         if "min_score" in q_conf:

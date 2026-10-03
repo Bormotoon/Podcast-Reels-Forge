@@ -7,6 +7,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **The vertical frame follows whoever is talking** for the whole clip
+  (`utils/face_track.py`). Faces are tracked 5 times a second within each
+  shot (shot cuts are detected on the same decode); with several people in
+  frame Light-ASD (CVPR 2023, MIT) tells the speaker by lips and sound, and
+  Viterbi with a switch penalty turns that into turns, so a short "uh-huh"
+  does not jerk the frame. Within a turn the camera holds inside a dead zone
+  and eases to where the person settles. Faces on slides and posters (they
+  never move) and short-lived faces are not followed. New `video` keys:
+  `active_speaker`, `face_follow`, `speaker_switch` (`cut` | `pan`),
+  `face_device`, `gpu_decode`; `two_speaker_layout` gains `speaker` (the new
+  default; `split` now applies only to exactly two people standing apart).
+  Per-clip report: `reels/framing/reel_XX.json`.
+- **Face tracking and reels run on the GPU.** Analysis decodes on NVDEC and
+  does face detection, crops, shot cuts and the speaker model in torch on the
+  GPU (`face_device: cuda` never falls back to the CPU); the reel is decoded
+  on NVDEC, scaled by `scale_cuda` and encoded by NVENC when an ffmpeg build
+  has them (`gpu_decode`). On POS footage this took a 48 s clip from ~93 s
+  of CPU-bound analysis to ~7 s.
 - **Subtitle timing is re-checked per clip** (`subtitles.whisper_sync`,
   default on): the clip's own audio is recognized again with word timestamps,
   matched to the transcript and, when it drifted, the subtitles take the new
@@ -152,6 +170,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `FORGE_*` variables and/or a JSON webhook), on failure or always.
 
 ### Changed
+- **Face detector: YuNet instead of MediaPipe BlazeFace.** BlazeFace
+  short-range (128x128 input) found no real face in wide shots and picked up
+  faces in slide photos; YuNet (OpenCV's model, rebuilt in torch for the GPU)
+  finds 60-90 px faces in 1080p. `mediapipe` is no longer a dependency;
+  `face_samples` is no longer used and `face_min_size` now defaults to 40.
 - Dependencies are bounded below the next major version, so an unattended
   run never picks up a breaking release on its own; yt-dlp instead updates
   itself every `youtube.self_update_days` days (`youtube.self_update`).

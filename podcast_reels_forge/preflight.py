@@ -137,11 +137,30 @@ def run_preflight(
 
     video = _section(conf, "video")
     if "cut" in active and video.get("smart_crop_face", True):
+        from podcast_reels_forge.utils import active_speaker
         from podcast_reels_forge.utils.face_crop import face_detection_available
 
-        if not face_detection_available():
+        if not face_detection_available(download=True):
             result.warnings.append(
-                "умный кроп по лицу недоступен (нет opencv/mediapipe или модели) — будет центральный кроп",
+                "умный кроп по лицу недоступен (нет OpenCV с FaceDetectorYN или модели YuNet) — "
+                "будет центральный кроп",
+            )
+        if str(video.get("face_device", "cuda")).startswith("cuda"):
+            try:
+                import torch
+
+                cuda_ok = bool(torch.cuda.is_available())
+            except Exception:  # noqa: BLE001
+                cuda_ok = False
+            if not cuda_ok:
+                result.warnings.append(
+                    "слежение за лицом работает только на GPU (video.face_device: cuda), а CUDA "
+                    "недоступна — клипы получат центральный кроп",
+                )
+        if video.get("active_speaker", True) and not active_speaker.asd_available(download=True):
+            result.warnings.append(
+                "модель определения говорящего (Light-ASD) не скачалась — при нескольких людях "
+                "в кадре будет показан самый заметный, а не говорящий",
             )
 
     return result
