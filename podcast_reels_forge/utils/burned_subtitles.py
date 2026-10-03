@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import re as _re
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,21 @@ from podcast_reels_forge.utils.clip_intervals import (
     load_speech_index,
     moment_bounds,
     padded_intervals,
+)
+from podcast_reels_forge.utils import subtitle_presets as presets
+from podcast_reels_forge.utils.subtitle_layout import (
+    CENSOR_STYLES,
+    LINE_BALANCES,
+    NO_LINE_END,
+    PUNCTUATION_MODES,
+    TEXT_CASES,
+    TextMeasurer,
+    apply_case,
+    build_censor_matcher,
+    censor_word,
+    lines_fit,
+    strip_punctuation,
+    wrap_words,
 )
 from podcast_reels_forge.utils.subtitle_sync import plausible_start
 from podcast_reels_forge.utils.reel_markdown import reel_index_from_path
@@ -31,7 +47,10 @@ DEFAULT_MAX_LINES = 2
 # DEFAULT_MARGIN_H): 1080 - 2*140 = 800px ≈ 0.74 of the frame.
 DEFAULT_MAX_WIDTH_RATIO = 0.74
 DEFAULT_WRAP_WORDS = True
-DEFAULT_VERTICAL_ALIGN = "bottom"
+# "style" keeps the alignment from the .ass style (editor or preset); top /
+# center / bottom override its row and keep its left/centre/right column.
+DEFAULT_VERTICAL_ALIGN = "style"
+VERTICAL_ALIGNS = ("style", "top", "center", "bottom")
 DEFAULT_VERTICAL_OFFSET = 0.0
 DEFAULT_WORD_X_SPACE = 6
 DEFAULT_WORD_Y_SPACE = 8
@@ -75,6 +94,19 @@ CHARS_PER_LINE_REFERENCE_RATIO = 0.65
 DEFAULT_MIN_DURATION_S = 1.5
 DEFAULT_MAX_DURATION_S = 7.0
 DEFAULT_GAP_BETWEEN_SUBTITLES_S = 0.15
+# A pause at least this long ends a cue (stable-ts / auto-subs use 0.5 s).
+DEFAULT_PAUSE_SPLIT_S = 0.5
+
+# How the spoken word is shown inside a cue:
+#   none    — the cue appears whole, no per-word effect;
+#   karaoke — \kf sweep from SecondaryColour to PrimaryColour;
+#   word    — only the active word takes the Highlight style;
+#   fill    — the active word and every word before it take it;
+#   reveal  — words appear as they are spoken (typewriter);
+#   pop     — like "word", and the active word briefly scales up.
+HIGHLIGHT_MODES = ("none", "karaoke", "word", "fill", "reveal", "pop")
+_POP_START_SCALE = 1.12
+_POP_MS = 120
 
 
 @dataclass(frozen=True)
@@ -92,6 +124,8 @@ class SubtitleSegment:
     # Real per-word timings from the transcript, when it carries them. Empty
     # means the karaoke timing has to be interpolated from the segment span.
     words: tuple[_TimedSubtitleWord, ...] = ()
+    # Diarization label ("SPEAKER_00"); empty when the transcript has none.
+    speaker: str = ""
 
 
 @dataclass(frozen=True)
@@ -111,7 +145,63 @@ class SubtitleRenderSettings:
     fade_out_duration: float = DEFAULT_FADE_OUT_S
     # Word-by-word \kf highlighting. Off by default: the whole cue appears at
     # once, so a word-timing error is a small lag, not a visibly wrong word.
+    # Legacy switch for highlight="karaoke".
     karaoke: bool = False
+    # Built-in look (utils/subtitle_presets.py). Empty: the editor's .ass file,
+    # or the "forge" look when there is none.
+    preset: str = ""
+    highlight: str = "none"
+    # Active-word colour (#RRGGBB) on top of the Highlight style; empty = style.
+    highlight_color: str = ""
+    text_case: str = "none"
+    strip_punctuation: str = "keep"
+    censor_words: tuple[str, ...] = ()
+    censor_style: str = "middle"
+    line_balance: str = "balanced"
+    # 0 = derived from the font, its size and the usable width.
+    max_chars_per_line: int = 0
+    # 0 = no limit; 1 shows one word at a time.
+    max_words_per_cue: int = 0
+    pause_split_s: float = DEFAULT_PAUSE_SPLIT_S
+    min_duration_s: float = DEFAULT_MIN_DURATION_S
+    max_duration_s: float = DEFAULT_MAX_DURATION_S
+    min_gap_s: float = DEFAULT_GAP_BETWEEN_SUBTITLES_S
+    # Edge softening (\blur): turns an outline into a glow.
+    blur: float = 0.0
+    # Text colour per speaker (#RRGGBB), in order of first appearance in a reel.
+    speaker_colors: tuple[str, ...] = ()
+    # A change of speaker always starts a new cue.
+    split_on_speaker: bool = True
+
+    @property
+    def highlight_mode(self) -> str:
+        if self.highlight != "none":
+            return self.highlight
+        return "karaoke" if self.karaoke else "none"
+
+
+def _coerce_choice(value: object, allowed: Sequence[str], *, default: str) -> str:
+    text = str(value if value is not None else default).strip().lower().replace("-", "_")
+    return text if text in allowed else default
+
+
+def _coerce_str_list(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        items = [part for part in _re.split(r"[,\n]", value)]
+    elif isinstance(value, Sequence):
+        items = [str(part) for part in value]
+    else:
+        return ()
+    return tuple(item.strip() for item in items if str(item).strip())
+
+
+def _coerce_hex(value: object) -> str:
+    text = str(value or "").strip()
+    if _re.fullmatch(r"#?[0-9a-fA-F]{6}", text):
+        return "#" + text.lstrip("#").upper()
+    return ""
 
 
 def subtitle_settings_from_conf(
@@ -122,6 +212,22 @@ def subtitle_settings_from_conf(
     subtitles_conf = conf.get("subtitles", {}) if isinstance(conf, Mapping) else {}
     if not isinstance(subtitles_conf, Mapping):
         subtitles_conf = {}
+    preset_name = str(subtitles_conf.get("preset") or "").strip().lower().replace("-", "_")
+    if preset_name and presets.get_preset(preset_name) is None:
+        LOG.warning(
+            "Unknown subtitles.preset %r; known: %s",
+            preset_name, ", ".join(presets.preset_names()),
+        )
+        preset_name = ""
+    if preset_name:
+        # A preset's render settings are defaults; explicit keys win. Its font
+        # applies when config.yaml names none.
+        look = presets.preset_look(preset_name)
+        subtitles_conf = {
+            "font": look["fontPath"],
+            **presets.preset_render(preset_name),
+            **{k: v for k, v in subtitles_conf.items() if v is not None and v != ""},
+        }
     enabled = bool(subtitles_conf.get("enabled", True))
     font_value = subtitles_conf.get("font") or subtitles_conf.get("font_path")
     ass_style_value = subtitles_conf.get("ass_style")
@@ -194,6 +300,35 @@ def subtitle_settings_from_conf(
             maximum=1.0,
         ),
         karaoke=_coerce_bool(subtitles_conf.get("karaoke"), default=False),
+        preset=preset_name,
+        highlight=_coerce_choice(subtitles_conf.get("highlight"), HIGHLIGHT_MODES, default="none"),
+        highlight_color=_coerce_hex(subtitles_conf.get("highlight_color")),
+        text_case=_coerce_choice(subtitles_conf.get("text_case"), TEXT_CASES, default="none"),
+        strip_punctuation=_coerce_choice(
+            subtitles_conf.get("strip_punctuation"), PUNCTUATION_MODES, default="keep",
+        ),
+        censor_words=_coerce_str_list(subtitles_conf.get("censor_words")),
+        censor_style=_coerce_choice(subtitles_conf.get("censor_style"), CENSOR_STYLES, default="middle"),
+        line_balance=_coerce_choice(subtitles_conf.get("line_balance"), LINE_BALANCES, default="balanced"),
+        max_chars_per_line=_coerce_int(subtitles_conf.get("max_chars_per_line"), default=0, minimum=0),
+        max_words_per_cue=_coerce_int(subtitles_conf.get("max_words_per_cue"), default=0, minimum=0),
+        pause_split_s=_coerce_float(
+            subtitles_conf.get("pause_split_s"), default=DEFAULT_PAUSE_SPLIT_S, minimum=0.05, maximum=5.0,
+        ),
+        min_duration_s=_coerce_float(
+            subtitles_conf.get("min_duration_s"), default=DEFAULT_MIN_DURATION_S, minimum=0.0, maximum=5.0,
+        ),
+        max_duration_s=_coerce_float(
+            subtitles_conf.get("max_duration_s"), default=DEFAULT_MAX_DURATION_S, minimum=0.5, maximum=30.0,
+        ),
+        min_gap_s=_coerce_float(
+            subtitles_conf.get("min_gap_s"), default=DEFAULT_GAP_BETWEEN_SUBTITLES_S, minimum=0.0, maximum=2.0,
+        ),
+        blur=_coerce_float(subtitles_conf.get("blur"), default=0.0, minimum=0.0, maximum=30.0),
+        speaker_colors=tuple(
+            c for c in (_coerce_hex(v) for v in _coerce_str_list(subtitles_conf.get("speaker_colors"))) if c
+        ),
+        split_on_speaker=_coerce_bool(subtitles_conf.get("split_on_speaker"), default=True),
     )
 
 
@@ -394,6 +529,24 @@ def _dialogue_margin_v(header: str, settings: SubtitleRenderSettings) -> int:
     return max(1, margin_v)
 
 
+def _fade_ms(seg: SubtitleSegment, settings: SubtitleRenderSettings) -> tuple[int, int]:
+    """Fade-in / fade-out of a cue in ms, clamped so they never outlast it."""
+
+    fade_in = max(0.0, float(settings.fade_in_duration))
+    fade_out = max(0.0, float(settings.fade_out_duration))
+    if fade_in <= 0 and fade_out <= 0:
+        return 0, 0
+
+    duration = max(0.0, float(seg.end) - float(seg.start))
+    total = fade_in + fade_out
+    if total > duration and total > 0:
+        # Scale both down proportionally so the cue still reaches full opacity.
+        scale = duration / total
+        fade_in *= scale
+        fade_out *= scale
+    return int(round(fade_in * 1000)), int(round(fade_out * 1000))
+
+
 def _fade_tag(seg: SubtitleSegment, settings: SubtitleRenderSettings) -> str:
     """RU: Тег ``\\fad`` для плавного появления/исчезновения реплики.
 
@@ -404,67 +557,16 @@ def _fade_tag(seg: SubtitleSegment, settings: SubtitleRenderSettings) -> str:
     clamped so the two fades can never outlast the cue itself.
     """
 
-    fade_in = max(0.0, float(settings.fade_in_duration))
-    fade_out = max(0.0, float(settings.fade_out_duration))
-    if fade_in <= 0 and fade_out <= 0:
-        return ""
-
-    duration = max(0.0, float(seg.end) - float(seg.start))
-    total = fade_in + fade_out
-    if total > duration and total > 0:
-        # Scale both down proportionally so the cue still reaches full opacity.
-        scale = duration / total
-        fade_in *= scale
-        fade_out *= scale
-
-    in_ms = int(round(fade_in * 1000))
-    out_ms = int(round(fade_out * 1000))
+    in_ms, out_ms = _fade_ms(seg, settings)
     if in_ms <= 0 and out_ms <= 0:
         return ""
     return f"{{\\fad({in_ms},{out_ms})}}"
 
 
-def _write_ass_file(path: Path, segments: Sequence[SubtitleSegment], settings: SubtitleRenderSettings) -> None:
-    # Try to load ASS style from the style-editor output file
-    ass_style_path = _find_ass_style_file()
-    if ass_style_path and ass_style_path.exists():
-        header = ass_style_path.read_text(encoding="utf-8").rstrip()
-    else:
-        font_name = _font_name_from_path(settings.font_path)
-        header = _default_ass_header(font_name, settings.font_size_px)
+# --- Style header -------------------------------------------------------------
 
-    # Events section
-    events = "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-
-    margin_v = _dialogue_margin_v(header, settings)
-
-    dialogue_lines: list[str] = []
-    for seg in segments:
-        if not settings.karaoke:
-            text = " ".join(seg.text.split())
-            dialogue_lines.append(
-                f"Dialogue: 0,{_fmt_ass_time(seg.start)},{_fmt_ass_time(seg.end)},Default,,0,0,"
-                f"{margin_v},,{_fade_tag(seg, settings)}{text}"
-            )
-            continue
-        words = _build_timed_words(seg)
-        parts: list[str] = []
-        # \\kf durations run back to back from the cue's start, so a cue that
-        # appears before its first word (merged blocks, min-duration padding)
-        # needs that lead-in as an empty syllable, or every highlight is early.
-        lead_cs = int(round((words[0].start - seg.start) * 100)) if words else 0
-        lead = f"{{\\k{lead_cs}}}" if lead_cs > 0 else ""
-        for w in words:
-            dur_cs = int(round((w.end - w.start) * 100))
-            parts.append(f"{lead}{{\\kf{dur_cs}}}{w.text}")
-            lead = ""
-
-        dialogue_text = _fade_tag(seg, settings) + " ".join(parts)
-        dialogue_lines.append(
-            f"Dialogue: 0,{_fmt_ass_time(seg.start)},{_fmt_ass_time(seg.end)},Default,,0,0,{margin_v},,{dialogue_text}"
-        )
-
-    path.write_text(header + events + "\n".join(dialogue_lines) + "\n", encoding="utf-8")
+# Top-anchored text clears the platform's top bar (IG: 220px).
+DEFAULT_TOP_MARGIN_V = 250
 
 
 def _find_ass_style_file() -> Path | None:
@@ -489,35 +591,463 @@ def _font_name_from_path(font_path: Path) -> str:
     return " ".join(word.capitalize() for word in name.split())
 
 
-def _default_ass_header(font_name: str, font_size: int) -> str:
-    """RU: Стиль субтитров по умолчанию — «вирусные» караоке-подписи.
+@lru_cache(maxsize=32)
+def _font_family(font_path: str) -> str:
+    """The family name libass/fontconfig will look the font up by.
 
-    EN: The default caption style — viral-format karaoke captions.
-
-    Used when no style file from the visual editor is present. Colours read as
-    PrimaryColour = already spoken, SecondaryColour = still upcoming, because a
-    ``\\kf`` sweep fills from secondary to primary.
+    The style editor writes the file's stem ("MontserratBlack"), which only
+    happens to work for fonts whose family is the stem in another case.
     """
-    style_fields = ",".join(str(field) for field in (
-        "Default", font_name, font_size,
-        DEFAULT_PRIMARY_COLOUR, DEFAULT_SECONDARY_COLOUR,
-        DEFAULT_OUTLINE_COLOUR, DEFAULT_BACK_COLOUR,
-        -1, 0, 0, 0,          # Bold, Italic, Underline, StrikeOut
-        100, 100, 0, 0,       # ScaleX, ScaleY, Spacing, Angle
-        1,                    # BorderStyle: outline + shadow
-        DEFAULT_OUTLINE_WIDTH, DEFAULT_SHADOW_DEPTH,
-        2,                    # Alignment: bottom centre
-        DEFAULT_MARGIN_H, DEFAULT_MARGIN_H, DEFAULT_MARGIN_V,
-        1,                    # Encoding
-    ))
-    return f"""[Script Info]
-ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
 
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: {style_fields}"""
+    try:
+        from fontTools.ttLib import TTFont  # noqa: PLC0415 - heavy, optional
+
+        family = TTFont(font_path, lazy=True)["name"].getDebugName(1)
+        if family:
+            return str(family)
+    except Exception:  # noqa: BLE001 - missing or unreadable font
+        pass
+    return _font_name_from_path(Path(font_path))
+
+
+def _squash_name(name: str) -> str:
+    return _re.sub(r"[\s_\-]+", "", name).lower()
+
+
+def _normalise_header(header: str, settings: SubtitleRenderSettings) -> str:
+    """Make an editor-written header render the way it was previewed."""
+
+    family = _font_family(str(settings.font_path))
+    aliases = {_squash_name(settings.font_path.stem), _squash_name(family)}
+    lines = []
+    for line in header.splitlines():
+        if line.startswith("Style:"):
+            parts = line[len("Style:"):].split(",")
+            if len(parts) > 1 and _squash_name(parts[1]) in aliases:
+                parts[1] = family
+                line = "Style:" + ",".join(parts)
+        lines.append(line)
+    header = "\n".join(lines)
+    for key, value in (("WrapStyle", "0"), ("ScaledBorderAndShadow", "yes")):
+        if _re.search(rf"^{key}:", header, _re.MULTILINE):
+            continue
+        if _re.search(r"^PlayResY:", header, _re.MULTILINE):
+            header = _re.sub(
+                r"^(PlayResY:[^\n]*)$", rf"\1\n{key}: {value}", header, count=1, flags=_re.MULTILINE,
+            )
+        else:
+            header = header.replace("[Script Info]", f"[Script Info]\n{key}: {value}", 1)
+    return header
+
+
+def _default_ass_header(font_name: str, font_size: int) -> str:
+    """RU: Стиль субтитров по умолчанию — «вирусные» подписи (пресет forge).
+
+    EN: The default caption style — the "forge" preset.
+
+    Used when neither a preset nor a style file from the visual editor is set.
+    Colours read as PrimaryColour = already spoken, SecondaryColour = still
+    upcoming, because a ``\\kf`` sweep fills from secondary to primary.
+    """
+
+    look = presets.scale_look(presets.preset_look(presets.DEFAULT_PRESET), font_size)
+    return presets.ass_header(look, font_name)
+
+
+def _resolve_style_header(settings: SubtitleRenderSettings) -> str:
+    """The ``[Script Info]`` + ``[V4+ Styles]`` part of a reel's .ass.
+
+    An explicit ``subtitles.preset`` wins; otherwise the style editor's file
+    (``subtitles.ass_style``, then the default location); otherwise "forge".
+    """
+
+    family = _font_family(str(settings.font_path))
+    if settings.preset:
+        look = presets.scale_look(presets.preset_look(settings.preset), settings.font_size_px)
+        return presets.ass_header(look, family)
+    for candidate in (settings.ass_style, _find_ass_style_file()):
+        if candidate is not None and candidate.exists():
+            return _normalise_header(candidate.read_text(encoding="utf-8").rstrip(), settings)
+    return _default_ass_header(family, settings.font_size_px)
+
+
+def _parse_ass_styles(header: str) -> dict[str, dict[str, str]]:
+    """Styles by lowercased name, each as {lowercased field: value}."""
+
+    default_names = [n.strip().lower() for n in presets.ASS_STYLE_FORMAT[len("Format:"):].split(",")]
+    names = default_names
+    styles: dict[str, dict[str, str]] = {}
+    in_styles = False
+    for raw in header.splitlines():
+        line = raw.strip()
+        if line.startswith("["):
+            in_styles = line.lower() in ("[v4+ styles]", "[v4 styles]")
+            continue
+        if not in_styles:
+            continue
+        lower = line.lower()
+        if lower.startswith("format:"):
+            names = [n.strip().lower() for n in line[len("Format:"):].split(",")]
+        elif lower.startswith("style:"):
+            values = [v.strip() for v in line[len("Style:"):].split(",")]
+            fields = dict(zip(names, values))
+            styles[fields.get("name", "").lower()] = fields
+    return styles
+
+
+def _style_num(style: Mapping[str, str], key: str, default: float) -> float:
+    try:
+        return float(style.get(key, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _ass_play_res_x(header: str) -> int:
+    match = _re.search(r"^PlayResX:\s*(\d+)", header, _re.MULTILINE)
+    return int(match.group(1)) if match else 1080
+
+
+@dataclass(frozen=True)
+class _Layout:
+    """Where and how wide a reel's cues are laid out."""
+
+    measurer: TextMeasurer
+    max_width: float
+    max_lines: int
+    play_x: int
+    play_y: int
+    alignment: int
+    margin_l: int
+    margin_r: int
+    # Per-event MarginL/MarginR; 0 inherits the style's.
+    event_margin_l: int = 0
+    event_margin_r: int = 0
+
+
+def _layout_for(header: str, settings: SubtitleRenderSettings) -> _Layout:
+    style = _parse_ass_styles(header).get("default", {})
+    play_x = _ass_play_res_x(header)
+    play_y = _ass_play_res_y(header)
+    margin_l = int(_style_num(style, "marginl", 0))
+    margin_r = int(_style_num(style, "marginr", 0))
+    usable = play_x - margin_l - margin_r
+    if usable <= 0:
+        usable = play_x
+    font_path = settings.font_path if settings.font_path.exists() else None
+    measurer = TextMeasurer(
+        font_path,
+        _style_num(style, "fontsize", settings.font_size_px),
+        scale_x=_style_num(style, "scalex", 100),
+        spacing=_style_num(style, "spacing", 0),
+        # Outline (or the box padding, for BorderStyle 3/4) widens each line.
+        outline=_style_num(style, "outline", 0),
+    )
+    alignment = int(_style_num(style, "alignment", 2)) or 2
+    target = float(settings.max_width_ratio) * play_x
+    event_margin = 0
+    if target > usable and (alignment - 1) % 3 == 1:
+        # A width ratio wider than the style's margins widens the text for
+        # real: centred cues get symmetric per-event margins to match.
+        event_margin = max(1, int(round((play_x - target) / 2)))
+        usable = play_x - 2 * event_margin
+    return _Layout(
+        measurer=measurer,
+        max_width=min(float(usable), target),
+        max_lines=settings.max_lines if settings.wrap_words else 1,
+        play_x=play_x,
+        play_y=play_y,
+        alignment=alignment,
+        margin_l=event_margin or margin_l,
+        margin_r=event_margin or margin_r,
+        event_margin_l=event_margin,
+        event_margin_r=event_margin,
+    )
+
+
+def _position_tag(layout: _Layout, settings: SubtitleRenderSettings) -> str:
+    """``\\an`` (and ``\\pos`` for an offset centre) for subtitles.vertical_align."""
+
+    align = settings.vertical_align
+    if align == "style":
+        return ""
+    column = (layout.alignment - 1) % 3  # 0 left, 1 centre, 2 right
+    row_base = {"bottom": 1, "center": 4, "top": 7}[align]
+    tag = f"\\an{row_base + column}"
+    if align == "center" and settings.vertical_offset:
+        # libass ignores MarginV for middle rows, so an offset needs \pos.
+        x = {
+            0: layout.margin_l,
+            1: layout.margin_l + (layout.play_x - layout.margin_l - layout.margin_r) / 2,
+            2: layout.play_x - layout.margin_r,
+        }[column]
+        y = layout.play_y / 2 - float(settings.vertical_offset) * layout.play_y
+        tag += f"\\pos({round(x)},{round(y)})"
+    return tag
+
+
+def _event_margin_v(header: str, settings: SubtitleRenderSettings, layout: _Layout) -> int:
+    align = settings.vertical_align
+    style_row = (
+        "bottom" if layout.alignment in (1, 2, 3)
+        else "center" if layout.alignment in (4, 5, 6)
+        else "top"
+    )
+    if align in ("style", "center", style_row):
+        return _dialogue_margin_v(header, settings)
+    # Moving a centred style to an edge: its MarginV (usually 0) means nothing
+    # there, so start from that edge's safe-zone default.
+    base = DEFAULT_MARGIN_V if align == "bottom" else DEFAULT_TOP_MARGIN_V
+    return max(1, base + int(round(float(settings.vertical_offset) * layout.play_y)))
+
+
+# --- Cue text -----------------------------------------------------------------
+
+
+def _escape_ass_text(text: str) -> str:
+    """Transcript text must not open override blocks or start escapes."""
+
+    return text.replace("\\", "/").replace("{", "(").replace("}", ")")
+
+
+def _censor_for(settings: SubtitleRenderSettings) -> Callable[[str], bool] | None:
+    return build_censor_matcher(settings.censor_words) if settings.censor_words else None
+
+
+def _display_word(
+    word: str,
+    settings: SubtitleRenderSettings,
+    censor: Callable[[str], bool] | None,
+) -> str:
+    text = word
+    if censor is not None and censor(text):
+        text = censor_word(text, settings.censor_style)
+    text = strip_punctuation(text, settings.strip_punctuation)
+    text = apply_case(text, settings.text_case)
+    return _escape_ass_text(text)
+
+
+def _split_colour(value: str) -> tuple[str, str]:
+    """``&HAABBGGRR`` → (``AA``, ``BBGGRR``)."""
+
+    digits = value.strip().lstrip("&").lstrip("Hh").rstrip("&").zfill(8)[-8:].upper()
+    return digits[:2], digits[2:]
+
+
+def _colour_tags(value: str, slot: int = 1) -> str:
+    alpha, bgr = _split_colour(value)
+    return f"\\{slot}c&H{bgr}&\\{slot}a&H{alpha}&"
+
+
+def _hex_tag(hex_colour: str, slot: int = 1) -> str:
+    return f"\\{slot}c{presets.ass_override_colour(hex_colour)}" if hex_colour else ""
+
+
+def _speaker_colours(
+    segments: Sequence[SubtitleSegment],
+    settings: SubtitleRenderSettings,
+) -> dict[str, str]:
+    """Speaker label → colour, assigned in order of first appearance."""
+
+    colours: dict[str, str] = {}
+    if not settings.speaker_colors:
+        return colours
+    for seg in segments:
+        label = seg.speaker
+        if label and label not in colours:
+            colours[label] = settings.speaker_colors[len(colours) % len(settings.speaker_colors)]
+    return colours
+
+
+@dataclass(frozen=True)
+class _WordLook:
+    """Override tags that dress the active and inactive words of a cue."""
+
+    inactive: str
+    active: str
+    after_active: str
+    pop: Callable[[int], str] | None
+
+
+def _word_look(
+    styles: Mapping[str, Mapping[str, str]],
+    settings: SubtitleRenderSettings,
+    *,
+    blur: str,
+    speaker_colour: str,
+) -> _WordLook:
+    default = styles.get("default", {})
+    highlight = styles.get("highlight")
+    mode = settings.highlight_mode
+    if highlight is not None:
+        # The look defines both: Default = inactive, Highlight = active.
+        inactive = blur + _hex_tag(speaker_colour)
+        active = "\\rHighlight" + blur + _hex_tag(settings.highlight_color)
+        after = "\\r" + inactive
+        scale_src = highlight
+    else:
+        # Same reading as the \kf sweep: SecondaryColour = not (yet) spoken,
+        # PrimaryColour = the spoken word.
+        secondary = default.get("secondarycolour", "&H00FFFFFF")
+        primary = default.get("primarycolour", "&H000AD6FF")
+        if mode == "reveal":
+            # Typewriter keeps the cue's own colour; only visibility changes.
+            secondary = primary
+        inactive = blur + (_hex_tag(speaker_colour) or _colour_tags(secondary))
+        active = blur + (_hex_tag(settings.highlight_color) or _colour_tags(primary))
+        after = inactive
+        scale_src = default
+    pop = None
+    if mode == "pop":
+        sx = _style_num(scale_src, "scalex", 100)
+        sy = _style_num(scale_src, "scaley", 100)
+        after += f"\\fscx{sx:g}\\fscy{sy:g}"
+
+        def pop(duration_ms: int, sx: float = sx, sy: float = sy) -> str:
+            ms = max(1, min(_POP_MS, duration_ms))
+            big_x, big_y = sx * _POP_START_SCALE, sy * _POP_START_SCALE
+            return f"\\fscx{big_x:g}\\fscy{big_y:g}\\t(0,{ms},\\fscx{sx:g}\\fscy{sy:g})"
+
+    return _WordLook(inactive=inactive, active=active, after_active=after, pop=pop)
+
+
+def _join_rows(parts: Sequence[str], breaks: set[int]) -> str:
+    out = ""
+    for index, part in enumerate(parts):
+        if index:
+            out += "\\N" if index in breaks else " "
+        out += part
+    return out
+
+
+def _tag(body: str) -> str:
+    return f"{{{body}}}" if body else ""
+
+
+def _cue_dialogues(
+    seg: SubtitleSegment,
+    *,
+    settings: SubtitleRenderSettings,
+    layout: _Layout,
+    styles: Mapping[str, Mapping[str, str]],
+    margin_v: int,
+    position: str,
+    censor: Callable[[str], bool] | None,
+    speaker_colour: str,
+) -> list[str]:
+    timed = [
+        (_display_word(w.text, settings, censor), w)
+        for w in _build_timed_words(seg)
+    ]
+    timed = [(text, w) for text, w in timed if text]
+    if not timed:
+        return []
+    words = [text for text, _ in timed]
+    rows = wrap_words(
+        words,
+        layout.measurer,
+        max_width=layout.max_width,
+        max_lines=layout.max_lines,
+        balance=settings.line_balance,
+    )
+    breaks: set[int] = set()
+    index = 0
+    for row in rows[:-1]:
+        index += len(row)
+        breaks.add(index)
+
+    blur = f"\\blur{settings.blur:g}" if settings.blur > 0 else ""
+    mode = settings.highlight_mode
+
+    def dialogue(start: float, end: float, text: str) -> str:
+        return (
+            f"Dialogue: 0,{_fmt_ass_time(start)},{_fmt_ass_time(end)},Default,,"
+            f"{layout.event_margin_l},{layout.event_margin_r},{margin_v},,{text}"
+        )
+
+    if mode == "none":
+        base = position + blur + _hex_tag(speaker_colour)
+        return [dialogue(seg.start, seg.end, _fade_tag(seg, settings) + _tag(base) + _join_rows(words, breaks))]
+
+    if mode == "karaoke":
+        # \kf durations run back to back from the cue's start, so a cue that
+        # appears before its first word (merged blocks, min-duration padding)
+        # needs that lead-in as an empty syllable, or every highlight is early.
+        first = timed[0][1]
+        lead_cs = int(round((first.start - seg.start) * 100))
+        parts: list[str] = []
+        for i, (text, w) in enumerate(timed):
+            dur_cs = int(round((w.end - w.start) * 100))
+            lead = f"{{\\k{lead_cs}}}" if i == 0 and lead_cs > 0 else ""
+            parts.append(f"{lead}{{\\kf{dur_cs}}}{text}")
+        base = position + blur + _hex_tag(speaker_colour, 2)
+        return [dialogue(seg.start, seg.end, _fade_tag(seg, settings) + _tag(base) + _join_rows(parts, breaks))]
+
+    # Per-word modes: one event per spoken word, each showing the whole cue
+    # with that word dressed up (ai-video-captions / pycaps approach). The
+    # layout of every event is identical, so the text does not jump.
+    look = _word_look(styles, settings, blur=blur, speaker_colour=speaker_colour)
+    # Hidden (not yet spoken) words in "reveal". \4a would also clear a
+    # BorderStyle 4 box, which libass draws with the event's last alpha.
+    box_per_event = int(_style_num(styles.get("default", {}), "borderstyle", 1)) == 4
+    hide = "{\\1a&HFF&\\3a&HFF&}" if box_per_event else "{\\alpha&HFF&}"
+    fade_in_ms, fade_out_ms = _fade_ms(seg, settings)
+    events: list[str] = []
+    n = len(timed)
+    prev_end = float(seg.start)
+    for i in range(n):
+        start = float(seg.start) if i == 0 else max(prev_end, timed[i][1].start)
+        end = float(seg.end) if i == n - 1 else max(start, timed[i + 1][1].start)
+        if end - start < 0.01:
+            continue
+        prev_end = end
+        duration_ms = int(round((end - start) * 1000))
+        parts = []
+        for j, text in enumerate(words):
+            is_active = j == i or (mode == "fill" and j < i)
+            if mode == "reveal" and j > i:
+                parts.append((hide if j == i + 1 else "") + text)
+                continue
+            if is_active:
+                extra = look.pop(duration_ms) if (look.pop and j == i) else ""
+                parts.append(_tag(look.active + extra) + text + _tag(look.after_active))
+            else:
+                parts.append(text)
+        fade = ""
+        f_in = fade_in_ms if i == 0 else 0
+        f_out = fade_out_ms if i == n - 1 else 0
+        if f_in or f_out:
+            fade = f"{{\\fad({f_in},{f_out})}}"
+        text = fade + _tag(position + look.inactive) + _join_rows(parts, breaks)
+        events.append(dialogue(start, end, text))
+    return events
+
+
+def _write_ass_file(path: Path, segments: Sequence[SubtitleSegment], settings: SubtitleRenderSettings) -> None:
+    header = _resolve_style_header(settings)
+    layout = _layout_for(header, settings)
+    styles = _parse_ass_styles(header)
+    margin_v = _event_margin_v(header, settings, layout)
+    position = _position_tag(layout, settings)
+    censor = _censor_for(settings)
+    colours = _speaker_colours(segments, settings)
+
+    events = "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    dialogue_lines: list[str] = []
+    for seg in segments:
+        dialogue_lines.extend(
+            _cue_dialogues(
+                seg,
+                settings=settings,
+                layout=layout,
+                styles=styles,
+                margin_v=margin_v,
+                position=position,
+                censor=censor,
+                speaker_colour=colours.get(seg.speaker, ""),
+            ),
+        )
+
+    path.write_text(header + "\n" + events + "\n".join(dialogue_lines) + "\n", encoding="utf-8")
 
 
 def load_transcript_words(data: Mapping[str, Any]) -> list[_TimedSubtitleWord]:
@@ -597,6 +1127,7 @@ def load_transcript_segments(path: Path) -> list[SubtitleSegment]:
                     end=end,
                     text=text,
                     words=_words_within(all_words, start, end),
+                    speaker=_speaker_label(raw.get("speaker")),
                 ),
             )
         if sentence_segments:
@@ -620,9 +1151,15 @@ def load_transcript_segments(path: Path) -> list[SubtitleSegment]:
                 end=end,
                 text=text,
                 words=_words_within(all_words, start, end),
+                speaker=_speaker_label(raw.get("speaker")),
             ),
         )
     return segments
+
+
+def _speaker_label(value: object) -> str:
+    text = str(value or "").strip()
+    return "" if text.lower() in {"none", "null", "unknown"} else text
 
 
 def slice_segments_for_clip(
@@ -650,6 +1187,7 @@ def slice_segments_for_clip(
                     start=round(shifted_start, 3),
                     end=round(shifted_end, 3),
                     text=seg.text,
+                    speaker=seg.speaker,
                 ),
             )
             continue
@@ -680,6 +1218,7 @@ def slice_segments_for_clip(
                 end=kept[-1].end,
                 text=" ".join(word.text for word in kept),
                 words=tuple(kept),
+                speaker=seg.speaker,
             ),
         )
     return out
@@ -731,6 +1270,7 @@ def retime_segments(
                 end=max(seg.end, words[-1].end),
                 text=seg.text,
                 words=words,
+                speaker=seg.speaker,
             ),
         )
     return out
@@ -798,26 +1338,20 @@ def _prepare_subtitle_segments(
     if not segments:
         return []
 
-    lines = settings.max_lines if settings.wrap_words else 1
-    # RU: 25 симв./строку выведены для ширины текста 0.65 кадра (см. блок выше).
-    #     Масштабируем от неё, чтобы ползунок max_width_ratio реально управлял
-    #     длиной строки: раньше он парсился и игнорировался.
-    # EN: The 25 chars/line guideline assumes text spanning 0.65 of the frame
-    #     (see the block above). Scale from that so max_width_ratio actually
-    #     drives line length — it used to be parsed and then ignored.
-    ratio = max(0.1, float(settings.max_width_ratio))
-    max_chars_per_line = max(
-        8,
-        int(round(DEFAULT_CHARS_PER_LINE * ratio / CHARS_PER_LINE_REFERENCE_RATIO)),
-    )
-    max_chars = max(12, lines * max_chars_per_line)
-    min_chars = max(8, max_chars // 3)
+    header = _resolve_style_header(settings)
+    layout = _layout_for(header, settings)
+    lines = layout.max_lines
+    max_chars_per_line = _chars_per_line(layout, settings)
+    max_chars = max(8, lines * max_chars_per_line)
+    min_chars = max(4, max_chars // 3)
 
     # Step 1: Merge consecutive short segments into blocks
     merged = _merge_consecutive_segments(
         list(segments),
-        max_duration=DEFAULT_MAX_DURATION_S,
+        max_duration=settings.max_duration_s,
         max_chars=max_chars,
+        pause_s=settings.pause_split_s,
+        split_on_speaker=settings.split_on_speaker,
     )
 
     # Step 2: Split oversized blocks (respecting sentence boundaries)
@@ -831,11 +1365,31 @@ def _prepare_subtitle_segments(
             ),
         )
 
+    # Step 2b: Short punchy cues (subtitles.max_words_per_cue).
+    if settings.max_words_per_cue > 0:
+        prepared = [
+            chunk
+            for seg in prepared
+            for chunk in _split_by_word_count(seg, settings.max_words_per_cue)
+        ]
+
+    # Step 2c: Character counts only approximate the font; make sure every
+    # cue really fits max_lines lines of the usable width.
+    censor = _censor_for(settings)
+    prepared = [
+        chunk for seg in prepared for chunk in _split_to_fit(seg, layout, settings, censor)
+    ]
+
     # Step 3: Remove any overlapping blocks
     prepared = _remove_overlaps(prepared)
 
     # Step 4: Enforce minimum duration and gap (after overlap removal)
-    prepared = _enforce_timing_constraints(prepared)
+    prepared = _enforce_timing_constraints(
+        prepared,
+        min_duration=settings.min_duration_s,
+        max_duration=settings.max_duration_s,
+        min_gap=settings.min_gap_s,
+    )
 
     # Step 5: Remove overlaps again (enforce may have created new ones)
     prepared = _remove_overlaps(prepared)
@@ -843,13 +1397,106 @@ def _prepare_subtitle_segments(
     return prepared
 
 
+def _chars_per_line(layout: _Layout, settings: SubtitleRenderSettings) -> int:
+    """Characters per line: explicit, or how many average glyphs of this font
+    fit the usable width (replaces the font-blind 25-per-line guideline)."""
+
+    if settings.max_chars_per_line > 0:
+        return settings.max_chars_per_line
+    sample = apply_case("Разбираемся, почему этот выпуск вызывает споры", settings.text_case)
+    inner = layout.max_width - 2.0 * layout.measurer.outline
+    return max(4, int(inner / layout.measurer.average_char_width(sample)))
+
+
+def _chunk_segment(segment: SubtitleSegment, chunk: Sequence[_TimedSubtitleWord]) -> SubtitleSegment:
+    return SubtitleSegment(
+        start=round(chunk[0].start, 3),
+        end=round(chunk[-1].end, 3),
+        text=" ".join(w.text for w in chunk).strip(),
+        words=tuple(chunk) if segment.words else (),
+        speaker=segment.speaker,
+    )
+
+
+def _split_by_word_count(segment: SubtitleSegment, limit: int) -> list[SubtitleSegment]:
+    """At most ``limit`` words per cue; a sentence end also closes a chunk."""
+
+    words = _build_timed_words(segment)
+    if len(words) <= limit:
+        return [segment]
+    chunks: list[list[_TimedSubtitleWord]] = [[]]
+    for word in words:
+        if len(chunks[-1]) >= limit:
+            chunks.append([])
+        chunks[-1].append(word)
+        if _SENTENCE_END_RE.search(word.text):
+            chunks.append([])
+    return [_chunk_segment(segment, chunk) for chunk in chunks if chunk]
+
+
+def _best_split_index(texts: Sequence[str]) -> int:
+    """Where to cut a cue in two: near the middle, at a natural point."""
+
+    total = sum(len(t) for t in texts) or 1
+    best_index, best_cost = len(texts) // 2, float("inf")
+    left = 0
+    for index in range(1, len(texts)):
+        left += len(texts[index - 1])
+        cost = abs(2 * left - total) / total
+        prev = texts[index - 1]
+        if _SENTENCE_END_RE.search(prev):
+            cost -= 0.35
+        elif _COMMA_AFTER.search(prev):
+            cost -= 0.2
+        if prev.lower().strip(".,!?…;:") in NO_LINE_END:
+            cost += 0.4
+        if cost < best_cost:
+            best_index, best_cost = index, cost
+    return best_index
+
+
+def _split_to_fit(
+    segment: SubtitleSegment,
+    layout: _Layout,
+    settings: SubtitleRenderSettings,
+    censor: Callable[[str], bool] | None,
+    depth: int = 0,
+) -> list[SubtitleSegment]:
+    words = _build_timed_words(segment)
+    shown = [_display_word(w.text, settings, censor) for w in words]
+    shown = [t for t in shown if t]
+    if len(words) <= 1 or depth >= 8:
+        return [segment]
+    rows = wrap_words(
+        shown,
+        layout.measurer,
+        max_width=layout.max_width,
+        max_lines=layout.max_lines,
+        balance=settings.line_balance,
+    )
+    if len(rows) <= layout.max_lines and lines_fit(rows, layout.measurer, layout.max_width):
+        return [segment]
+    cut = _best_split_index([w.text for w in words])
+    out: list[SubtitleSegment] = []
+    for chunk in (words[:cut], words[cut:]):
+        if chunk:
+            out.extend(_split_to_fit(_chunk_segment(segment, chunk), layout, settings, censor, depth + 1))
+    return out
+
+
 def _merge_consecutive_segments(
     segments: list[SubtitleSegment],
     *,
     max_duration: float,
     max_chars: int,
+    pause_s: float = DEFAULT_PAUSE_SPLIT_S,
+    split_on_speaker: bool = True,
 ) -> list[SubtitleSegment]:
-    """Merge consecutive short segments into single subtitle blocks."""
+    """Merge consecutive short segments into single subtitle blocks.
+
+    A pause of ``pause_s`` or a change of speaker always ends a block: one cue
+    must not run two people's words together (BBC: new speaker, new subtitle).
+    """
     if not segments:
         return []
 
@@ -858,6 +1505,7 @@ def _merge_consecutive_segments(
     current_words: list[_TimedSubtitleWord] = []
     current_start: float | None = None
     current_end: float = 0.0
+    current_speaker = ""
 
     def flush() -> None:
         if current_text_parts and current_start is not None:
@@ -869,6 +1517,7 @@ def _merge_consecutive_segments(
                     # Merging is pure concatenation in time order, so the
                     # word timings stay valid for the combined block.
                     words=tuple(current_words),
+                    speaker=current_speaker,
                 )
             )
 
@@ -884,7 +1533,9 @@ def _merge_consecutive_segments(
         should_flush = False
         if current_start is not None:
             gap = seg.start - current_end
-            if gap > 0.5:
+            if gap > pause_s:
+                should_flush = True
+            elif split_on_speaker and seg.speaker != current_speaker:
                 should_flush = True
             elif combined_duration > max_duration:
                 should_flush = True
@@ -901,6 +1552,7 @@ def _merge_consecutive_segments(
 
         if current_start is None:
             current_start = seg.start
+            current_speaker = seg.speaker
         current_text_parts.append(text)
         # If any part of a block lacks word timings the totals will not match
         # its text, and _real_timed_words falls back to interpolation.
@@ -935,19 +1587,13 @@ def _remove_overlaps(segments: list[SubtitleSegment]) -> list[SubtitleSegment]:
         if seg.start < prev.end:
             trimmed_end = seg.start - 0.05
             if trimmed_end - prev.start >= _MIN_TRIMMED_DURATION_S:
-                result[-1] = SubtitleSegment(
-                    start=prev.start,
-                    end=round(trimmed_end, 3),
-                    text=prev.text,
-                    words=prev.words,
-                )
+                result[-1] = replace(prev, end=round(trimmed_end, 3))
             else:
                 new_start = prev.end + 0.05
-                seg = SubtitleSegment(
+                seg = replace(
+                    seg,
                     start=round(new_start, 3),
                     end=round(max(seg.end, new_start + _MIN_TRIMMED_DURATION_S), 3),
-                    text=seg.text,
-                    words=seg.words,
                 )
         result.append(seg)
     return result
@@ -955,6 +1601,10 @@ def _remove_overlaps(segments: list[SubtitleSegment]) -> list[SubtitleSegment]:
 
 def _enforce_timing_constraints(
     segments: list[SubtitleSegment],
+    *,
+    min_duration: float = DEFAULT_MIN_DURATION_S,
+    max_duration: float = DEFAULT_MAX_DURATION_S,
+    min_gap: float = DEFAULT_GAP_BETWEEN_SUBTITLES_S,
 ) -> list[SubtitleSegment]:
     """Enforce minimum duration and gap between subtitle blocks."""
     if not segments:
@@ -965,34 +1615,19 @@ def _enforce_timing_constraints(
     for seg in segments:
         duration = seg.end - seg.start
 
-        if duration < DEFAULT_MIN_DURATION_S:
-            seg = SubtitleSegment(
-                start=seg.start,
-                end=round(seg.start + DEFAULT_MIN_DURATION_S, 3),
-                text=seg.text,
-                words=seg.words,
-            )
+        if duration < min_duration:
+            seg = replace(seg, end=round(seg.start + min_duration, 3))
 
-        if duration > DEFAULT_MAX_DURATION_S:
-            seg = SubtitleSegment(
-                start=seg.start,
-                end=round(seg.start + DEFAULT_MAX_DURATION_S, 3),
-                text=seg.text,
-                words=seg.words,
-            )
+        if duration > max_duration:
+            seg = replace(seg, end=round(seg.start + max_duration, 3))
 
         if result:
             prev = result[-1]
             gap = seg.start - prev.end
-            if gap < DEFAULT_GAP_BETWEEN_SUBTITLES_S:
-                new_prev_end = seg.start - DEFAULT_GAP_BETWEEN_SUBTITLES_S
-                if new_prev_end > prev.start and (new_prev_end - prev.start) >= DEFAULT_MIN_DURATION_S:
-                    result[-1] = SubtitleSegment(
-                        start=prev.start,
-                        end=round(new_prev_end, 3),
-                        text=prev.text,
-                        words=prev.words,
-                    )
+            if gap < min_gap:
+                new_prev_end = seg.start - min_gap
+                if new_prev_end > prev.start and (new_prev_end - prev.start) >= min_duration:
+                    result[-1] = replace(prev, end=round(new_prev_end, 3))
 
         result.append(seg)
 
@@ -1001,15 +1636,7 @@ def _enforce_timing_constraints(
 
 _SENTENCE_END_RE = _re.compile(r"[.!?…]\s*$")
 
-_NO_LINE_END = frozenset({
-    "в", "на", "по", "из", "за", "к", "у", "о", "об", "от", "до", "со", "ко",
-    "а", "и", "но", "ни", "да", "нет", "не", "то", "ли", "бы", "же", "вот",
-    "ну", "или", "что", "как", "где", "когда", "чтобы", "пока", "тоже", "уже",
-    "ещё", "еще", "просто", "только", "ведь", "если", "либо", "однако", "потом",
-    "тогда", "сейчас", "потому", "раз", "хотя", "чтоб", "будто", "даже",
-    "вообще", "именно", "конечно", "пожалуй", "пожалуйста",
-    "сразу", "типа", "кроме", "после", "перед", "между", "через", "около",
-})
+_NO_LINE_END = NO_LINE_END
 
 _COMMA_AFTER = _re.compile(r"[,;:—–]\s*$")
 
@@ -1050,6 +1677,7 @@ def _split_long_segment(
                 # Carry the timings through the split so the sub-segments keep
                 # real word timing instead of re-interpolating.
                 words=tuple(chunk_words) if segment.words else (),
+                speaker=segment.speaker,
             )
         )
         word_index = chunk_end
@@ -1262,6 +1890,7 @@ def _coerce_bool(value: object, *, default: bool) -> bool:
 
 
 def _coerce_align(value: object, *, default: str) -> str:
-    allowed = {"top", "center", "bottom"}
     align = str(value or default).strip().lower()
-    return align if align in allowed else default
+    if align == "middle":
+        align = "center"
+    return align if align in VERTICAL_ALIGNS else default

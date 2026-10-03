@@ -36,7 +36,10 @@ def test_subtitle_settings_defaults_are_conservative(tmp_path: Path) -> None:
     # Text spans the frame minus the 140px action-rail inset on both sides.
     assert settings.max_width_ratio == 0.74
     assert settings.wrap_words is True
-    assert settings.vertical_align == "bottom"
+    # The position comes from the .ass style (editor or preset) unless overridden.
+    assert settings.vertical_align == "style"
+    assert settings.highlight_mode == "none"
+    assert settings.preset == ""
     assert settings.vertical_offset == 0.0
     assert settings.ass_style is None
     assert settings.fade_in_duration == bs.DEFAULT_FADE_IN_S
@@ -447,3 +450,215 @@ def test_ass_header_parsing_reads_margin_and_res() -> None:
     # No usable header: fall back rather than crash.
     assert bs._ass_play_res_y("") == 1920
     assert bs._ass_style_margin_v("") == 0
+
+
+# --- Presets, layout and highlight modes ---------------------------------------
+
+REPO = Path(__file__).resolve().parents[1]
+FONT = REPO / "assets/fonts/bignoodletoooblique.ttf"
+
+
+def _timed(text: str, step: float = 0.5, speaker: str = "") -> bs.SubtitleSegment:
+    words = tuple(
+        bs._TimedSubtitleWord(round(i * step, 3), round(i * step + step * 0.9, 3), w)
+        for i, w in enumerate(text.split())
+    )
+    return bs.SubtitleSegment(
+        start=words[0].start, end=words[-1].end, text=text, words=words, speaker=speaker,
+    )
+
+
+def _dialogues(tmp_path: Path, segments: list[bs.SubtitleSegment], **conf: object) -> list[str]:
+    settings = bs.subtitle_settings_from_conf(
+        {"subtitles": {"font": str(FONT), **conf}}, repo_dir=tmp_path,
+    )
+    ass_path = tmp_path / "out.ass"
+    bs._write_ass_file(ass_path, segments, settings)
+    return [
+        line.split(",", 9)[9]
+        for line in ass_path.read_text(encoding="utf-8").splitlines()
+        if line.startswith("Dialogue:")
+    ]
+
+
+def test_preset_render_defaults_yield_to_explicit_config(tmp_path: Path) -> None:
+    settings = bs.subtitle_settings_from_conf(
+        {"subtitles": {"preset": "hormozi", "max_words_per_cue": 2}}, repo_dir=tmp_path,
+    )
+    assert settings.preset == "hormozi"
+    assert settings.highlight_mode == "word"
+    assert settings.text_case == "upper"
+    assert settings.max_words_per_cue == 2  # explicit beats the preset's 4
+    assert settings.font_path.name == "MontserratBlack.ttf"
+
+
+def test_unknown_preset_is_ignored(tmp_path: Path) -> None:
+    settings = bs.subtitle_settings_from_conf({"subtitles": {"preset": "nope"}}, repo_dir=tmp_path)
+    assert settings.preset == ""
+
+
+def test_long_cue_gets_explicit_balanced_line_break(tmp_path: Path) -> None:
+    [text] = _dialogues(tmp_path, [_timed("Разбираемся почему этот выпуск вызывает споры")])
+    assert text.count("\\N") == 1
+    top, bottom = text.split("}")[-1].split("\\N")
+    assert abs(len(top) - len(bottom)) <= 8
+
+
+def test_header_turns_on_scaled_borders_and_wrap_style(tmp_path: Path) -> None:
+    settings = bs.subtitle_settings_from_conf({"subtitles": {"font": str(FONT)}}, repo_dir=tmp_path)
+    header = bs._resolve_style_header(settings)
+    assert "ScaledBorderAndShadow: yes" in header
+    assert "WrapStyle: 0" in header
+
+
+def test_word_highlight_emits_one_event_per_word(tmp_path: Path) -> None:
+    seg = _timed("раз два три")
+    texts = _dialogues(tmp_path, [seg], preset="hormozi", max_words_per_cue=0)
+    assert len(texts) == 3
+    for i, text in enumerate(texts):
+        assert text.count("\\rHighlight") == 1
+        active = text.split("\\rHighlight", 1)[1].split("}", 1)[1]
+        assert active.startswith(["РАЗ", "ДВА", "ТРИ"][i])
+
+
+def test_fill_highlights_every_spoken_word(tmp_path: Path) -> None:
+    texts = _dialogues(tmp_path, [_timed("раз два три")], highlight="fill")
+    assert [t.count("{\\1c") for t in texts][-1] >= 3
+
+
+def test_highlight_without_highlight_style_uses_style_colours(tmp_path: Path) -> None:
+    [first, *_] = _dialogues(tmp_path, [_timed("раз два")], highlight="word")
+    # Inactive = SecondaryColour (white), active = PrimaryColour (amber).
+    assert "\\1c&HFFFFFF&" in first
+    assert "\\1c&H0AD6FF&" in first
+
+
+def test_reveal_hides_words_not_yet_spoken(tmp_path: Path) -> None:
+    texts = _dialogues(tmp_path, [_timed("раз два три")], highlight="reveal")
+    assert "\\alpha&HFF&" in texts[0]
+    assert "\\alpha&HFF&" not in texts[-1]
+
+
+def test_reveal_keeps_a_cue_box_visible(tmp_path: Path) -> None:
+    texts = _dialogues(tmp_path, [_timed("раз два три")], preset="retro")
+    assert "\\alpha&HFF&" not in texts[0]
+    assert "\\1a&HFF&\\3a&HFF&" in texts[0]
+
+
+def test_pop_scales_the_active_word_back_down(tmp_path: Path) -> None:
+    texts = _dialogues(tmp_path, [_timed("раз два")], highlight="pop")
+    assert "\\t(0," in texts[0]
+    assert "\\fscx112" in texts[0]
+
+
+def test_fade_only_on_the_outer_word_events(tmp_path: Path) -> None:
+    texts = _dialogues(
+        tmp_path, [_timed("раз два три")], highlight="word",
+        fade_in_duration=0.1, fade_out_duration=0.1,
+    )
+    assert texts[0].startswith("{\\fad(100,0)}")
+    assert "\\fad" not in texts[1]
+    assert texts[-1].startswith("{\\fad(0,100)}")
+
+
+def test_text_case_punctuation_and_censor_reach_the_render(tmp_path: Path) -> None:
+    [text] = _dialogues(
+        tmp_path, [_timed("ну, блин, вот так.")],
+        text_case="upper", strip_punctuation="periods", censor_words=["блин"],
+    )
+    assert "НУ Б**Н ВОТ ТАК" in text
+
+
+def test_speaker_change_starts_a_new_cue(tmp_path: Path) -> None:
+    a = _timed("раз два", speaker="SPEAKER_00")
+    b = bs.SubtitleSegment(
+        start=1.0, end=1.9, text="три",
+        words=(bs._TimedSubtitleWord(1.0, 1.9, "три"),), speaker="SPEAKER_01",
+    )
+    settings = bs.subtitle_settings_from_conf(None, repo_dir=tmp_path)
+    prepared = bs._prepare_subtitle_segments([a, b], settings=settings)
+    assert [s.speaker for s in prepared] == ["SPEAKER_00", "SPEAKER_01"]
+
+    merged = bs._prepare_subtitle_segments(
+        [a, b], settings=bs.subtitle_settings_from_conf(
+            {"subtitles": {"split_on_speaker": False}}, repo_dir=tmp_path,
+        ),
+    )
+    assert len(merged) == 1
+
+
+def test_speaker_colours_follow_first_appearance(tmp_path: Path) -> None:
+    a = _timed("раз", speaker="B")
+    b = bs.SubtitleSegment(start=3.0, end=3.5, text="два",
+                           words=(bs._TimedSubtitleWord(3.0, 3.5, "два"),), speaker="A")
+    texts = _dialogues(tmp_path, [a, b], speaker_colors=["#FF0000", "#00FF00"])
+    assert "\\1c&H0000FF&" in texts[0]
+    assert "\\1c&H00FF00&" in texts[1]
+
+
+def test_max_words_per_cue_splits_into_short_cues(tmp_path: Path) -> None:
+    settings = bs.subtitle_settings_from_conf({"subtitles": {"max_words_per_cue": 1}}, repo_dir=tmp_path)
+    prepared = bs._prepare_subtitle_segments([_timed("раз два три")], settings=settings)
+    assert [s.text for s in prepared] == ["раз", "два", "три"]
+
+
+def test_every_cue_fits_its_lines(tmp_path: Path) -> None:
+    long_text = " ".join(["длиннословие"] * 30)
+    settings = bs.subtitle_settings_from_conf(
+        {"subtitles": {"font": str(FONT), "max_chars_per_line": 80}}, repo_dir=tmp_path,
+    )
+    prepared = bs._prepare_subtitle_segments([_timed(long_text, step=0.3)], settings=settings)
+    layout = bs._layout_for(bs._resolve_style_header(settings), settings)
+    for seg in prepared:
+        rows = bs.wrap_words(seg.text.split(), layout.measurer,
+                             max_width=layout.max_width, max_lines=layout.max_lines)
+        assert len(rows) <= 2
+        assert bs.lines_fit(rows, layout.measurer, layout.max_width)
+
+
+def test_vertical_align_overrides_the_style_row(tmp_path: Path) -> None:
+    [top] = _dialogues(tmp_path, [_timed("раз два")], vertical_align="top")
+    assert "\\an8" in top
+    [centre] = _dialogues(tmp_path, [_timed("раз два")], vertical_align="center", vertical_offset=0.1)
+    assert "\\an5\\pos(540,768)" in centre
+    [style] = _dialogues(tmp_path, [_timed("раз два")])
+    assert "\\an" not in style
+
+
+def test_wide_width_ratio_widens_the_event_margins(tmp_path: Path) -> None:
+    settings = bs.subtitle_settings_from_conf(
+        {"subtitles": {"font": str(FONT), "max_width_ratio": 0.9}}, repo_dir=tmp_path,
+    )
+    layout = bs._layout_for(bs._resolve_style_header(settings), settings)
+    assert layout.max_width == pytest.approx(972, abs=1)
+    assert layout.event_margin_l == layout.event_margin_r == 54
+
+
+def test_configured_ass_style_file_is_used(tmp_path: Path) -> None:
+    style = tmp_path / "custom.ass"
+    style.write_text(
+        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
+        "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
+        "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        "Style: Default,bignoodletoooblique,77,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,"
+        "0,0,0,0,100,100,0,0,1,2,0,2,10,10,300,1\n",
+        encoding="utf-8",
+    )
+    settings = bs.subtitle_settings_from_conf(
+        {"subtitles": {"font": str(FONT), "ass_style": str(style)}}, repo_dir=tmp_path,
+    )
+    header = bs._resolve_style_header(settings)
+    # The editor's file-stem font name is mapped to the font's real family.
+    assert "Style: Default,BigNoodleTooOblique,77," in header
+    assert "ScaledBorderAndShadow: yes" in header
+
+
+def test_video_processor_reads_the_whole_subtitles_section() -> None:
+    from podcast_reels_forge.scripts.video_processor import _subtitle_settings_from_json
+
+    settings = _subtitle_settings_from_json('{"max_lines": 3, "preset": "box", "fade_in_duration": 0}')
+    assert settings.max_lines == 3
+    assert settings.preset == "box"
+    assert settings.fade_in_duration == 0.0
+    assert _subtitle_settings_from_json("not json").max_lines == bs.DEFAULT_MAX_LINES
