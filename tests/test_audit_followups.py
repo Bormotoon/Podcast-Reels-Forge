@@ -1,6 +1,6 @@
-"""RU: Доделки по ANALYSIS_REPORT.md после первой волны изменений.
+"""RU: Доделки по docs/ANALYSIS_REPORT.md после первой волны изменений.
 
-EN: Follow-ups to ANALYSIS_REPORT.md after the first round of changes:
+EN: Follow-ups to docs/ANALYSIS_REPORT.md after the first round of changes:
 padding that stays out of neighbouring clips, speaker turns in the digest,
 the scout's token budget, transport metrics and the location of weak fuzzy
 quote matches.

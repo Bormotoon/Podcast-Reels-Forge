@@ -43,6 +43,13 @@ All three must be green. New behaviour should come with tests in `tests/`.
 - Update the docs (`README.md`, `README.en.md`, `docs/`) when behaviour changes.
 - Keep the GUI bilingual: every user-facing string lives in the `ru` **and** `en`
   dictionaries in `gui/assets/app.js`.
+- A new config key goes into `config.yaml`, `docs/CONFIGURATION.md` **and** the GUI
+  config template in `gui/assets/app.js`, or a GUI export will silently drop it.
+- Changed a subtitle preset? Regenerate the GUI copy with
+  `python3 -m podcast_reels_forge.utils.subtitle_presets` and commit both files.
+- Add a line under `## [Unreleased]` in `CHANGELOG.md` for user-visible changes.
+- Keep machine-specific settings in `config.local.yaml` (gitignored), never in
+  `config.yaml`.
 - Describe what changed and why, and how you verified it.
 
 ### Reporting bugs / requesting features
@@ -90,6 +97,13 @@ mypy podcast_reels_forge --ignore-missing-imports
   поведение.
 - Держите GUI двуязычным: каждая видимая пользователю строка должна быть в
   словарях `ru` **и** `en` в `gui/assets/app.js`.
+- Новый ключ конфига добавляйте в `config.yaml`, `docs/CONFIGURATION.md` **и**
+  шаблон конфига GUI в `gui/assets/app.js` — иначе экспорт из GUI молча его потеряет.
+- Изменили пресет субтитров — перегенерируйте копию для GUI командой
+  `python3 -m podcast_reels_forge.utils.subtitle_presets` и закоммитьте оба файла.
+- Заметные пользователю изменения записывайте в `## [Unreleased]` в `CHANGELOG.md`.
+- Настройки своей машины держите в `config.local.yaml` (в `.gitignore`), а не в
+  `config.yaml`.
 - Опишите, что изменилось, зачем и как вы это проверили.
 
 ### Баги и запросы фич

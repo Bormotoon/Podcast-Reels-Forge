@@ -21,6 +21,7 @@ Keep PRs focused. Fill in the sections below. / Один PR — одно изм�
 - [ ] `ruff check .` passes / проходит
 - [ ] `mypy podcast_reels_forge --ignore-missing-imports` passes / проходит
 - [ ] Docs updated if behaviour changed / документация обновлена при изменении поведения
+- [ ] `CHANGELOG.md` → `[Unreleased]` updated for user-visible changes / запись в CHANGELOG
 - [ ] New GUI strings added to both `ru` and `en` dictionaries / новые строки GUI добавлены в оба словаря
 
 ## How was this tested? / Как проверялось?

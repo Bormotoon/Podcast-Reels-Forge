@@ -1,5 +1,9 @@
 # Security Policy / Политика безопасности
 
+## Supported versions / Поддерживаемые версии
+
+Only the latest release gets security fixes. / Исправления безопасности выходят только для последнего релиза.
+
 ## Reporting a vulnerability (English)
 
 Please **do not** open a public issue for security vulnerabilities.
@@ -14,9 +18,15 @@ or commit. We aim to acknowledge reports within a few days.
 
 ### Notes
 
-- This is a local, command-line tool. The default pipeline runs entirely on your
-  machine and makes no outbound network calls beyond your own local llama.cpp
-  server.
+- This is a local, command-line tool. Transcription, analysis and rendering run
+  on your machine against your own local llama.cpp server. The network is used
+  only for:
+  - downloading model weights on first use (Whisper, YuNet, Light-ASD, pyannote);
+  - the YouTube `fetch` stage and its weekly `yt-dlp` self-update
+    (`youtube.self_update`), when you use YouTube;
+  - the rare-name spell check (`proofread.terms`, off by default) — only the
+    suspect word and one neighbour are sent to Wiktionary;
+  - cloud LLM providers and the notification webhook, only if you configure them.
 - API keys and tokens live in a git-ignored `.env` file (see `.env.example`).
   Never commit secrets. If a key is ever exposed, rotate it immediately.
 
@@ -34,8 +44,13 @@ GitHub (Security → Advisories → Report a vulnerability) или напрям�
 
 ### Примечания
 
-- Это локальный CLI-инструмент. Пайплайн по умолчанию работает полностью на вашей
-  машине и не делает внешних сетевых запросов, кроме вашего локального
-  llama.cpp-сервера.
+- Это локальный CLI-инструмент. Транскрибация, анализ и рендер идут на вашей
+  машине через ваш локальный llama.cpp-сервер. В сеть обращаются только:
+  - загрузка весов моделей при первом запуске (Whisper, YuNet, Light-ASD, pyannote);
+  - стадия `fetch` с YouTube и еженедельное самообновление `yt-dlp`
+    (`youtube.self_update`) — если вы работаете с YouTube;
+  - перепроверка редких имён (`proofread.terms`, по умолчанию выключена) — в
+    Викисловарь уходит только подозрительное слово и одно соседнее;
+  - облачные LLM-провайдеры и вебхук уведомлений — только если вы их настроили.
 - API-ключи и токены хранятся в git-игнорируемом `.env` (см. `.env.example`).
   Никогда не коммитьте секреты. Если ключ всё же утёк — немедленно отзовите его.

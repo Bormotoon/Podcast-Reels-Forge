@@ -2,6 +2,8 @@
 
 ## Automatically create Reels/Shorts from podcasts (local-first)
 
+[![CI](https://github.com/Bormotoon/Podcast-Reels-Forge/actions/workflows/tests.yml/badge.svg)](https://github.com/Bormotoon/Podcast-Reels-Forge/actions/workflows/tests.yml)
+[![Release](https://img.shields.io/github/v/release/Bormotoon/Podcast-Reels-Forge)](https://github.com/Bormotoon/Podcast-Reels-Forge/releases/latest)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![педобраз.рф](https://img.shields.io/badge/%D0%BF%D0%B5%D0%B4%D0%BE%D0%B1%D1%80%D0%B0%D0%B7.%D1%80%D1%84-project_page-D64500)](https://xn--80abidn3bem.xn--p1ai/projects/podcast-reels-forge/)
@@ -25,9 +27,10 @@
 - [Command Line Arguments](#command-line-arguments)
 - [Configuration (config.yaml)](#configuration-configyaml)
 - [Graphical Interface (GUI)](#graphical-interface-gui)
-- [Face-Aware Smart Crop](#face-aware-smart-crop-optional)
+- [The Frame Follows the Speaker](#the-frame-follows-the-speaker)
 - [Rerendering Videos](#re-render-video-from-existing-momentsjson)
 - [Performance and Stability](#performance-and-stability)
+- [Documentation](#documentation)
 - [Support the Project](#support-the-project)
 - [License](#license)
 
@@ -44,7 +47,7 @@ Main workflow steps:
 3. **Transcript Proofreading (LLM)**: gemma4 fixes spelling and punctuation; a guardrail rejects any correction that adds, drops or paraphrases text.
 4. **Episode long-read (LLM)**: gemma4 edits the proofread transcript into a readable article — meaning-based sections with headings and paragraphs. It is not a retelling: the author's words, phrasing and grammatical person are kept, and only filler, slips and repetitions go. Three guardrails catch rewriting, padding and abridging alike. With diarization enabled the text is also split by speaker, with names taken from the conversation itself.
 5. **AI Analysis (LLM)**: A staged `scout → cleanup → judge` flow on a local Gemma, with candidates verified against the transcript: quote matching, phrase-aligned boundaries, audio signals (loudness/pauses/speech rate) and whole-episode context. The clip count scales with runtime (`clips_per_hour`).
-6. **Video Editing (FFmpeg + NVENC)**: Cuts the video, applies vertical cropping (9:16), stabilized face framing, and burns karaoke subtitles timed from real word timestamps. GPU encoding via NVENC (~5× faster than software).
+6. **Video Editing (FFmpeg + NVENC)**: Cuts clips at pauses in the speech, frames them 9:16 with a window that follows whoever is talking for the whole clip, and burns in subtitles — 16 ready-made looks, line breaks measured with the real font, timings re-checked by Whisper on every clip. Decoding, face analysis and encoding run on the GPU (NVDEC + torch CUDA + NVENC).
 
 Detailed user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 Unattended scheduled runs (nightly channel runs, reports, notifications): [docs/AUTONOMOUS.md](docs/AUTONOMOUS.md)
@@ -62,8 +65,13 @@ Unattended scheduled runs (nightly channel runs, reports, notifications): [docs/
 - **Clips grounded in reality**: Every candidate's quote is checked against what was actually said; clip bounds snap to the start of a phrase and the end of a thought; hallucinated timecodes are dropped.
 - **Audio signals**: Loudness, pause density and speech rate on each candidate's span are measured with ffmpeg and feed the ranking — text heuristics can't hear the episode, these can.
 - **Runtime-scaled clip counts**: `clips_per_hour: 10` — a 1.5-hour episode yields ~15 clips; the per-type counters only set the mix.
-- **Smart Face Crop**: Automatically detects faces and centers the frame during vertical cropping.
-- **Hardware Acceleration**: **CUDA** (ctranslate2) for Whisper and **NVENC** for video rendering. The NVENC-capable ffmpeg is auto-detected.
+- **The frame follows the speaker**: YuNet finds faces on the GPU, Light-ASD tells who is talking from lips and sound, and Viterbi smoothing keeps a short "uh-huh" from jerking the frame. Two people sitting far apart can be stacked (`two_speaker_layout: split`). See [The Frame Follows the Speaker](#the-frame-follows-the-speaker).
+- **Viral-style subtitles**: 16 ready-made looks (`hormozi`, `mrbeast`, `tiktok`, `karaoke`, `neon`…), word highlight modes, pyramid line breaks that never end on a preposition, censoring, speaker colours. Every clip is recognized again and the subtitles snap to the actual speech.
+- **Clip edges placed by the speech**: starts and ends land on pauses between phrases, not "±5 seconds", and padding never spills into the neighbouring clip.
+- **Hardware Acceleration**: **CUDA** (ctranslate2) for Whisper, torch CUDA for face analysis, **NVDEC/NVENC** for video. The NVENC-capable ffmpeg is auto-detected.
+- **Unattended runs**: a nightly timer, a report on every stage of every episode, exit codes a scheduler can act on, notifications, a single-run lock. One broken episode never stops the queue. See [docs/AUTONOMOUS.md](docs/AUTONOMOUS.md).
+- **Nothing is redone for nothing**: per-stage input fingerprints, an LLM answer cache, and a stage-by-stage queue (Whisper and llama-server load once for the whole queue).
+- **Host settings kept apart**: a gitignored `config.local.yaml` is merged over `config.yaml`, so machine paths and ports never sit as uncommitted edits.
 - **Stall-proof llama.cpp calls**: A total request timeout plus automatic retries; the pipeline rides out even a ten-minute server stall on its own.
 - **Flexible Clip Types**: Configure durations and mix for Stories, Reels, Long Reels, and Highlights separately.
 - **Honest quality measurement**: `evaluate_prompts` computes recall/precision against a hand-labelled golden set (`golden/<episode>.json`).
@@ -78,19 +86,28 @@ Unattended scheduled runs (nightly channel runs, reports, notifications): [docs/
 - **Python 3.10+**
 - **FFmpeg** (must be in PATH)
 - **llama.cpp (`llama-server`)** (for local LLM support)
-- **NVIDIA GPU** (highly recommended for performance)
+- **NVIDIA GPU with CUDA** — effectively required: Whisper, speaker tracking and encoding all run on it. Without CUDA clips get a centre crop and transcription is very slow. The reference card is a 16 GB RTX 5060 Ti.
 - **yt-dlp** — optional, only to pull material off YouTube: `pip install -U yt-dlp`
+- **pyannote.audio** — optional, for speaker separation (diarization)
 
 ### Installation
 
-1. Clone the repository.
-2. Create a virtual environment and install dependencies:
-
 ```bash
+git clone https://github.com/Bormotoon/Podcast-Reels-Forge.git
+cd Podcast-Reels-Forge
+
 python3 -m venv whisper-env
 source whisper-env/bin/activate
 pip install -r requirements.txt
+
+# Optional: YouTube and diarization
+pip install -e ".[youtube,diarization]"
+
+# Keys and tokens (all optional) go in .env
+cp .env.example .env
 ```
+
+`start_forge.py` re-executes itself inside `whisper-env` when the environment is not active. Models (Whisper, YuNet, Light-ASD) download on first use.
 
 ### Prepare Input
 
@@ -271,12 +288,14 @@ PY
 The orchestrator [start_forge.py](start_forge.py) runs [podcast_reels_forge/pipeline.py](podcast_reels_forge/pipeline.py), which executes the following stages for each file:
 
 0. **Fetch**: (When YouTube sources are given) A video, playlist or channel is downloaded into `input/youtube/` as `YYYY-MM-DD - Title [id]`. It runs before the queue is built, so the run can narrow itself to the episodes that were asked for.
-1. **Transcription**: Uses `faster-whisper`. Output: `output/<file_stem>/audio.json` + `audio.srt`.
+1. **Transcription**: Uses `faster-whisper` with per-word timestamps. Output: `output/<file_stem>/<file_stem>.json` + `.srt`.
 2. **Diarization**: (If enabled) Creates `diarization.json` with speaker turns.
 3. **Proofread**: gemma4 proofreads the transcript (spelling/punctuation) with a guardrail check on every correction. Output: `<file_stem>.proofread.json` + `.srt`; the raw transcript is untouched.
 4. **Article**: gemma4 rebuilds the proofread transcript into an article: meaning-based sections, headings, paragraphs. Length and vocabulary checks catch padding; fragments that fail are flagged in `.article.json`. Output: `<file_stem>.article.md` + `.json`.
 5. **Analyze (Staged)**: *LLM discovers → Python proves → a deterministic selector chooses → LLM writes metadata.* Episode overview → scout over overlapping chunks (interval + verbatim quote only) → the quote is looked up in the transcript and unproven candidates are rejected → cleanup and judge answer with keep/drop/merge decisions by `candidate_id`, so they cannot move a clip or rewrite its quote; the judge sees each clip's real opening and closing seconds. Then boundary snapping that keeps the quote inside the clip, audio probing, and MMR selection under type quotas, an overlap policy and topic diversity. Artifacts go to `output/<file_stem>/<model>/` (e.g. `gemma4_26b/`).
-6. **Video Processing**: Cuts clips from the final `moments.json`. Forge burns ASS subtitles into each reel with ffmpeg, adds a ready-to-post `reel_XX.md`, keeps a local `reel_XX.srt`, and builds `reels_preview.mp4`.
+6. **Video Processing**: Cuts clips from the final `moments.json`. Edges land on pauses in the speech; the 9:16 frame follows the speaker; each clip is recognized again by Whisper and the subtitles take the refined timings; subtitles are burned in a single encode. The finished clip is checked with ffprobe (streams, duration) — a broken one goes to `reels/rejected/`. Forge adds a ready-to-post `reel_XX.md`, keeps a local `reel_XX.srt`, and builds `reels_preview.mp4`.
+
+By default the queue runs **stage by stage** (`autonomy.scheduling: stage`): every transcription with one Whisper load, then every LLM stage in one llama-server session, then all the cutting. `scheduling: episode` restores the old one-episode-at-a-time order.
 
 
 ---
@@ -310,6 +329,8 @@ output/
       reels/                   # Cut video clips .mp4
         reel_01.srt            # Local subtitle timeline (reference)
         reel_01.md             # Description + 5 hashtags for reel_01.mp4
+        framing/reel_01.json   # Who the frame showed and when: face tracks, shot cuts, camera path
+        subtitle_sync.json     # How far the timings moved after the Whisper re-check
         rejected.json          # Rejected moments with reasons
         rejected/              # Clips that failed filters or QA (when encoded)
       reels_preview.mp4        # Concatenated preview of all clips
@@ -332,6 +353,10 @@ Main flags for `start_forge.py`:
 - `--only <stages>`: Run only these stages, comma-separated. Example: `--only proofread,article`.
 - `--skip <stages>`: Run everything except these stages. Example: `--skip cut`.
 - `--list-stages`: Print the stages in order and exit.
+- `--skip-preflight`: Skip the environment check before the start (ffmpeg, llama-server and its model, tokens, free disk).
+- `--free-ram` / `--no-free-ram`: Take unused memory from virtual machines for the duration of the run and give it back at the end — or leave it alone even when `host_memory.enabled: true` (see [docs/CONFIGURATION.md](docs/CONFIGURATION.md#host-memory--освобождение-памяти-хоста)).
+
+Exit codes: `0` everything passed, `3` some episodes failed, `1` fatal error, `75` another run is active. The report is `output/_runs/latest.json`.
 
 Stages: `fetch`, `transcribe`, `diarize`, `proofread`, `article`, `analyze`, `cut`. A typo is an error, not a silent skip of half the pipeline. Skipping a stage does not strand the others: when a proofread transcript already exists from an earlier run, `--only article` picks it up.
 
@@ -374,6 +399,23 @@ Flags for the standalone transcriber `transcribe_input_audio.py`:
 
 ## Configuration (config.yaml)
 
+The full reference of every key is [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
+### Host settings: config.local.yaml
+
+`config.yaml` is tracked in git and holds the project defaults. Anything specific to one machine — model paths, the llama-server port, VRAM — goes into `config.local.yaml` next to it. The file is gitignored, merged over `config.yaml` at every start, and survives a config export from the GUI:
+
+```yaml
+# config.local.yaml — only the differences
+llama_cpp:
+  service:
+    model_path: "/models/gemma-4-26b-q4.gguf"
+transcription:
+  device: cuda
+```
+
+A config can extend another and hold only its differences: `extends: config.yaml` (e.g. `python3 start_forge.py --config config.show.yaml` for a separate show). Order: the `extends` base → the file itself → `config.local.yaml`.
+
 ### Key Sections
 
 - **`transcription`**: Whisper model (`large-v3`), device (`auto`/`cuda`/`cpu`), language.
@@ -394,7 +436,8 @@ Flags for the standalone transcriber `transcribe_input_audio.py`:
   - `quality_filters.min_score`: Threshold on the model's rating (1-10 scale; the ranking value lives in a separate `priority` field).
 - **`video`**:
   - `vertical_crop`: Enable/disable 9:16 aspect ratio.
-  - `smart_crop_face`: Enable smart centering on faces.
+  - `smart_crop_face`: Frame on faces. `active_speaker` — pick whoever is talking (Light-ASD); `face_follow` — glide after the person; `speaker_switch`: `cut` | `pan`; `two_speaker_layout`: `speaker` | `split`; `face_device: cuda`; `gpu_decode` — NVDEC + `scale_cuda` + NVENC. See [The Frame Follows the Speaker](#the-frame-follows-the-speaker).
+  - `qa` / `qa_blackdetect`: Check the finished clip with ffprobe (and, optionally, for black frames).
   - `use_nvenc`: Prefer NVIDIA hardware encoding (NVENC). Falls back to libx264 automatically if no NVENC ffmpeg build is found.
   - `nvenc_cq`: NVENC VBR quality target (lower = better; default 21).
   - `nvenc_preset`: NVENC preset `p1`(faster)…`p7`(higher quality), default `p5`.
@@ -411,11 +454,13 @@ Flags for the standalone transcriber `transcribe_input_audio.py`:
   - `vertical_align`: `style` (the style's row), `top`, `center`, `bottom`. `vertical_offset`: shift by a share of the frame height away from the anchored edge.
   - `fade_in_duration` / `fade_out_duration`: Fade a cue in and out (the ASS `\fad` tag). `0` disables it. If the two together outlast the cue, both are scaled down proportionally.
   - `font_size_px`: Base size for the built-in looks (tuned at 96, they scale with it); with an editor file the size comes from the file.
-  - The default style is the viral karaoke caption look: a heavy condensed face, a thick black outline instead of a drop shadow, and a `\kf` sweep from white (not yet spoken) to amber `#FFD60A` (already spoken), anchored bottom-centre above the platform chrome.
+  - The default style is the viral caption look: a heavy condensed face and a thick black outline instead of a drop shadow, anchored bottom-centre above the platform chrome. Each cue appears whole (`karaoke: false`); word-by-word highlighting comes with a preset or `highlight`.
+  - `whisper_sync`: before burning, every clip is recognized again, its words are matched to the transcript, and drifted subtitles take the new timings (report in `reels/subtitle_sync.json`).
+  - `fade_min_gap_s`: fade only cues next to a pause — 93% of podcast cues run back to back, and fading each one made the text blink.
   - The easiest way to tune the style is the visual [GUI](#graphical-interface-gui) (Subtitles tab). The "Save ASS File" button writes the style straight into `assets/subtitles/forge_subtitles.ass`, which the pipeline reads.
   - `word_x_space` / `word_y_space` are legacy no-ops: spacing comes from the `.ass` style (`Spacing` in the editor).
 - **`article`**: The episode retelling. `enabled` turns the stage on; `max_length_ratio` and `max_novel_word_ratio` set the faithfulness thresholds (details in [docs/CONFIGURATION.md](docs/CONFIGURATION.md)).
-- **`diarization`**: Enable and configure speaker detection (requires a token in the `PYANNOTE_TOKEN` environment variable, see [`.env.example`](.env.example)). `num_speakers` pins the speaker count when it is known — less over-clustering on noisy recordings.
+- **`diarization`**: Enable and configure speaker detection (needs a Hugging Face token in `PYANNOTE_TOKEN`, `HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN` or `HUGGING_FACE_ACCESS_TOKEN`, see [`.env.example`](.env.example)). `num_speakers` pins the speaker count when it is known — less over-clustering on noisy recordings.
 
 ---
 
@@ -460,14 +505,17 @@ what the render stage reads. Form state is kept in the browser's `localStorage`.
 
 ---
 
-## Face-aware smart crop (optional)
+## The frame follows the speaker
 
-When `smart_crop_face: true` is enabled in config:
+With `video.smart_crop_face: true` the 9:16 window shows whoever is talking for the whole clip ([utils/face_track.py](podcast_reels_forge/utils/face_track.py)):
 
-1. Several frames are sampled from each clip.
-2. **MediaPipe Face Detection** locates faces across multiple sample points.
-3. If faces are found, the 9:16 window is shifted with median smoothing so the speaker does not jitter around.
-4. If no faces are found, it falls back to a stable center crop with an explicit fallback log.
+1. **One pass on the GPU.** ffmpeg decodes the clip on NVDEC and everything after that runs in torch on the card. **YuNet** looks for faces 5 times a second and finds even 60–90 px faces in wide shots. Shot cuts are detected on the same decode.
+2. **Tracks, not frames.** Faces are linked into tracks within a shot; faces that never move (a photo on a slide, a portrait on the wall) and passers-by are dropped.
+3. **Who is talking.** With two or more people in a shot, **Light-ASD** (CVPR 2023) decides from lips and sound. Viterbi with a switch penalty turns that into turns, so a short "uh-huh" does not jerk the frame.
+4. **A camera on a tripod.** Within a turn the window holds while the face stays in a dead zone and eases to where the person settles. A change of speaker is a cut (`speaker_switch: cut`) or a pan (`pan`).
+5. **Two people apart** — with `two_speaker_layout: split`, two people sitting far apart are stacked one above the other (the default `speaker` shows whoever talks).
+
+The per-clip report is `reels/framing/reel_XX.json`. Without CUDA a clip gets a centre crop (the preflight warns about it up front). On POS footage, analysing a 48-second clip went from ~93 s on the CPU to ~7 s on the GPU.
 
 ---
 
@@ -490,6 +538,24 @@ python3 rerender_videos.py --smart-crop-face --replace
 - **ffmpeg / NVENC**: Forge auto-detects an NVENC-capable ffmpeg (`/usr/local/bin`, `/usr/bin`); you can force a path via the `FORGE_FFMPEG` env var. If NVENC is unavailable, encoding falls back to CPU (libx264).
 - **llama.cpp**: Stalled requests are cut off by the total timeout (`llama_cpp.timeout`, per-role via `role_overrides`) and retried automatically; one failed chunk doesn't abort the episode. Unparseable JSON is re-asked (`processing.analysis.json_retry`).
 - **Timing reference** (RTX 5060 Ti 16GB, ~2-hour episode): transcription + proofreading ~28 min, analysis ~9 min, cutting ~18 min. Raising `clips_per_hour` lengthens analysis and cutting proportionally.
+- **Host memory**: llama-server's prompt cache is sized from free RAM by default (`cache_ram_mb: auto`), and the server's output goes to `llama-server.log`. On a machine that also runs VMs, `host_memory` (or `--free-ram`) takes their unused memory for the run and is guaranteed to give it back.
+
+---
+
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | User guide: install, first run, common problems |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Reference for every `config.yaml` key |
+| [docs/AUTONOMOUS.md](docs/AUTONOMOUS.md) | Scheduled runs: systemd/cron, reports, notifications |
+| [docs/PROMPTS.md](docs/PROMPTS.md) | How the scout/cleanup/judge prompts work and how to write your own |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | For developers: code layout, tests, releases |
+| [docs/ANALYSIS_REPORT.md](docs/ANALYSIS_REPORT.md) | Audit of moment selection and cutting (RU) |
+| [docs/AUTONOMY_REVIEW.md](docs/AUTONOMY_REVIEW.md) | Review of unattended-run robustness (RU) |
+| [docs/COMPETITOR_REVIEW.md](docs/COMPETITOR_REVIEW.md) | Review of 11 open-source alternatives (RU) |
+| [CHANGELOG.md](CHANGELOG.md) | Release history |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
 
 ---
 

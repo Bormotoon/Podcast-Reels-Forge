@@ -11,7 +11,7 @@ one definition: ``gui/assets/subtitle-presets.js`` is generated from this
 module (``python3 -m podcast_reels_forge.utils.subtitle_presets``) and a test
 keeps the two in sync.
 
-Sources the looks are modelled on (see COMPETITOR_REVIEW.md):
+Sources the looks are modelled on (see docs/COMPETITOR_REVIEW.md):
 
 * nicolaigaina/ai-video-captions — Hormozi, MrBeast, Karaoke, Bounce;
 * francozanardi/pycaps — word-focus, explosive (neon), vibrant, minimalist,

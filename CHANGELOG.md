@@ -6,6 +6,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-10-04
+
+Highlights:
+
+- **The vertical frame follows whoever is talking** — YuNet face tracking and
+  Light-ASD speaker detection on the GPU, with Viterbi smoothing between turns.
+- **16 ready-made subtitle looks**, word highlight modes, line breaks measured
+  with the real font, and every clip's timing re-checked by Whisper.
+- **Clip edges placed by the speech**, quotes treated as evidence, MMR selection.
+- **Unattended runs** — failure guards, run reports, exit codes, notifications,
+  a single-run lock, stage fingerprints and a stage-by-stage queue.
+- **YouTube as a source**, an episode long-read, proofreading, rare-name checks.
+- **Host overrides** in a gitignored `config.local.yaml`; configs can `extends`.
+
 ### Added
 - **Host overrides outside git:** a gitignored `config.local.yaml` next to
   `config.yaml` is merged over it at every start (and survives GUI
@@ -168,7 +182,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **MP3 and WAV companions built in one ffmpeg pass**, both decoded from the
   video's own audio. The models read the 16 kHz mono PCM — which is exactly what
   faster-whisper and pyannote resample to internally — instead of the MP3.
-
 - **Rare-name spell check** (`proofread.terms`, off by default) — the transcript
   said "Курократ" where the person is "Курокрад", and nothing in the episode
   could settle it. Instead of asking what is correct, it checks which spelling an
@@ -177,9 +190,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with confidence; a failed lookup is kept distinct from zero hits so a flaky
   network cannot rewrite text. Only the suspect word and one neighbour ever
   leave the machine, and every edit is recorded with its evidence.
-
-### Added
-- **Unattended runs** (see `docs/AUTONOMY_REVIEW.md`):
+- **Unattended runs** (see `docs/AUTONOMOUS.md` and `docs/AUTONOMY_REVIEW.md`):
   - every stage of every episode runs in a failure guard — a broken file, a
     CUDA OOM, a failed diarization or cut costs that episode, never the rest
     of the queue; audio companions are built per episode instead of for the
@@ -198,6 +209,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `FORGE_*` variables and/or a JSON webhook), on failure or always.
 
 ### Changed
+- Documentation refreshed for this release: both READMEs, the user and
+  developer guides, the docs index and the security notes now describe the
+  speaker-following frame, subtitle presets, `config.local.yaml` and the
+  network access the tool actually makes. The research reports
+  (`ANALYSIS_REPORT.md`, `COMPETITOR_REVIEW.md`) moved to `docs/`.
 - **Subtitle defaults tuned on real clips** (127 clips from 17 podcast
   episodes): line breaks default to the `bottom_heavy` pyramid, and fades
   apply only next to a pause of `fade_min_gap_s` (0.3 s) — 93% of cues are
@@ -247,7 +263,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and scout/cleanup/judge get their own `n_predict` in `role_overrides`.
 - **Moment analysis: "LLM discovers → Python proves → deterministic selector
   chooses → LLM writes metadata"** (from the moment-selection audit in
-  `ANALYSIS_REPORT.md`).
+  `docs/ANALYSIS_REPORT.md`).
   - **The quote is now evidence, not decoration.** It is looked up verbatim
     first (contiguous, normalized), then with a bounded word-level fuzzy match
     — no longer a character-level similarity that a window of frequent short
@@ -597,6 +613,8 @@ Initial public release: Blackwell-GPU support, faster and more accurate
 transcription (faster-whisper `large-v3` with fast/quality modes), local
 llama.cpp analysis, and NVENC-accelerated 9:16 video rendering.
 
+[Unreleased]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.0.0...v1.1.0
