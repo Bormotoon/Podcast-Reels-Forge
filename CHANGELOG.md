@@ -6,6 +6,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.1] — 2026-10-04
+
+### Fixed
+- `fonttools` and `Pillow` are now declared dependencies. Subtitle line
+  breaking measures text with the real font through them, but neither was in
+  `requirements.txt` or `pyproject.toml`: a fresh install silently fell back to
+  a rough per-character estimate (a line measured ~990 px instead of 723 px),
+  so cues broke in the wrong places and the editor's font name was not mapped
+  to the font's real family. Existing environments that already had them
+  (e.g. through matplotlib) were unaffected.
+
 ## [1.4.0] — 2026-10-04
 
 Highlights:
@@ -613,7 +624,8 @@ Initial public release: Blackwell-GPU support, faster and more accurate
 transcription (faster-whisper `large-v3` with fast/quality modes), local
 llama.cpp analysis, and NVENC-accelerated 9:16 video rendering.
 
-[Unreleased]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Bormotoon/Podcast-Reels-Forge/compare/v1.1.0...v1.2.0

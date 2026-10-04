@@ -10,6 +10,10 @@ aiohttp>=3.9.0,<4
 PyYAML>=6.0.1,<7
 opencv-python-headless>=4.8.0,<5
 platformdirs>=4.0.0,<5
+# fonttools + Pillow measure subtitle text with the real font (line breaks) and
+# read its family name; without them line breaks fall back to a rough guess.
+fonttools>=4.40.0,<5
+Pillow>=10.0.0,<13
 
 # Optional. Needed only to pull episodes straight off YouTube (the `fetch` stage).
 # YouTube keeps changing how it serves video, so install it with -U and update it

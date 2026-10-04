@@ -38,6 +38,8 @@ dependencies = [
   "PyYAML>=6.0.1,<7",
   "opencv-python-headless>=4.8.0,<5",
   "platformdirs>=4.0.0,<5",
+  "fonttools>=4.40.0,<5",
+  "Pillow>=10.0.0,<13",
 ]
 
 [project.optional-dependencies]
